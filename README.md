@@ -32,7 +32,7 @@ On status 0 it keeps nothing.
 ## Rotate a log tree
 
 ```bash
-eb-keep-logs rotate /sw/arch/RHEL9/EB_production/2025/logs --compress-after 30 --delete-after 365
+eb-keep-logs rotate /srv/build-logs --compress-after 30 --delete-after 365
 ```
 
 `rotate` looks only at run directories named `YYYYMMDD_HHMMSS` directly under the root, and dates each run by its name.
