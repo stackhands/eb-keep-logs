@@ -1,10 +1,12 @@
 #!/bin/bash
 # Tests for eb-keep-logs with a stub eb. Run from the repository root:
 #   bash tests/test_eb_keep_logs.sh
+#   TOOL_BIN=/path/to/eb-keep-logs bash tests/test_eb_keep_logs.sh
 set -u
 
 repo_root=$(cd "$(dirname "$0")/.." && pwd)
-tool="${repo_root}/eb-keep-logs"
+# TOOL_BIN runs the suite against another build of the tool.
+tool="${TOOL_BIN:-${repo_root}/eb-keep-logs}"
 
 fails=0
 check() {
