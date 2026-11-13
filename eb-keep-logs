@@ -1,0 +1,166 @@
+#!/bin/bash
+# eb-keep-logs: keep the logs of EasyBuild builds that a build pipeline would
+# otherwise lose, and keep the pipeline's log tree bounded.
+#
+#   eb-keep-logs failed STATUS NAME LOGDIR [TMP_LOGDIR]
+#       After `eb` returned STATUS for easyconfig NAME: when STATUS is not 0,
+#       copy the EasyBuild log, the failing command's output and a meson
+#       testlog next to LOGDIR/NAME.stdout.log, closed to others and listed
+#       in LOGDIR/.licensed-logs. TMP_LOGDIR is the --tmp-logdir eb ran with.
+#   eb-keep-logs rotate ROOT --compress-after DAYS [--delete-after DAYS]
+#       In the run directories directly under ROOT (named YYYYMMDD_HHMMSS),
+#       gzip the logs of runs older than DAYS; with --delete-after, remove
+#       whole runs older than that. Permissions and .licensed-logs follow.
+#   eb-keep-logs --help | --version
+#
+# A failed build's log is in EasyBuild's tmpdir on the build node, which goes
+# with the job; and EasyBuild wraps the "Results of the build can be found in
+# the log file(s)" line, so parsing stdout for the path finds nothing.
+# `eb --last-log` gives the path directly.
+set -uo pipefail
+
+VERSION=0.1.0
+
+usage() { sed -n '2,16p' "$0" | sed 's/^# \{0,1\}//'; }
+
+die() { echo "eb-keep-logs: $*" >&2; exit 2; }
+
+# Record a kept file as one that may carry a licence number: a failed compile
+# line of licensed software prints it.
+_private() {
+    local path="$1" logdir="$2"
+    chmod o-rwx "${path}"
+    realpath "${path}" >> "${logdir}/.licensed-logs"
+}
+
+cmd_failed() {
+    [ $# -ge 3 ] || die "failed needs STATUS NAME LOGDIR [TMP_LOGDIR]"
+    local status="$1" name="$2" logdir="$3" explicit_logdir="${4:-}"
+    local src dest
+    [[ "${status}" =~ ^[0-9]+$ ]] || die "STATUS must be a number, not '${status}'"
+    [ -d "${logdir}" ] || die "LOGDIR ${logdir} is not a directory"
+    if [ "${status}" -eq 0 ]; then
+        return 0
+    fi
+    if [ -n "${explicit_logdir}" ]; then
+        src=$(eb --last-log --tmp-logdir="${explicit_logdir}" 2>/dev/null | tail -1)
+    else
+        src=$(eb --last-log 2>/dev/null | tail -1)
+    fi
+    if [ -z "${src}" ] || [ ! -f "${src}" ]; then
+        echo "No EasyBuild log to keep for ${name}."
+        return 0
+    fi
+    dest="${logdir}/${name}.failed.ebout.log"
+    cp "${src}" "${dest}"
+    _private "${dest}" "${logdir}"
+    echo "Failed build log: ${dest}"
+
+    # The failing command's own output holds the diagnostic beyond EasyBuild's
+    # printed tail. Only the final command's text streams are kept, and only
+    # from inside EASYBUILD_TMPDIR and owned by the build account.
+    local command_output command_root resolved_output stream
+    command_output=""
+    if [ -f "${logdir}/${name}.stdout.log" ]; then
+        command_output=$(grep -oE '/[^[:space:]]*/run-shell-cmd-output/[^/[:space:]]+/out\.txt' "${logdir}/${name}.stdout.log" | tail -n 1)
+    fi
+    if [ -z "${command_output}" ]; then
+        command_output=$(grep -oE '/[^[:space:]]*/run-shell-cmd-output/[^/[:space:]]+/out\.txt' "${src}" | tail -n 1)
+    fi
+    command_root="${command_output%/out.txt}"
+    if [ -n "${command_output}" ] && [ -n "${EASYBUILD_TMPDIR:-}" ]; then
+        for stream in out err; do
+            resolved_output=$(realpath -e "${command_root}/${stream}.txt" 2>/dev/null) || continue
+            case "${resolved_output}" in
+                "${EASYBUILD_TMPDIR%/}/"*) ;;
+                *) continue ;;
+            esac
+            [ -f "${resolved_output}" ] && [ ! -L "${command_root}/${stream}.txt" ] &&
+                [ "$(stat -c '%u' "${resolved_output}")" = "$(id -u)" ] || continue
+            dest="${logdir}/${name}.failed.command-${stream}.txt"
+            cp "${resolved_output}" "${dest}" || continue
+            chmod 600 "${dest}"
+            realpath "${dest}" >> "${logdir}/.licensed-logs"
+            echo "Failed command output: ${dest}"
+        done
+    fi
+
+    # A meson test step prints only the last 100 lines of a failing test; the
+    # full output is meson-logs/testlog.txt in the build directory.
+    local meson_dir testlog
+    meson_dir=$(tr '\n' ' ' < "${src}" | grep -oP 'meson test -C\s+\K[^[:space:]]+' | tail -n 1)
+    testlog="${meson_dir}/meson-logs/testlog.txt"
+    if [ -n "${meson_dir}" ] && [ -f "${testlog}" ]; then
+        dest="${logdir}/${name}.failed.meson-testlog.txt"
+        cp "${testlog}" "${dest}"
+        _private "${dest}" "${logdir}"
+        echo "Failed meson test log: ${dest}"
+    fi
+    return 0
+}
+
+# Days since a run directory's name, YYYYMMDD_HHMMSS; empty when the name is
+# not a run directory. The name, not the mtime: a later chmod moves the mtime.
+_run_age_days() {
+    local base date now start
+    base=$(basename "$1")
+    [[ "${base}" =~ ^([0-9]{8})_[0-9]{6}$ ]] || return 1
+    date="${BASH_REMATCH[1]}"
+    start=$(date -d "${date}" +%s 2>/dev/null) || return 1
+    now=${EB_KEEP_LOGS_NOW:-$(date +%s)}
+    echo $(( (now - start) / 86400 ))
+}
+
+cmd_rotate() {
+    local root="" compress_after="" delete_after=""
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --compress-after) compress_after="${2:-}"; shift 2 ;;
+            --compress-after=*) compress_after="${1#*=}"; shift ;;
+            --delete-after) delete_after="${2:-}"; shift 2 ;;
+            --delete-after=*) delete_after="${1#*=}"; shift ;;
+            -*) die "unknown option $1" ;;
+            *) [ -z "${root}" ] || die "rotate takes one ROOT"; root="$1"; shift ;;
+        esac
+    done
+    [ -n "${root}" ] || die "rotate needs ROOT"
+    [ -d "${root}" ] || die "ROOT ${root} is not a directory"
+    [[ "${compress_after}" =~ ^[0-9]+$ ]] || die "--compress-after needs a number of days"
+    if [ -n "${delete_after}" ]; then
+        [[ "${delete_after}" =~ ^[0-9]+$ ]] || die "--delete-after needs a number of days"
+        [ "${delete_after}" -gt "${compress_after}" ] || die "--delete-after must be later than --compress-after"
+    fi
+    local run age file list path compressed=0 deleted=0
+    for run in "${root}"/*/; do
+        run="${run%/}"
+        [ -d "${run}" ] && [ ! -L "${run}" ] || continue
+        age=$(_run_age_days "${run}") || continue
+        if [ -n "${delete_after}" ] && [ "${age}" -ge "${delete_after}" ]; then
+            rm -rf -- "${run}"
+            deleted=$((deleted + 1))
+            continue
+        fi
+        [ "${age}" -ge "${compress_after}" ] || continue
+        while IFS= read -r -d '' file; do
+            path="$(realpath "${file%/*}")/${file##*/}"
+            # gzip keeps the file's mode, so a closed log stays closed.
+            gzip -9 -- "${file}" || continue
+            compressed=$((compressed + 1))
+            # A .licensed-logs in the run names the file by path; follow it.
+            while IFS= read -r -d '' list; do
+                awk -v p="${path}" '$0 == p { $0 = p ".gz" } { print }' "${list}" > "${list}.tmp" &&
+                    chmod --reference="${list}" "${list}.tmp" && mv -- "${list}.tmp" "${list}"
+            done < <(find "${run}" -name .licensed-logs -type f -print0)
+        done < <(find "${run}" -type f \( -name '*.log' -o -name '*.txt' \) -print0)
+    done
+    echo "eb-keep-logs rotate: ${compressed} files compressed, ${deleted} runs deleted under ${root}"
+}
+
+case "${1:-}" in
+    -h|--help) usage ;;
+    --version) echo "eb-keep-logs ${VERSION}" ;;
+    failed) shift; cmd_failed "$@" ;;
+    rotate) shift; cmd_rotate "$@" ;;
+    "") usage; exit 2 ;;
+    *) die "unknown command '$1' (failed, rotate, --help)" ;;
+esac

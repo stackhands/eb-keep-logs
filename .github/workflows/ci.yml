@@ -1,0 +1,9 @@
+name: ci
+on: [push, pull_request]
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: shellcheck -S warning eb-keep-logs tests/test_eb_keep_logs.sh
+      - run: bash tests/test_eb_keep_logs.sh
