@@ -4,6 +4,9 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{ .default_target = .{ .abi = .musl } });
     const optimize = b.standardOptimizeOption(.{ .preferred_optimize_mode = .ReleaseSafe });
     const commit = b.option([]const u8, "commit", "Commit the binary is built from") orelse "unknown";
+    // Debug info carries absolute build paths; a release binary leaves it
+    // out so two builds of one commit are byte-identical.
+    const strip = b.option(bool, "strip", "Leave out debug info (default: on for release builds)") orelse (optimize != .debug);
 
     const options = b.addOptions();
     options.addOption([]const u8, "commit", commit);
@@ -13,6 +16,7 @@ pub fn build(b: *std.Build) void {
         .root_source_file = b.path("src/main.zig"),
         .target = target,
         .optimize = optimize,
+        .strip = strip,
         .imports = &.{
             .{ .name = "zig_common", .module = common.module("zig_common") },
             .{ .name = "build_options", .module = options.createModule() },
