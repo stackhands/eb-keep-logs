@@ -68,7 +68,7 @@ fn lastLog(c: Ctx, tmp_logdir: ?[]const u8) ?[]u8 {
     const eb = (proc.which(c.gpa, "eb", path_env) catch return null) orelse return null;
     defer c.gpa.free(eb);
     var argv_buf: [3][]const u8 = undefined;
-    argv_buf[0] = eb;
+    argv_buf[0] = "eb";
     argv_buf[1] = "--last-log";
     var argc: usize = 2;
     var opt: ?[]u8 = null;
@@ -78,8 +78,8 @@ fn lastLog(c: Ctx, tmp_logdir: ?[]const u8) ?[]u8 {
         argv_buf[2] = opt.?;
         argc = 3;
     }
-    const r = proc.run(c.gpa, argv_buf[0..argc], c.envp, .{}) catch return null;
-    defer c.gpa.free(r.stdout);
+    const r = proc.run(c.gpa, eb, argv_buf[0..argc], c.envp, .{}) catch return null;
+    defer r.deinit(c.gpa);
     var s: []const u8 = r.stdout;
     if (s.len > 0 and s[s.len - 1] == '\n') s = s[0 .. s.len - 1];
     const line = s[if (std.mem.lastIndexOfScalar(u8, s, '\n')) |i| i + 1 else 0..];
