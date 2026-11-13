@@ -11,6 +11,20 @@ Parsing EasyBuild's stdout for the log path is unreliable, because EasyBuild wra
 Copy `eb-keep-logs` onto `PATH`, or install it with its EasyBuild recipe.
 It needs `bash`, coreutils, `find`, `gzip`, `awk` and, for `failed`, `eb`.
 
+A static Zig build of the same tool needs nothing but `eb`.
+Build it with Zig 0.17.1:
+
+```bash
+zig build -Drelease=true
+zig-out/bin/eb-keep-logs --version
+```
+
+`zig build test` runs its unit tests, the shell test suite against the
+binary, and `tests/differential.sh`, which runs the shell script and the
+binary on the same invocations.
+[COMPAT.md](COMPAT.md) lists what the two share and where they differ on
+purpose.
+
 ## Keep a failed build's logs
 
 Run `eb` with `--tmp-logdir` pointing at a durable directory, then pass its exit status:

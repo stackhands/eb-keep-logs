@@ -1,0 +1,40 @@
+const std = @import("std");
+
+pub fn build(b: *std.Build) void {
+    const target = b.standardTargetOptions(.{ .default_target = .{ .abi = .musl } });
+    const optimize = b.standardOptimizeOption(.{ .preferred_optimize_mode = .ReleaseSafe });
+    const commit = b.option([]const u8, "commit", "Commit the binary is built from") orelse "unknown";
+
+    const options = b.addOptions();
+    options.addOption([]const u8, "commit", commit);
+
+    const common = b.dependency("zig_common", .{ .target = target, .optimize = optimize });
+    const mod = b.createModule(.{
+        .root_source_file = b.path("src/main.zig"),
+        .target = target,
+        .optimize = optimize,
+        .imports = &.{
+            .{ .name = "zig_common", .module = common.module("zig_common") },
+            .{ .name = "build_options", .module = options.createModule() },
+        },
+    });
+    const exe = b.addExecutable(.{ .name = "eb-keep-logs", .root_module = mod, .linkage = .static });
+    b.installArtifact(exe);
+
+    const unit = b.addTest(.{ .root_module = mod });
+    b.step("unit", "Run the unit tests").dependOn(&b.addRunArtifact(unit).step);
+
+    // The shell suite of the old implementation, run against this binary.
+    const suite = b.addSystemCommand(&.{ "bash", "-c", "TOOL_BIN=\"$0\" exec bash tests/test_eb_keep_logs.sh" });
+    suite.addArtifactArg(exe);
+    suite.expectExitCode(0);
+    // The same invocations through the shell implementation and this one.
+    const diff = b.addSystemCommand(&.{ "bash", "-c", "TOOL_BIN=\"$0\" exec bash tests/differential.sh" });
+    diff.addArtifactArg(exe);
+    diff.expectExitCode(0);
+
+    const test_step = b.step("test", "Run the unit tests, the command-line suite and the differential run");
+    test_step.dependOn(&b.addRunArtifact(unit).step);
+    test_step.dependOn(&suite.step);
+    test_step.dependOn(&diff.step);
+}

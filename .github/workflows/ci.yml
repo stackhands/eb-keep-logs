@@ -7,3 +7,20 @@ jobs:
       - uses: actions/checkout@v4
       - run: shellcheck -S warning eb-keep-logs tests/test_eb_keep_logs.sh
       - run: bash tests/test_eb_keep_logs.sh
+
+  zig:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, ubuntu-24.04-arm]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      # setup-zig checks the tarball's minisign signature against the Zig
+      # project's key.
+      - uses: mlugg/setup-zig@v2
+        with:
+          version: 0.17.1
+      - run: zig fmt --check build.zig build.zig.zon src
+      - run: shellcheck -S warning tests/differential.sh
+      - run: zig build test --summary all
+      - run: zig build -Drelease=true -Dcommit=${{ github.sha }} && zig-out/bin/eb-keep-logs --version
