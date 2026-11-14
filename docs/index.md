@@ -3,13 +3,13 @@
 ```{image} _static/logo-light.svg
 :alt: eb-keep-logs
 :width: 420px
-:class: only-light
+:class: light-only
 ```
 
 ```{image} _static/logo-dark.svg
 :alt: eb-keep-logs
 :width: 420px
-:class: only-dark
+:class: dark-only
 ```
 
 ```{include} ../README.md
