@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 128 128" role="img" aria-label="eb-keep-logs">
+  <rect width="128" height="128" rx="28" fill="#F0FDFA" stroke="#0F766E" stroke-width="6"/>
+  <g transform="translate(17,20)">
+    <rect x="22" y="4" width="50" height="62" rx="6" fill="#CCFBF1" stroke="#0F766E" stroke-width="2.5"/>
+    <rect x="14" y="12" width="50" height="62" rx="6" fill="#99F6E4" stroke="#0F766E" stroke-width="2.5"/>
+    <rect x="6" y="20" width="50" height="62" rx="6" fill="#F8FAFC" stroke="#0F172A" stroke-width="2.5"/>
+    <rect x="14" y="32" width="12" height="5" rx="1.5" fill="#EA580C"/>
+    <rect x="29" y="32" width="19" height="5" rx="1.5" fill="#94A3B8"/>
+    <rect x="14" y="42" width="30" height="5" rx="1.5" fill="#94A3B8"/>
+    <rect x="14" y="52" width="24" height="5" rx="1.5" fill="#94A3B8"/>
+    <circle cx="70" cy="64" r="15" fill="#EA580C" stroke="#0F172A" stroke-width="2"/>
+    <path d="M70 55 v10 m-5 -5 l5 5 l5 -5 M62 70 v3 h16 v-3" stroke="#FFF7ED" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+  </g>
+</svg>
