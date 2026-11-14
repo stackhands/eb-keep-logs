@@ -95,22 +95,22 @@ fn listKept(c: Ctx, logdir: fsx.fd_t, kept: fsx.fd_t) void {
         warn("cannot list {s} in {s}: {t}", .{ abs, logs.licensed_list, err });
 }
 
-/// Copy an open file into LOGDIR as `name`, set its mode with `mode_fn`,
-/// list it. False when the copy failed.
+/// Copy an open file into LOGDIR as `name`, set its mode to `closed_mode`
+/// or, when that is null, take others' bits off the copy's own mode (chmod
+/// o-rwx), and list it. False when the copy failed.
 fn keep(c: Ctx, logdir: fsx.fd_t, logdir_s: []const u8, src: fsx.fd_t, src_stat: fsx.Stat, name: []const u8, comptime closed_mode: ?u32) bool {
     const fd = fsx.copyTo(src, src_stat, logdir, name) catch |err| {
         warn("cannot keep {s}/{s}: {t}", .{ logdir_s, name, err });
         return false;
     };
     defer sys.close(fd);
-    const mode: u32 = if (closed_mode) |m| m else blk: {
-        const st = fsx.fstat(fd) catch |err| {
-            warn("cannot stat {s}/{s}: {t}", .{ logdir_s, name, err });
-            break :blk 0;
-        };
-        break :blk st.perm() & ~@as(u32, 0o007);
+    // As chmod o-rwx fails and leaves the mode when the file cannot be
+    // read: a copy whose mode is unknown is not set to 000.
+    const mode: ?u32 = if (closed_mode) |m| m else if (fsx.fstat(fd)) |st| st.perm() & ~@as(u32, 0o007) else |err| blk: {
+        warn("cannot stat {s}/{s}: {t}", .{ logdir_s, name, err });
+        break :blk null;
     };
-    sys.fchmod(fd, @intCast(mode)) catch |err| warn("cannot close {s}/{s} to others: {t}", .{ logdir_s, name, err });
+    if (mode) |m| sys.fchmod(fd, @intCast(m)) catch |err| warn("cannot close {s}/{s} to others: {t}", .{ logdir_s, name, err });
     listKept(c, logdir, fd);
     return true;
 }
