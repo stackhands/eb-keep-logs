@@ -14,7 +14,7 @@ const scan = @import("scan.zig");
 
 const Allocator = std.mem.Allocator;
 const tool = "eb-keep-logs";
-pub const version = "0.2.0";
+pub const version = "0.2.1";
 
 const usage_text =
     \\eb-keep-logs: keep the logs of EasyBuild builds that a build pipeline would

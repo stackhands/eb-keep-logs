@@ -1,6 +1,6 @@
 # Compatibility of the Zig build with the shell script
 
-The Zig build (0.2.0) keeps the shell script's (0.1.0) interface. The shell
+The Zig build (0.2.x) keeps the shell script's (0.1.0) interface. The shell
 script stays in the repository as the reference: `tests/test_eb_keep_logs.sh`
 runs against either through `TOOL_BIN`, and `tests/differential.sh` runs both
 on the same invocations.
@@ -21,7 +21,7 @@ on the same invocations.
 | case | shell script | Zig build |
 |---|---|---|
 | no arguments, `--help` | prints a trailing half sentence from the script's header | stops after the `--version` line |
-| `--version` | `eb-keep-logs 0.1.0` | `eb-keep-logs 0.2.0 (TARGET, MODE, zig VERSION, COMMIT)`; the first two words are unchanged |
+| `--version` | `eb-keep-logs 0.1.0` | `eb-keep-logs 0.2.1 (TARGET, MODE, zig VERSION, COMMIT)`; the first two words are unchanged |
 | `--compress-after` or `--delete-after` with no value after it | never returns | refused, exit 2 |
 | `EB_KEEP_LOGS_NOW` not an integer | evaluated as shell arithmetic | refused, exit 2 |
 | a copy into LOGDIR fails | error from cp, then the file is still listed and reported | error on stderr; the file is neither listed nor reported |
