@@ -18,7 +18,7 @@ const tail = "/out.txt";
 fn endAt(tok: []const u8, q: usize) ?usize {
     if (!std.mem.startsWith(u8, tok[q..], marker)) return null;
     const seg_start = q + marker.len;
-    const slash = std.mem.indexOfScalarPos(u8, tok, seg_start, '/') orelse return null;
+    const slash = std.mem.findScalarPos(u8, tok, seg_start, '/') orelse return null;
     if (slash == seg_start) return null;
     if (!std.mem.startsWith(u8, tok[slash..], tail)) return null;
     return slash + tail.len;
@@ -34,7 +34,7 @@ pub fn lastCommandOutput(text: []const u8) ?[]const u8 {
         const start = i;
         while (i < text.len and !isSpace(text[i])) i += 1;
         const tok = text[start..i];
-        if (std.mem.indexOf(u8, tok, marker) == null) continue;
+        if (std.mem.find(u8, tok, marker) == null) continue;
         var pos: usize = 0;
         while (pos < tok.len) {
             // Leftmost start: the first '/' at or after pos with a marker
@@ -45,7 +45,7 @@ pub fn lastCommandOutput(text: []const u8) ?[]const u8 {
                 if (tok[p] != '/') continue;
                 var best: ?usize = null;
                 var q = p + 1;
-                while (std.mem.indexOfPos(u8, tok, q, marker)) |qq| : (q = qq + 1) {
+                while (std.mem.findPos(u8, tok, q, marker)) |qq| : (q = qq + 1) {
                     if (endAt(tok, qq)) |e| best = if (best) |b| @max(b, e) else e;
                 }
                 if (best) |e| {
@@ -67,7 +67,7 @@ pub fn lastMesonDir(text: []const u8) ?[]const u8 {
     const needle = "meson test -C";
     var last: ?[]const u8 = null;
     var pos: usize = 0;
-    while (std.mem.indexOfPos(u8, text, pos, needle)) |at| {
+    while (std.mem.findPos(u8, text, pos, needle)) |at| {
         var i = at + needle.len;
         const ws = i;
         while (i < text.len and isSpace(text[i])) i += 1;

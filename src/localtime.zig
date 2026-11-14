@@ -152,7 +152,7 @@ const Parser = struct {
 
     fn name(p: *Parser) !void {
         if (p.peek() == '<') {
-            const close = std.mem.indexOfScalarPos(u8, p.s, p.i, '>') orelse return error.Bad;
+            const close = std.mem.findScalarPos(u8, p.s, p.i, '>') orelse return error.Bad;
             if (close - p.i - 1 < 3) return error.Bad;
             p.i = close + 1;
             return;

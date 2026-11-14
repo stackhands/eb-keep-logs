@@ -74,7 +74,7 @@ fn lastLog(c: Ctx, tmp_logdir: ?[]const u8) ?[]u8 {
     var opt: ?[]u8 = null;
     defer if (opt) |o| c.gpa.free(o);
     if (tmp_logdir) |d| {
-        opt = std.fmt.allocPrint(c.gpa, "--tmp-logdir={s}", .{d}) catch return null;
+        opt = c.gpa.print("--tmp-logdir={s}", .{d}) catch return null;
         argv_buf[2] = opt.?;
         argc = 3;
     }
@@ -82,7 +82,7 @@ fn lastLog(c: Ctx, tmp_logdir: ?[]const u8) ?[]u8 {
     defer r.deinit(c.gpa);
     var s: []const u8 = r.stdout;
     if (s.len > 0 and s[s.len - 1] == '\n') s = s[0 .. s.len - 1];
-    const line = s[if (std.mem.lastIndexOfScalar(u8, s, '\n')) |i| i + 1 else 0..];
+    const line = s[if (std.mem.findScalarLast(u8, s, '\n')) |i| i + 1 else 0..];
     if (line.len == 0) return null;
     return c.gpa.dupe(u8, line) catch null;
 }
@@ -139,7 +139,7 @@ fn cmdFailed(c: Ctx, args: []const [:0]const u8) u8 {
     }
     defer sys.close(src.?.fd);
 
-    const ebout = std.fmt.allocPrint(c.gpa, "{s}.failed.ebout.log", .{name}) catch return 0;
+    const ebout = c.gpa.print("{s}.failed.ebout.log", .{name}) catch return 0;
     defer c.gpa.free(ebout);
     if (keep(c, logdir, logdir_s, src.?.fd, src.?.stat, ebout, null))
         cli.out("Failed build log: {s}/{s}\n", .{ logdir_s, ebout });
@@ -156,11 +156,11 @@ fn cmdFailed(c: Ctx, args: []const [:0]const u8) u8 {
     // A meson test step prints only the last 100 lines of a failing test;
     // the full output is meson-logs/testlog.txt in the build directory.
     if (src_text) |t| if (scan.lastMesonDir(t)) |dir| {
-        const testlog = std.fmt.allocPrint(c.gpa, "{s}/meson-logs/testlog.txt", .{dir}) catch return 0;
+        const testlog = c.gpa.print("{s}/meson-logs/testlog.txt", .{dir}) catch return 0;
         defer c.gpa.free(testlog);
         if (fsx.openRegular(fsx.cwd, testlog, true)) |tl| {
             defer sys.close(tl.fd);
-            const dest = std.fmt.allocPrint(c.gpa, "{s}.failed.meson-testlog.txt", .{name}) catch return 0;
+            const dest = c.gpa.print("{s}.failed.meson-testlog.txt", .{name}) catch return 0;
             defer c.gpa.free(dest);
             if (keep(c, logdir, logdir_s, tl.fd, tl.stat, dest, null))
                 cli.out("Failed meson test log: {s}/{s}\n", .{ logdir_s, dest });
@@ -180,7 +180,7 @@ fn keepCommandOutput(c: Ctx, logdir: fsx.fd_t, logdir_s: []const u8, name: []con
     var out_txt: ?[]const u8 = null;
     var stdout_text: ?[]u8 = null;
     defer if (stdout_text) |t| c.gpa.free(t);
-    const stdout_name = std.fmt.allocPrint(c.gpa, "{s}.stdout.log", .{name}) catch return;
+    const stdout_name = c.gpa.print("{s}.stdout.log", .{name}) catch return;
     defer c.gpa.free(stdout_name);
     if (fsx.openRegular(logdir, stdout_name, true)) |f| {
         defer sys.close(f.fd);
@@ -195,11 +195,11 @@ fn keepCommandOutput(c: Ctx, logdir: fsx.fd_t, logdir_s: []const u8, name: []con
     };
     const command_out = out_txt orelse return;
     const root = command_out[0 .. command_out.len - "/out.txt".len];
-    const prefix = std.fmt.allocPrint(c.gpa, "{s}/", .{if (tmpdir[tmpdir.len - 1] == '/') tmpdir[0 .. tmpdir.len - 1] else tmpdir}) catch return;
+    const prefix = c.gpa.print("{s}/", .{if (tmpdir[tmpdir.len - 1] == '/') tmpdir[0 .. tmpdir.len - 1] else tmpdir}) catch return;
     defer c.gpa.free(prefix);
 
     for ([_][]const u8{ "out", "err" }) |stream| {
-        const path = std.fmt.allocPrint(c.gpa, "{s}/{s}.txt", .{ root, stream }) catch return;
+        const path = c.gpa.print("{s}/{s}.txt", .{ root, stream }) catch return;
         defer c.gpa.free(path);
         const f = fsx.openRegular(fsx.cwd, path, false) catch continue;
         defer sys.close(f.fd);
@@ -207,7 +207,7 @@ fn keepCommandOutput(c: Ctx, logdir: fsx.fd_t, logdir_s: []const u8, name: []con
         const resolved = fsx.realpathFd(f.fd, &rb) catch continue;
         if (!std.mem.startsWith(u8, resolved, prefix)) continue;
         if (f.stat.uid != sys.getuid()) continue;
-        const dest = std.fmt.allocPrint(c.gpa, "{s}.failed.command-{s}.txt", .{ name, stream }) catch return;
+        const dest = c.gpa.print("{s}.failed.command-{s}.txt", .{ name, stream }) catch return;
         defer c.gpa.free(dest);
         if (keep(c, logdir, logdir_s, f.fd, f.stat, dest, 0o600))
             cli.out("Failed command output: {s}/{s}\n", .{ logdir_s, dest });
@@ -261,8 +261,8 @@ fn compressTree(c: Ctx, arena: Allocator, dir: fsx.fd_t, renames: *Renames, coun
             continue;
         };
         count.* += 1;
-        const from = std.fmt.allocPrint(arena, "{s}/{s}", .{ here, n }) catch return;
-        const to = std.fmt.allocPrint(arena, "{s}.gz", .{from}) catch return;
+        const from = arena.print("{s}/{s}", .{ here, n }) catch return;
+        const to = arena.print("{s}.gz", .{from}) catch return;
         renames.put(arena, from, to) catch return;
     }
     for (subdirs.items) |n| {
