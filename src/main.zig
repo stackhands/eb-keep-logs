@@ -28,6 +28,7 @@ const usage_text =
     \\      in LOGDIR/.licensed-logs. TMP_LOGDIR is the --tmp-logdir eb ran with;
     \\      without it, the newest log in EasyBuild's default place is used,
     \\      unless it is another build's.
+    \\      NAME.stdout.log and a TMP_LOGDIR below LOGDIR are closed to others too.
     \\  eb-keep-logs rotate ROOT --compress-after DAYS [--delete-after DAYS]
     \\      In the run directories directly under ROOT (named YYYYMMDD_HHMMSS),
     \\      gzip the logs of runs older than DAYS; with --delete-after, remove
@@ -222,6 +223,54 @@ fn plural(n: usize) []const u8 {
     return if (n == 1) "" else "s";
 }
 
+/// Whether the resolved `path` lies below the resolved directory `dir`.
+fn below(path: []const u8, dir: []const u8) bool {
+    if (std.mem.eql(u8, dir, "/")) return path.len > 1;
+    return path.len > dir.len + 1 and std.mem.startsWith(u8, path, dir) and path[dir.len] == '/';
+}
+
+/// Take others' bits off an open file or directory (chmod o-rwx).
+fn closeFd(fd: fsx.fd_t, path: []const u8) void {
+    const st = fsx.fstat(fd) catch |err| return warn("cannot stat {s}: {t}", .{ path, err });
+    sys.fchmod(fd, @intCast(st.perm() & ~@as(u32, 0o007))) catch |err|
+        warn("cannot close {s} to others: {t}", .{ path, err });
+}
+
+/// The failed lines the kept copies hold are also in the build's own
+/// NAME.stdout.log and in the logs EasyBuild writes to TMP_LOGDIR. Close
+/// both to others, TMP_LOGDIR with the regular files directly in it, not
+/// through a symbolic link; TMP_LOGDIR only when it lies below LOGDIR, as
+/// the layout `failed` documents puts it.
+fn closeBuildLogs(c: Ctx, logdir: fsx.fd_t, logdir_s: []const u8, name: []const u8, tmp_logdir: ?[]const u8) void {
+    const stdout_name = c.gpa.print("{s}.stdout.log", .{name}) catch return;
+    defer c.gpa.free(stdout_name);
+    if (fsx.openRegular(logdir, stdout_name, false)) |f| {
+        defer sys.close(f.fd);
+        const path = c.gpa.print("{s}/{s}", .{ logdir_s, stdout_name }) catch return;
+        defer c.gpa.free(path);
+        closeFd(f.fd, path);
+    } else |_| {}
+    const t = tmp_logdir orelse return;
+    const d = fsx.openDir(fsx.cwd, t, false) catch return;
+    defer sys.close(d);
+    var lb: [sys.path_max]u8 = undefined;
+    var tb: [sys.path_max]u8 = undefined;
+    const l = fsx.realpathFd(logdir, &lb) catch return;
+    const r = fsx.realpathFd(d, &tb) catch return;
+    if (!below(r, l)) return;
+    closeFd(d, t);
+    var it = fsx.DirIter.init(c.gpa, d) catch return;
+    defer it.deinit(c.gpa);
+    while (it.next() catch return) |e| {
+        if ((fsx.entryType(d, e) catch continue) != fsx.DT.REG) continue;
+        const f = fsx.openRegular(d, e.name, false) catch continue;
+        defer sys.close(f.fd);
+        const path = c.gpa.print("{s}/{s}", .{ std.mem.trimEnd(u8, t, "/"), e.name }) catch return;
+        defer c.gpa.free(path);
+        closeFd(f.fd, path);
+    }
+}
+
 fn cmdFailed(c: Ctx, args: []const [:0]const u8) u8 {
     if (args.len < 3) die("failed needs STATUS NAME LOGDIR [TMP_LOGDIR]", .{});
     const status = args[0];
@@ -232,6 +281,7 @@ fn cmdFailed(c: Ctx, args: []const [:0]const u8) u8 {
     defer sys.close(logdir);
     const logdir_s = joinable(args[2]);
     if (std.mem.indexOfNone(u8, status, "0") == null) return 0;
+    closeBuildLogs(c, logdir, logdir_s, name, explicit);
 
     const src_path: ?[]u8 = switch (lastLog(c, explicit)) {
         .path => |p| p,
@@ -638,6 +688,15 @@ test "joinable and plural" {
     try std.testing.expectEqualStrings("", plural(1));
     try std.testing.expectEqualStrings("s", plural(0));
     try std.testing.expectEqualStrings("s", plural(2));
+}
+
+test "below" {
+    try std.testing.expect(below("/srv/logs/run/easybuild-logs/Foo", "/srv/logs/run"));
+    try std.testing.expect(!below("/srv/logs/run", "/srv/logs/run"));
+    try std.testing.expect(!below("/srv/logs/run2/x", "/srv/logs/run"));
+    try std.testing.expect(!below("/srv/logs", "/srv/logs/run"));
+    try std.testing.expect(below("/x", "/"));
+    try std.testing.expect(!below("/", "/"));
 }
 
 test "runAgeDays" {

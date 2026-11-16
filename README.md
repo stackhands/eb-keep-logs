@@ -55,7 +55,8 @@ On a non-zero status this writes, next to `Foo-1.0.stdout.log`:
 - `Foo-1.0.failed.meson-testlog.txt`, the full meson test log, when a meson test step failed.
 
 Each kept file is closed to others and listed in `$LOGDIR/.licensed-logs`, because a failed compile line of licensed software can print the licence number.
-On status 0 it keeps nothing.
+The same lines are in `Foo-1.0.stdout.log` and in the logs EasyBuild writes to the `--tmp-logdir`, so `failed` closes `Foo-1.0.stdout.log` to others too, and the `--tmp-logdir` with the files directly in it when it lies below `$LOGDIR`, as above.
+On status 0 it keeps and changes nothing.
 
 ## Rotate a log tree
 

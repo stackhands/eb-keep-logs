@@ -13,7 +13,7 @@ on the same invocations.
 | exit codes | 0 on success and on every `failed` that got past its arguments; 2 for a refused invocation, after `eb-keep-logs: MESSAGE` on stderr; 2 with the usage text on stdout for no arguments |
 | environment | `PATH` (finds `eb`), `EASYBUILD_TMPDIR`, `EB_KEEP_LOGS_NOW`, `TZ`, `TZDIR`; `eb --last-log` runs with `EASYBUILD_OUTPUT_STYLE=basic`, and when that fails once more without the variable |
 | stdout | `Failed build log: LOGDIR/NAME.failed.ebout.log`, `Failed command output: LOGDIR/NAME.failed.command-{out,err}.txt`, `Failed meson test log: LOGDIR/NAME.failed.meson-testlog.txt`, `Failed command output not kept: EASYBUILD_TMPDIR is not set.`, `Failed command output not kept: PATH is not under EASYBUILD_TMPDIR.`, `Failed command output not kept: PATH belongs to another user.`, `No EasyBuild log to keep for NAME.`, `No EasyBuild log to keep for NAME: eb is not on PATH.`, `No EasyBuild log to keep for NAME: eb --last-log exited N.`, `No EasyBuild log to keep for NAME: PATH is another build's log.`, `eb-keep-logs rotate: N files compressed, M runs deleted under ROOT`, with `1 file` and `1 run` for a count of one; LOGDIR in these lines without its trailing slashes |
-| files | kept files closed to others (command streams mode 0600), their resolved paths appended to `LOGDIR/.licensed-logs` unless already listed; `rotate` writes `FILE.gz` with the file's mode and updates `.licensed-logs` to the `.gz` path |
+| files | kept files closed to others (command streams mode 0600), their resolved paths appended to `LOGDIR/.licensed-logs` unless already listed; on a failure, `NAME.stdout.log`, a TMP_LOGDIR below LOGDIR and the regular files directly in it closed to others, a symbolic link left as it is; `rotate` writes `FILE.gz` with the file's mode and updates `.licensed-logs` to the `.gz` path |
 | run ages | days from the local midnight of the date in the run's name, as `date -d YYYYMMDD` computes it, including TZ rules; a run whose local midnight does not exist is skipped |
 
 ## Deliberate differences
@@ -27,6 +27,7 @@ on the same invocations.
 | a copy into LOGDIR fails | error from cp, then the file is still listed and reported | error on stderr; the file is neither listed nor reported |
 | a copy into an existing LOGDIR file fails part way (a full disk) | cp truncates the file first, so the previous bytes are gone | the previous file is left unchanged; nothing is listed or reported |
 | a symbolic link or non-regular file at a destination name in LOGDIR | cp writes through it | refused, reported on stderr |
+| `NAME.stdout.log` or TMP_LOGDIR that cannot be closed to others | chmod's error on stderr | `eb-keep-logs: cannot close PATH to others: ERROR` on stderr |
 | the failing command's streams | checked by path (`realpath`, `-L`, `stat`), then copied | opened without following a symbolic link at the last component; the same checks run on the open file, and that file is copied |
 | `.licensed-logs` after `rotate` | rewritten by every compressed file, as a new file owned by the caller | rewritten once per run when a line changes, keeping its owner (when permitted), mode and access ACL (access control list) entries, replaced atomically |
 | a run directory that cannot be removed | counted as deleted | reported on stderr, not counted |
