@@ -212,15 +212,25 @@ fn rewind(fd: fsx.fd_t) void {
     _ = linux.lseek(fd, 0, linux.SEEK.SET);
 }
 
+/// A directory argument as messages join it to a name with "/": without
+/// trailing slashes, so "logs/" gives "logs/NAME" and "/" gives "/NAME".
+fn joinable(dir: []const u8) []const u8 {
+    return std.mem.trimEnd(u8, dir, "/");
+}
+
+fn plural(n: usize) []const u8 {
+    return if (n == 1) "" else "s";
+}
+
 fn cmdFailed(c: Ctx, args: []const [:0]const u8) u8 {
     if (args.len < 3) die("failed needs STATUS NAME LOGDIR [TMP_LOGDIR]", .{});
     const status = args[0];
     const name = args[1];
-    const logdir_s = args[2];
     const explicit: ?[]const u8 = if (args.len >= 4 and args[3].len > 0) args[3] else null;
     if (!allDigits(status)) die("STATUS must be a number, not '{s}'", .{status});
-    const logdir = fsx.openDir(fsx.cwd, logdir_s, true) catch die("LOGDIR {s} is not a directory", .{logdir_s});
+    const logdir = fsx.openDir(fsx.cwd, args[2], true) catch die("LOGDIR {s} is not a directory", .{args[2]});
     defer sys.close(logdir);
+    const logdir_s = joinable(args[2]);
     if (std.mem.indexOfNone(u8, status, "0") == null) return 0;
 
     const src_path: ?[]u8 = switch (lastLog(c, explicit)) {
@@ -518,7 +528,7 @@ fn cmdRotate(c: Ctx, args: []const [:0]const u8) u8 {
         const age = runAgeDays(&zone, run, now) orelse continue;
         if (delete_after) |d| if (age >= @as(i64, @intCast(@min(d, std.math.maxInt(i64))))) {
             fsx.deleteTree(c.gpa, root, run) catch |err| {
-                warn("cannot delete {s}/{s}: {t}", .{ root_p, run, err });
+                warn("cannot delete {s}/{s}: {t}", .{ joinable(root_p), run, err });
                 continue;
             };
             deleted += 1;
@@ -526,7 +536,7 @@ fn cmdRotate(c: Ctx, args: []const [:0]const u8) u8 {
         };
         if (age < @as(i64, @intCast(@min(compress_after, std.math.maxInt(i64))))) continue;
         const dir = fsx.openDir(root, run, false) catch |err| {
-            warn("cannot open {s}/{s}: {t}", .{ root_p, run, err });
+            warn("cannot open {s}/{s}: {t}", .{ joinable(root_p), run, err });
             continue;
         };
         defer sys.close(dir);
@@ -536,7 +546,7 @@ fn cmdRotate(c: Ctx, args: []const [:0]const u8) u8 {
         compressed += n;
         if (renames.count() > 0) followLists(c, dir, &renames);
     }
-    cli.out("eb-keep-logs rotate: {d} files compressed, {d} runs deleted under {s}\n", .{ compressed, deleted, root_p });
+    cli.out("eb-keep-logs rotate: {d} file{s} compressed, {d} run{s} deleted under {s}\n", .{ compressed, plural(compressed), deleted, plural(deleted), root_p });
     return 0;
 }
 
@@ -619,6 +629,15 @@ test "listed" {
     try std.testing.expect(!listed("/l/a.log.gz\n", "/l/a.log"));
     try std.testing.expect(!listed("/l/a\n", "/l/a.log"));
     try std.testing.expect(!listed("", "/l/a.log"));
+}
+
+test "joinable and plural" {
+    try std.testing.expectEqualStrings("logs", joinable("logs//"));
+    try std.testing.expectEqualStrings("/srv/logs", joinable("/srv/logs"));
+    try std.testing.expectEqualStrings("", joinable("/"));
+    try std.testing.expectEqualStrings("", plural(1));
+    try std.testing.expectEqualStrings("s", plural(0));
+    try std.testing.expectEqualStrings("s", plural(2));
 }
 
 test "runAgeDays" {
