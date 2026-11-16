@@ -9,6 +9,7 @@
 #       in LOGDIR/.licensed-logs. TMP_LOGDIR is the --tmp-logdir eb ran with;
 #       without it, the newest log in EasyBuild's default place is used,
 #       unless it is another build's.
+#       NAME.stdout.log and a TMP_LOGDIR below LOGDIR are closed to others too.
 #   eb-keep-logs rotate ROOT --compress-after DAYS [--delete-after DAYS]
 #       In the run directories directly under ROOT (named YYYYMMDD_HHMMSS),
 #       gzip the logs of runs older than DAYS; with --delete-after, remove
@@ -23,7 +24,7 @@ set -uo pipefail
 
 VERSION=0.1.0
 
-usage() { sed -n '2,18p' "$0" | sed 's/^# \{0,1\}//'; }
+usage() { sed -n '2,19p' "$0" | sed 's/^# \{0,1\}//'; }
 
 die() { echo "eb-keep-logs: $*" >&2; exit 2; }
 
@@ -92,6 +93,24 @@ cmd_failed() {
     logdir=$(_joinable "${logdir}")
     if [ "${status}" -eq 0 ]; then
         return 0
+    fi
+    # The failed lines the kept copies hold are also in the build's own stdout
+    # log and in the logs EasyBuild writes to TMP_LOGDIR. Close both to others,
+    # TMP_LOGDIR with the regular files directly in it, not through a symbolic
+    # link; TMP_LOGDIR only when it lies below LOGDIR, as the documented layout
+    # puts it.
+    local stdout_log="${logdir}/${name}.stdout.log" real_logdir real_tmp
+    if [ -f "${stdout_log}" ] && [ ! -L "${stdout_log}" ]; then
+        chmod o-rwx "${stdout_log}"
+    fi
+    if [ -n "${explicit_logdir}" ] && [ -d "${explicit_logdir}" ] && [ ! -L "${explicit_logdir}" ] &&
+        real_logdir=$(realpath -e "${logdir:-/}") && real_tmp=$(realpath -e "${explicit_logdir}"); then
+        case "${real_tmp}" in
+            "${real_logdir%/}"/?*)
+                chmod o-rwx "${explicit_logdir}"
+                find "${explicit_logdir}" -mindepth 1 -maxdepth 1 -type f -exec chmod o-rwx {} +
+                ;;
+        esac
     fi
     if ! command -v eb >/dev/null 2>&1; then
         echo "No EasyBuild log to keep for ${name}: eb is not on PATH."
