@@ -44,6 +44,7 @@ The Zig build has to give the same ages without =date=: it is one static binary 
 - Days are 86,400 seconds long, as in the shell script, so for an hour around the midnight after a daylight saving change a run's age is a day off the calendar: just after midnight following the change to summer time, a run from two days before counts as one day old.
 - A run dated in the future is younger than 0 days and is left alone, except one dated less than a day ahead, which counts as 0 days old.
 - Only the date is checked: =HHMMSS= has to be six digits, not a time that exists.
+- A few zones give a midnight other than =date='s, as [[file:../reference/compatibility.org][Compatibility]] lists: among them a =TZ= rule string with daylight saving time but no rules, where the system has a =posixrules= file, and the =right/= zones, which count leap seconds.
 
 ** Further reading
 

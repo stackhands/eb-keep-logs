@@ -379,6 +379,8 @@ zoned() {
 zoned "TZ naming a zone file" TZ=Asia/Tokyo
 zoned "TZDIR empty" TZDIR= TZ=Asia/Tokyo
 zoned "TZ ':' then a rule string" TZ=':AEST-10AEDT,M10.1.0,M4.1.0/3'
+zoned "TZ rule string with text after it" TZ='CET-1CEST,M3.5.0,M10.5.0/3x'
+zoned "TZ rule string without an end rule" TZ='CET-1CEST,M3.5.0'
 
 # rotate: a run's age is its name's, not its directory's mtime. A chmod
 # leaves the mtime and compressing the logs in the run moves it.
