@@ -81,6 +81,8 @@ eb-keep-logs rotate /srv/build-logs --compress-after 30 --delete-after 365
 `rotate` looks only at run directories named `YYYYMMDD_HHMMSS` directly under the root, and dates each run by its name.
 It gzips the `*.log` and `*.txt` files of runs older than `--compress-after` days, keeps each file's mode, and updates the run's `.licensed-logs`.
 It removes whole runs older than `--delete-after` days only when that option is given.
+It leaves alone the run it writes into, which is still going: the run that holds its standard output or error, and the run that holds `EB_PIPELINE_LOG_DIR`, the log directory `eb-pipeline` exports, because srun passes the output on over a pipe.
+The next `rotate` takes that run.
 
 `EB_KEEP_LOGS_NOW`, in seconds since the epoch, sets the time `rotate` dates runs against.
 On a copy of the tree, it previews what a later rotation compresses and removes:
