@@ -81,7 +81,7 @@ cat > "${work}/bin/eb" <<EOF
 [ "\$1" = "--last-log" ] || exit 0
 width=\${COLUMNS:-80}
 [ -n "\${FORCE_COLOR:-}" ] && width=80
-if [ "\${EASYBUILD_OUTPUT_STYLE:-auto}" = basic ]; then
+if [[ " \$* " == *" --output-style=basic "* ]]; then
     echo "${long}/easybuild-Wrap-1.0.log"
 else
     echo "${long}/easybuild-Wrap-1.0.log" | fold -w "\${width}"
@@ -93,11 +93,11 @@ rm -f "${work}/logs/Wrap-1.0.failed.ebout.log"
 FORCE_COLOR=1 COLUMNS=4096 "${tool}" failed 1 Wrap-1.0 "${work}/logs" >/dev/null
 check "wrapped path with FORCE_COLOR: log kept" "$(cat "${work}/logs/Wrap-1.0.failed.ebout.log" 2>/dev/null)" "link error: wrapped"
 
-# failed: an EasyBuild without output styles refuses EASYBUILD_OUTPUT_STYLE
+# failed: an EasyBuild without output styles refuses --output-style
 cat > "${work}/bin/eb" <<EOF
 #!/bin/bash
-if [ -n "\${EASYBUILD_OUTPUT_STYLE+set}" ]; then
-    echo "ERROR: Failed to parse configuration options: EASYBUILD_OUTPUT_STYLE" >&2
+if [[ " \$* " == *" --output-style="* ]]; then
+    echo "ERROR: Failed to parse configuration options: no such option: --output-style" >&2
     exit 1
 fi
 [ "\$1" = "--last-log" ] && echo "${work}/tmp/easybuild-Foo-1.0.log"
@@ -246,6 +246,30 @@ check "sanity check failure: passing testlog not kept" "$(count 'Sane-1.0.failed
 check "failed meson test: its output kept" "$(cat "${work}/logs/Broken-1.0.failed.command-out.txt" 2>/dev/null)" "meson-1 output"
 check "failed meson test: testlog kept" "$(tail -n 1 "${work}/logs/Broken-1.0.failed.meson-testlog.txt" 2>/dev/null)" "Fail:              1   "
 check "build died in a command: its output kept" "$(cat "${work}/logs/Killed-1.0.failed.command-out.txt" 2>/dev/null)" "make-3 output"
+# failed: EasyBuild 5.3 and later fold the --last-log path at 80 columns on a
+# pipe, unless --output-style=basic is given
+deep="${work}/tmp/scratch/easybuild/build-logs/20261113_235000/snel-zen4/easybuild-logs/Long-1.0-GCC-15.2.0"
+mkdir -p "${deep}"
+echo "compile error: long path" > "${deep}/easybuild-Long-1.0-20261113.235959.log"
+cat > "${work}/bin/eb" <<EOF
+#!/bin/bash
+[ "\$1" = "--last-log" ] || exit 1
+case " \$* " in
+    *" --output-style=basic "*) echo "${deep}/easybuild-Long-1.0-20261113.235959.log" ;;
+    *) echo "${deep}/easybuild-Long-1.0-20261113.235959.log" | fold -w 80 ;;
+esac
+EOF
+"${tool}" failed 1 Long-1.0 "${work}/logs" >/dev/null
+check "a log path longer than 80 columns is kept" "$(cat "${work}/logs/Long-1.0.failed.ebout.log" 2>/dev/null)" "compile error: long path"
+
+# failed: an eb older than 4.5 refuses --output-style and does not fold
+cat > "${work}/bin/eb" <<EOF
+#!/bin/bash
+case " \$* " in *" --output-style="*) echo "eb: error: no such option: --output-style" >&2; exit 2 ;; esac
+[ "\$1" = "--last-log" ] && echo "${work}/tmp/easybuild-Foo-1.0.log"
+EOF
+"${tool}" failed 1 Old-1.0 "${work}/logs" >/dev/null
+check "an eb without --output-style still gives the log" "$(count 'Old-1.0.failed.ebout.log')" "1"
 
 # failed: bad arguments are refused with exit 2
 "${tool}" failed x Foo "${work}/logs" 2>/dev/null
