@@ -111,6 +111,20 @@ check "no eb on PATH: says so" "$(PATH="${work}/empty" "${tool}" failed 1 NoEb-1
 printf '#!/bin/bash\nexit 3\n' > "${work}/bin/eb"
 check "eb --last-log fails: says so" "$("${tool}" failed 1 Err-1.0 "${work}/logs")" \
     "No EasyBuild log to keep for Err-1.0: eb --last-log exited 3."
+# failed: the build's stdout log and a TMP_LOGDIR under LOGDIR, where EasyBuild
+# writes its own logs at 0644, are closed to others too
+mkdir -p "${work}/run/easybuild-logs/Close-1.0" "${work}/elsewhere"
+echo out > "${work}/run/Close-1.0.stdout.log"
+echo log > "${work}/run/easybuild-logs/Close-1.0/easybuild-Close-1.0-20261116.003855.GStEt.log"
+chmod 644 "${work}/run/Close-1.0.stdout.log"
+chmod 755 "${work}/run/easybuild-logs/Close-1.0" "${work}/elsewhere"
+"${tool}" failed 0 Close-1.0 "${work}/run" "${work}/run/easybuild-logs/Close-1.0" >/dev/null
+check "success: stdout log left as it is" "$(stat -c '%a' "${work}/run/Close-1.0.stdout.log")" "644"
+"${tool}" failed 1 Close-1.0 "${work}/run" "${work}/run/easybuild-logs/Close-1.0" >/dev/null
+check "stdout log closed to others" "$(stat -c '%a' "${work}/run/Close-1.0.stdout.log")" "640"
+check "TMP_LOGDIR closed to others" "$(stat -c '%a' "${work}/run/easybuild-logs/Close-1.0")" "750"
+"${tool}" failed 1 Close-1.0 "${work}/run" "${work}/elsewhere" >/dev/null
+check "TMP_LOGDIR outside LOGDIR left as it is" "$(stat -c '%a' "${work}/elsewhere")" "755"
 
 # failed: no log from eb returns 0 and copies nothing
 cat > "${work}/bin/eb" <<'EOF'
