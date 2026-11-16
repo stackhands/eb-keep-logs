@@ -28,11 +28,19 @@ usage() { sed -n '2,18p' "$0" | sed 's/^# \{0,1\}//'; }
 die() { echo "eb-keep-logs: $*" >&2; exit 2; }
 
 # Record a kept file as one that may carry a licence number: a failed compile
-# line of licensed software prints it.
+# line of licensed software prints it. Once: a retried build keeps the same
+# files again.
+_list() {
+    local path="$1" logdir="$2" abs
+    abs=$(realpath "${path}")
+    grep -qxF -- "${abs}" "${logdir}/.licensed-logs" 2>/dev/null ||
+        echo "${abs}" >> "${logdir}/.licensed-logs"
+}
+
 _private() {
     local path="$1" logdir="$2"
     chmod o-rwx "${path}"
-    realpath "${path}" >> "${logdir}/.licensed-logs"
+    _list "${path}" "${logdir}"
 }
 
 # `eb --last-log`, asked about the --tmp-logdir in $1 when that is not empty.
@@ -141,7 +149,7 @@ cmd_failed() {
             dest="${logdir}/${name}.failed.command-${stream}.txt"
             cp "${resolved_output}" "${dest}" || continue
             chmod 600 "${dest}"
-            realpath "${dest}" >> "${logdir}/.licensed-logs"
+            _list "${dest}" "${logdir}"
             echo "Failed command output: ${dest}"
         done
     fi

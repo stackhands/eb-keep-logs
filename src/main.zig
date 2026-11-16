@@ -114,10 +114,24 @@ fn lastLog(c: Ctx, tmp_logdir: ?[]const u8) LastLog {
     return .{ .path = c.gpa.dupe(u8, line) catch return .none };
 }
 
-/// Record a kept file that may carry a licence number.
+/// Whether `text`, as .licensed-logs holds it, has `path` as a whole line.
+fn listed(text: []const u8, path: []const u8) bool {
+    var lines = std.mem.splitScalar(u8, text, '\n');
+    while (lines.next()) |line| if (std.mem.eql(u8, line, path)) return true;
+    return false;
+}
+
+/// Record a kept file that may carry a licence number, once: a retried
+/// build keeps the same files again.
 fn listKept(c: Ctx, logdir: fsx.fd_t, kept: fsx.fd_t) void {
     var rb: [sys.path_max]u8 = undefined;
     const abs = fsx.realpathFd(kept, &rb) catch |err| return warn("cannot resolve a kept file: {t}", .{err});
+    if (fsx.openRegular(logdir, logs.licensed_list, false)) |f| {
+        defer sys.close(f.fd);
+        const text: ?[]u8 = fsx.readAll(c.gpa, f.fd, scan_limit) catch null;
+        defer if (text) |t| c.gpa.free(t);
+        if (text) |t| if (listed(t, abs)) return;
+    } else |_| {}
     fsx.appendLine(c.gpa, logdir, logs.licensed_list, abs) catch |err|
         warn("cannot list {s} in {s}: {t}", .{ abs, logs.licensed_list, err });
 }
@@ -597,6 +611,14 @@ test "a failed copy does not replace a log already kept" {
     defer gpa.free(text);
     try std.testing.expectEqualStrings("OLDDATA\n", text);
     try std.testing.expectEqual(@as(u32, 0o640), got.stat.perm());
+}
+
+test "listed" {
+    try std.testing.expect(listed("/l/a.log\n/l/b.log\n", "/l/b.log"));
+    try std.testing.expect(listed("/l/a.log", "/l/a.log"));
+    try std.testing.expect(!listed("/l/a.log.gz\n", "/l/a.log"));
+    try std.testing.expect(!listed("/l/a\n", "/l/a.log"));
+    try std.testing.expect(!listed("", "/l/a.log"));
 }
 
 test "runAgeDays" {
