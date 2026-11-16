@@ -116,13 +116,17 @@ check "eb --last-log fails: says so" "$("${tool}" failed 1 Err-1.0 "${work}/logs
 mkdir -p "${work}/run/easybuild-logs/Close-1.0" "${work}/elsewhere"
 echo out > "${work}/run/Close-1.0.stdout.log"
 echo log > "${work}/run/easybuild-logs/Close-1.0/easybuild-Close-1.0-20261116.003855.GStEt.log"
-chmod 644 "${work}/run/Close-1.0.stdout.log"
+echo target > "${work}/elsewhere/target.log"
+ln -s "${work}/elsewhere/target.log" "${work}/run/easybuild-logs/Close-1.0/link.log"
+chmod 644 "${work}/run/Close-1.0.stdout.log" "${work}/run/easybuild-logs/Close-1.0/easybuild-Close-1.0-20261116.003855.GStEt.log" "${work}/elsewhere/target.log"
 chmod 755 "${work}/run/easybuild-logs/Close-1.0" "${work}/elsewhere"
 "${tool}" failed 0 Close-1.0 "${work}/run" "${work}/run/easybuild-logs/Close-1.0" >/dev/null
 check "success: stdout log left as it is" "$(stat -c '%a' "${work}/run/Close-1.0.stdout.log")" "644"
 "${tool}" failed 1 Close-1.0 "${work}/run" "${work}/run/easybuild-logs/Close-1.0" >/dev/null
 check "stdout log closed to others" "$(stat -c '%a' "${work}/run/Close-1.0.stdout.log")" "640"
 check "TMP_LOGDIR closed to others" "$(stat -c '%a' "${work}/run/easybuild-logs/Close-1.0")" "750"
+check "logs in TMP_LOGDIR closed to others" "$(stat -c '%a' "${work}/run/easybuild-logs/Close-1.0/easybuild-Close-1.0-20261116.003855.GStEt.log")" "640"
+check "a link in TMP_LOGDIR is not followed" "$(stat -c '%a' "${work}/elsewhere/target.log")" "644"
 "${tool}" failed 1 Close-1.0 "${work}/run" "${work}/elsewhere" >/dev/null
 check "TMP_LOGDIR outside LOGDIR left as it is" "$(stat -c '%a' "${work}/elsewhere")" "755"
 
