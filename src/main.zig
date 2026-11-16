@@ -25,7 +25,9 @@ const usage_text =
     \\      After `eb` returned STATUS for easyconfig NAME: when STATUS is not 0,
     \\      copy the EasyBuild log, the failing command's output and a meson
     \\      testlog next to LOGDIR/NAME.stdout.log, closed to others and listed
-    \\      in LOGDIR/.licensed-logs. TMP_LOGDIR is the --tmp-logdir eb ran with.
+    \\      in LOGDIR/.licensed-logs. TMP_LOGDIR is the --tmp-logdir eb ran with;
+    \\      without it, the newest log in EasyBuild's default place is used,
+    \\      unless it is another build's.
     \\  eb-keep-logs rotate ROOT --compress-after DAYS [--delete-after DAYS]
     \\      In the run directories directly under ROOT (named YYYYMMDD_HHMMSS),
     \\      gzip the logs of runs older than DAYS; with --delete-after, remove
@@ -227,17 +229,26 @@ fn cmdFailed(c: Ctx, args: []const [:0]const u8) u8 {
     }
     defer sys.close(src.?.fd);
 
-    const ebout = c.gpa.print("{s}.failed.ebout.log", .{name}) catch return 0;
-    defer c.gpa.free(ebout);
-    if (keep(c, logdir, logdir_s, src.?.fd, src.?.stat, ebout, null))
-        cli.out("Failed build log: {s}/{s}\n", .{ logdir_s, ebout });
-
-    rewind(src.?.fd);
     const src_text: ?[]u8 = fsx.readAll(c.gpa, src.?.fd, scan_limit) catch |err| blk: {
         warn("cannot scan {s}: {t}", .{ src_path.?, err });
         break :blk null;
     };
     defer if (src_text) |t| c.gpa.free(t);
+    // Without TMP_LOGDIR, `eb --last-log` names the newest log in
+    // EasyBuild's default place, which can be a later build's. Nothing is
+    // taken from that log; the build's own stdout log still names its
+    // failing command.
+    if (explicit == null) if (src_text) |t| if (scan.otherBuild(t, name)) {
+        cli.out("No EasyBuild log to keep for {s}: {s} is another build's log.\n", .{ name, src_path.? });
+        keepCommandOutput(c, logdir, logdir_s, name, null);
+        return 0;
+    };
+
+    rewind(src.?.fd);
+    const ebout = c.gpa.print("{s}.failed.ebout.log", .{name}) catch return 0;
+    defer c.gpa.free(ebout);
+    if (keep(c, logdir, logdir_s, src.?.fd, src.?.stat, ebout, null))
+        cli.out("Failed build log: {s}/{s}\n", .{ logdir_s, ebout });
 
     keepCommandOutput(c, logdir, logdir_s, name, src_text);
 

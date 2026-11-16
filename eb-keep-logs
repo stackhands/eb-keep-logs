@@ -6,7 +6,9 @@
 #       After `eb` returned STATUS for easyconfig NAME: when STATUS is not 0,
 #       copy the EasyBuild log, the failing command's output and a meson
 #       testlog next to LOGDIR/NAME.stdout.log, closed to others and listed
-#       in LOGDIR/.licensed-logs. TMP_LOGDIR is the --tmp-logdir eb ran with.
+#       in LOGDIR/.licensed-logs. TMP_LOGDIR is the --tmp-logdir eb ran with;
+#       without it, the newest log in EasyBuild's default place is used,
+#       unless it is another build's.
 #   eb-keep-logs rotate ROOT --compress-after DAYS [--delete-after DAYS]
 #       In the run directories directly under ROOT (named YYYYMMDD_HHMMSS),
 #       gzip the logs of runs older than DAYS; with --delete-after, remove
@@ -21,7 +23,7 @@ set -uo pipefail
 
 VERSION=0.1.0
 
-usage() { sed -n '2,16p' "$0" | sed 's/^# \{0,1\}//'; }
+usage() { sed -n '2,18p' "$0" | sed 's/^# \{0,1\}//'; }
 
 die() { echo "eb-keep-logs: $*" >&2; exit 2; }
 
@@ -71,10 +73,20 @@ cmd_failed() {
         echo "No EasyBuild log to keep for ${name}."
         return 0
     fi
-    dest="${logdir}/${name}.failed.ebout.log"
-    cp "${src}" "${dest}"
-    _private "${dest}" "${logdir}"
-    echo "Failed build log: ${dest}"
+    # Without TMP_LOGDIR, `eb --last-log` names the newest log in EasyBuild's
+    # default place, which can be a later build's. Nothing is taken from that
+    # log; the build's own stdout log still names its failing command.
+    local foreign=""
+    if [ -z "${explicit_logdir}" ] && grep -q 'processing EasyBuild easyconfig ' "${src}" &&
+        ! grep -qF -- "${name}.eb" "${src}"; then
+        echo "No EasyBuild log to keep for ${name}: ${src} is another build's log."
+        foreign=1
+    else
+        dest="${logdir}/${name}.failed.ebout.log"
+        cp "${src}" "${dest}"
+        _private "${dest}" "${logdir}"
+        echo "Failed build log: ${dest}"
+    fi
 
     # The failing command's own output holds the diagnostic beyond EasyBuild's
     # printed tail. Only the final command's text streams are kept, and only
@@ -84,7 +96,7 @@ cmd_failed() {
     if [ -f "${logdir}/${name}.stdout.log" ]; then
         command_output=$(grep -oE '/[^[:space:]]*/run-shell-cmd-output/[^/[:space:]]+/out\.txt' "${logdir}/${name}.stdout.log" | tail -n 1)
     fi
-    if [ -z "${command_output}" ]; then
+    if [ -z "${command_output}" ] && [ -z "${foreign}" ]; then
         command_output=$(grep -oE '/[^[:space:]]*/run-shell-cmd-output/[^/[:space:]]+/out\.txt' "${src}" | tail -n 1)
     fi
     command_root="${command_output%/out.txt}"
@@ -115,6 +127,7 @@ cmd_failed() {
         done
     fi
 
+    [ -z "${foreign}" ] || return 0
     # A meson test step prints only the last 100 lines of a failing test; the
     # full output is meson-logs/testlog.txt in the build directory.
     local meson_dir testlog

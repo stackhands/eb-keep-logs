@@ -12,7 +12,7 @@ on the same invocations.
 | commands | `failed STATUS NAME LOGDIR [TMP_LOGDIR]`, `rotate ROOT --compress-after DAYS [--delete-after DAYS]`, `-h`, `--help`, `--version` |
 | exit codes | 0 on success and on every `failed` that got past its arguments; 2 for a refused invocation, after `eb-keep-logs: MESSAGE` on stderr; 2 with the usage text on stdout for no arguments |
 | environment | `PATH` (finds `eb`), `EASYBUILD_TMPDIR`, `EB_KEEP_LOGS_NOW`, `TZ`, `TZDIR`; `eb --last-log` runs with `EASYBUILD_OUTPUT_STYLE=basic`, and when that fails once more without the variable |
-| stdout | `Failed build log: LOGDIR/NAME.failed.ebout.log`, `Failed command output: LOGDIR/NAME.failed.command-{out,err}.txt`, `Failed meson test log: LOGDIR/NAME.failed.meson-testlog.txt`, `Failed command output not kept: EASYBUILD_TMPDIR is not set.`, `Failed command output not kept: PATH is not under EASYBUILD_TMPDIR.`, `Failed command output not kept: PATH belongs to another user.`, `No EasyBuild log to keep for NAME.`, `No EasyBuild log to keep for NAME: eb is not on PATH.`, `No EasyBuild log to keep for NAME: eb --last-log exited N.`, `eb-keep-logs rotate: N files compressed, M runs deleted under ROOT` |
+| stdout | `Failed build log: LOGDIR/NAME.failed.ebout.log`, `Failed command output: LOGDIR/NAME.failed.command-{out,err}.txt`, `Failed meson test log: LOGDIR/NAME.failed.meson-testlog.txt`, `Failed command output not kept: EASYBUILD_TMPDIR is not set.`, `Failed command output not kept: PATH is not under EASYBUILD_TMPDIR.`, `Failed command output not kept: PATH belongs to another user.`, `No EasyBuild log to keep for NAME.`, `No EasyBuild log to keep for NAME: eb is not on PATH.`, `No EasyBuild log to keep for NAME: eb --last-log exited N.`, `No EasyBuild log to keep for NAME: PATH is another build's log.`, `eb-keep-logs rotate: N files compressed, M runs deleted under ROOT` |
 | files | kept files closed to others (command streams mode 0600), their resolved paths appended to `LOGDIR/.licensed-logs`; `rotate` writes `FILE.gz` with the file's mode and updates `.licensed-logs` to the `.gz` path |
 | run ages | days from the local midnight of the date in the run's name, as `date -d YYYYMMDD` computes it, including TZ rules; a run whose local midnight does not exist is skipped |
 
@@ -32,5 +32,5 @@ on the same invocations.
 | a run directory that cannot be removed | counted as deleted | reported on stderr, not counted |
 | compression | runs `gzip -9`, `find` and `awk` | in process; the gzip header (name, mtime, flags, OS) matches `gzip -9`, the compressed bytes differ; a file with other hard links or an existing `.gz` is skipped as gzip skips it |
 | `eb --last-log` that does not return | waits without a limit | its process group is killed after 300 s, and nothing is kept |
-| a log larger than 1 GiB | scanned | copied, not scanned for the command output or meson paths, with a message on stderr |
+| a log larger than 1 GiB | scanned | copied, not checked for another build and not scanned for the command output or meson paths, with a message on stderr |
 | a log with NUL bytes | `grep` reports a binary match and the scan finds nothing | scanned as text |
