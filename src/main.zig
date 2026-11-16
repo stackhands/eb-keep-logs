@@ -681,13 +681,12 @@ test "a failed copy does not replace a log already kept" {
     const here = try fsx.realpath(fsx.cwd, ".", &cwd_buf);
     const base = try std.fmt.allocPrint(gpa, "{s}/.zig-cache/eb-keep-logs-copy-{d}", .{ here, linux.getpid() });
     defer gpa.free(base);
-    var zb: [sys.path_max:0]u8 = undefined;
-    _ = linux.mkdirat(fsx.cwd, (try sys.z(&zb, base)).ptr, 0o700);
+    // The test runs where `zig build` was started, which has no .zig-cache
+    // when the cache is elsewhere, as with ZIG_LOCAL_CACHE_DIR.
+    try common.atomic.makedirs(base);
+    defer fsx.deleteTree(gpa, fsx.cwd, base) catch {};
     const dir = try fsx.openDir(fsx.cwd, base, false);
-    defer {
-        fsx.deleteTree(gpa, fsx.cwd, base) catch {};
-        sys.close(dir);
-    }
+    defer sys.close(dir);
     const dst = try sys.openat(dir, "kept.log", .{ .ACCMODE = .WRONLY, .CREAT = true }, 0o640);
     try sys.writeAll(dst, "OLDDATA\n");
     sys.close(dst);
