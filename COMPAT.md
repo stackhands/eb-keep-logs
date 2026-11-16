@@ -25,6 +25,7 @@ on the same invocations.
 | `--compress-after` or `--delete-after` with no value after it | never returns | refused, exit 2 |
 | `EB_KEEP_LOGS_NOW` not an integer | evaluated as shell arithmetic | refused, exit 2 |
 | a copy into LOGDIR fails | error from cp, then the file is still listed and reported | error on stderr; the file is neither listed nor reported |
+| a copy into an existing LOGDIR file fails part way (a full disk) | cp truncates the file first, so the previous bytes are gone | the previous file is left unchanged; nothing is listed or reported |
 | a symbolic link or non-regular file at a destination name in LOGDIR | cp writes through it | refused, reported on stderr |
 | the failing command's streams | checked by path (`realpath`, `-L`, `stat`), then copied | opened without following a symbolic link at the last component; the same checks run on the open file, and that file is copied |
 | `.licensed-logs` after `rotate` | rewritten by every compressed file, as a new file owned by the caller | rewritten once per run when a line changes, keeping its owner (when permitted), mode and access ACL (access control list) entries, replaced atomically |
