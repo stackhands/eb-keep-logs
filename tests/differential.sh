@@ -18,11 +18,13 @@ export PATH="${work}/bin:${PATH}"
 diffs=0
 # Labels whose difference COMPAT.md documents.
 deliberate=("no arguments")
+# The environment both runs get, as env(1) takes it.
+run_env=(PATH="${PATH}")
 # compare LABEL ARGS...: run both with the same arguments.
 compare() {
     local label=$1; shift
-    "${OLD_BIN}" "$@" > "${work}/o.out" 2> "${work}/o.err"; local oc=$?
-    "${TOOL_BIN}" "$@" > "${work}/n.out" 2> "${work}/n.err"; local nc=$?
+    env "${run_env[@]}" "${OLD_BIN}" "$@" > "${work}/o.out" 2> "${work}/o.err"; local oc=$?
+    env "${run_env[@]}" "${TOOL_BIN}" "$@" > "${work}/n.out" 2> "${work}/n.err"; local nc=$?
     if [ "${oc}" != "${nc}" ] || ! cmp -s "${work}/o.out" "${work}/n.out" || ! cmp -s "${work}/o.err" "${work}/n.err"; then
         local d
         for d in "${deliberate[@]}"; do
@@ -49,6 +51,25 @@ compare "failed, success" failed 0 Foo "${work}/logs"
 compare "failed, zeros are success" failed 000 Foo "${work}/logs"
 compare "failed, no eb log" failed 3 Foo "${work}/logs"
 compare "failed, empty tmp logdir" failed 3 Foo "${work}/logs" ""
+mkdir -p "${work}/empty"
+run_env=(PATH="${work}/empty")
+compare "failed, no eb on PATH" failed 3 Foo "${work}/logs"
+run_env=(PATH="${PATH}")
+printf '#!/bin/bash\nexit 4\n' > "${work}/bin/eb"
+compare "failed, eb --last-log fails" failed 3 Foo "${work}/logs"
+long="${work}/$(printf 'x%.0s' {1..100})"
+mkdir -p "${long}"
+echo "link error" > "${long}/easybuild-Foo.log"
+cat > "${work}/bin/eb" <<EOF
+#!/bin/bash
+if [ "\${EASYBUILD_OUTPUT_STYLE:-auto}" = basic ]; then
+    echo "${long}/easybuild-Foo.log"
+else
+    echo "${long}/easybuild-Foo.log" | fold -w 80
+fi
+EOF
+compare "failed, wrapped last-log" failed 3 Foo "${work}/logs"
+printf '#!/bin/bash\nexit 0\n' > "${work}/bin/eb"
 compare "rotate, no root" rotate --compress-after 3
 compare "rotate, two roots" rotate a b
 compare "rotate, unknown option" rotate "${work}" --bogus

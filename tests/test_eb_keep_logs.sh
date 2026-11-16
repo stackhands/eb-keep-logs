@@ -31,6 +31,8 @@ cat > "${work}/bin/eb" <<EOF
 EOF
 chmod +x "${work}/bin/eb"
 PATH="${work}/bin:${PATH}"
+# The stubs below model how these change EasyBuild's output.
+unset COLUMNS EASYBUILD_OUTPUT_STYLE FORCE_COLOR
 
 # failed: status 0 keeps nothing
 "${tool}" failed 0 Foo-1.0-GCC-15.2.0 "${work}/logs" >/dev/null
@@ -50,6 +52,49 @@ cat > "${work}/bin/eb" <<EOF
 EOF
 "${tool}" failed 1 Exp-1.0 "${work}/logs" "${work}/explicit" >/dev/null
 check "explicit tmp-logdir is used" "$(count 'Exp-1.0.failed.ebout.log')" "1"
+
+# failed: EasyBuild 5 prints through rich, which wraps a path at COLUMNS, or
+# at 80 columns when that is unset or FORCE_COLOR is set, unless the output
+# style is basic
+long="${work}/tmp/$(printf 'x%.0s' {1..100})"
+mkdir -p "${long}"
+echo "link error: wrapped" > "${long}/easybuild-Wrap-1.0.log"
+cat > "${work}/bin/eb" <<EOF
+#!/bin/bash
+[ "\$1" = "--last-log" ] || exit 0
+width=\${COLUMNS:-80}
+[ -n "\${FORCE_COLOR:-}" ] && width=80
+if [ "\${EASYBUILD_OUTPUT_STYLE:-auto}" = basic ]; then
+    echo "${long}/easybuild-Wrap-1.0.log"
+else
+    echo "${long}/easybuild-Wrap-1.0.log" | fold -w "\${width}"
+fi
+EOF
+"${tool}" failed 1 Wrap-1.0 "${work}/logs" >/dev/null
+check "wrapped path: log kept" "$(cat "${work}/logs/Wrap-1.0.failed.ebout.log" 2>/dev/null)" "link error: wrapped"
+rm -f "${work}/logs/Wrap-1.0.failed.ebout.log"
+FORCE_COLOR=1 COLUMNS=4096 "${tool}" failed 1 Wrap-1.0 "${work}/logs" >/dev/null
+check "wrapped path with FORCE_COLOR: log kept" "$(cat "${work}/logs/Wrap-1.0.failed.ebout.log" 2>/dev/null)" "link error: wrapped"
+
+# failed: an EasyBuild without output styles refuses EASYBUILD_OUTPUT_STYLE
+cat > "${work}/bin/eb" <<EOF
+#!/bin/bash
+if [ -n "\${EASYBUILD_OUTPUT_STYLE+set}" ]; then
+    echo "ERROR: Failed to parse configuration options: EASYBUILD_OUTPUT_STYLE" >&2
+    exit 1
+fi
+[ "\$1" = "--last-log" ] && echo "${work}/tmp/easybuild-Foo-1.0.log"
+EOF
+"${tool}" failed 1 Old-4.4 "${work}/logs" >/dev/null
+check "eb without output styles: log kept" "$(count 'Old-4.4.failed.ebout.log')" "1"
+
+# failed: why there is no log, when eb is missing or fails
+mkdir -p "${work}/empty"
+check "no eb on PATH: says so" "$(PATH="${work}/empty" "${tool}" failed 1 NoEb-1.0 "${work}/logs")" \
+    "No EasyBuild log to keep for NoEb-1.0: eb is not on PATH."
+printf '#!/bin/bash\nexit 3\n' > "${work}/bin/eb"
+check "eb --last-log fails: says so" "$("${tool}" failed 1 Err-1.0 "${work}/logs")" \
+    "No EasyBuild log to keep for Err-1.0: eb --last-log exited 3."
 
 # failed: no log from eb returns 0 and copies nothing
 cat > "${work}/bin/eb" <<'EOF'

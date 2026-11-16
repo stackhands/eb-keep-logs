@@ -16,7 +16,7 @@
 # A failed build's log is in EasyBuild's tmpdir on the build node, which goes
 # with the job; and EasyBuild wraps the "Results of the build can be found in
 # the log file(s)" line, so parsing stdout for the path finds nothing.
-# `eb --last-log` gives the path directly.
+# `eb --last-log` gives the path, on one line with the basic output style.
 set -uo pipefail
 
 VERSION=0.1.0
@@ -33,6 +33,15 @@ _private() {
     realpath "${path}" >> "${logdir}/.licensed-logs"
 }
 
+# `eb --last-log`, asked about the --tmp-logdir in $1 when that is not empty.
+_last_log() {
+    if [ -n "$1" ]; then
+        eb --last-log --tmp-logdir="$1" 2>/dev/null
+    else
+        eb --last-log 2>/dev/null
+    fi
+}
+
 cmd_failed() {
     [ $# -ge 3 ] || die "failed needs STATUS NAME LOGDIR [TMP_LOGDIR]"
     local status="$1" name="$2" logdir="$3" explicit_logdir="${4:-}"
@@ -42,11 +51,22 @@ cmd_failed() {
     if [ "${status}" -eq 0 ]; then
         return 0
     fi
-    if [ -n "${explicit_logdir}" ]; then
-        src=$(eb --last-log --tmp-logdir="${explicit_logdir}" 2>/dev/null | tail -1)
-    else
-        src=$(eb --last-log 2>/dev/null | tail -1)
+    if ! command -v eb >/dev/null 2>&1; then
+        echo "No EasyBuild log to keep for ${name}: eb is not on PATH."
+        return 0
     fi
+    # EasyBuild 5 prints through rich, which wraps the path at 80 columns when
+    # stdout is not a terminal; the basic output style prints it on one line.
+    # An EasyBuild without output styles refuses EASYBUILD_OUTPUT_STYLE, so a
+    # failed call is made again without it.
+    local out rc=0
+    out=$(export EASYBUILD_OUTPUT_STYLE=basic; _last_log "${explicit_logdir}") ||
+        out=$(unset EASYBUILD_OUTPUT_STYLE; _last_log "${explicit_logdir}") || rc=$?
+    if [ "${rc}" -ne 0 ]; then
+        echo "No EasyBuild log to keep for ${name}: eb --last-log exited ${rc}."
+        return 0
+    fi
+    src=$(printf '%s\n' "${out}" | tail -n 1)
     if [ -z "${src}" ] || [ ! -f "${src}" ]; then
         echo "No EasyBuild log to keep for ${name}."
         return 0

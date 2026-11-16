@@ -7,6 +7,7 @@ const common = @import("zig_common");
 const sys = common.sys;
 const fsx = common.fsx;
 const proc = common.proc;
+const env = common.env;
 const logs = common.logs;
 const cli = common.cli;
 const localtime = @import("localtime.zig");
@@ -62,10 +63,23 @@ fn allDigits(s: []const u8) bool {
     return true;
 }
 
-/// The last line `eb --last-log` prints, or null.
-fn lastLog(c: Ctx, tmp_logdir: ?[]const u8) ?[]u8 {
+const LastLog = union(enum) {
+    /// The last line `eb --last-log` printed.
+    path: []u8,
+    no_eb,
+    /// The status `eb --last-log` exited with.
+    failed: u32,
+    /// It printed nothing or could not be run.
+    none,
+};
+
+/// What `eb --last-log` names. EasyBuild 5 prints through rich, which wraps
+/// the path at 80 columns when stdout is not a terminal; the basic output
+/// style prints it on one line. An EasyBuild without output styles refuses
+/// EASYBUILD_OUTPUT_STYLE, so a failed call is made again without it.
+fn lastLog(c: Ctx, tmp_logdir: ?[]const u8) LastLog {
     const path_env = c.getenv("PATH") orelse "";
-    const eb = (proc.which(c.gpa, "eb", path_env) catch return null) orelse return null;
+    const eb = (proc.which(c.gpa, "eb", path_env) catch return .none) orelse return .no_eb;
     defer c.gpa.free(eb);
     var argv_buf: [3][]const u8 = undefined;
     argv_buf[0] = "eb";
@@ -74,17 +88,28 @@ fn lastLog(c: Ctx, tmp_logdir: ?[]const u8) ?[]u8 {
     var opt: ?[]u8 = null;
     defer if (opt) |o| c.gpa.free(o);
     if (tmp_logdir) |d| {
-        opt = c.gpa.print("--tmp-logdir={s}", .{d}) catch return null;
+        opt = c.gpa.print("--tmp-logdir={s}", .{d}) catch return .none;
         argv_buf[2] = opt.?;
         argc = 3;
     }
-    const r = proc.run(c.gpa, eb, argv_buf[0..argc], c.envp, .{}) catch return null;
+    var child = env.Builder.fromEnv(c.gpa, env.Env.fromEnvp(c.envp)) catch return .none;
+    defer child.deinit();
+    child.set("EASYBUILD_OUTPUT_STYLE", "basic") catch return .none;
+    var envp = child.envp() catch return .none;
+    var r = proc.run(c.gpa, eb, argv_buf[0..argc], envp, .{}) catch return .none;
+    if (r.term.code() != 0) {
+        r.deinit(c.gpa);
+        child.unset("EASYBUILD_OUTPUT_STYLE");
+        envp = child.envp() catch return .none;
+        r = proc.run(c.gpa, eb, argv_buf[0..argc], envp, .{}) catch return .none;
+    }
     defer r.deinit(c.gpa);
+    if (r.term.code() != 0) return .{ .failed = r.term.code() };
     var s: []const u8 = r.stdout;
     if (s.len > 0 and s[s.len - 1] == '\n') s = s[0 .. s.len - 1];
     const line = s[if (std.mem.findScalarLast(u8, s, '\n')) |i| i + 1 else 0..];
-    if (line.len == 0) return null;
-    return c.gpa.dupe(u8, line) catch null;
+    if (line.len == 0) return .none;
+    return .{ .path = c.gpa.dupe(u8, line) catch return .none };
 }
 
 /// Record a kept file that may carry a licence number.
@@ -182,7 +207,18 @@ fn cmdFailed(c: Ctx, args: []const [:0]const u8) u8 {
     defer sys.close(logdir);
     if (std.mem.indexOfNone(u8, status, "0") == null) return 0;
 
-    const src_path = lastLog(c, explicit);
+    const src_path: ?[]u8 = switch (lastLog(c, explicit)) {
+        .path => |p| p,
+        .no_eb => {
+            cli.out("No EasyBuild log to keep for {s}: eb is not on PATH.\n", .{name});
+            return 0;
+        },
+        .failed => |code| {
+            cli.out("No EasyBuild log to keep for {s}: eb --last-log exited {d}.\n", .{ name, code });
+            return 0;
+        },
+        .none => null,
+    };
     defer if (src_path) |p| c.gpa.free(p);
     const src = if (src_path) |p| fsx.openRegular(fsx.cwd, p, true) catch null else null;
     if (src == null) {
