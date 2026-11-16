@@ -15,7 +15,7 @@ on the same invocations.
 | `eb` | `eb --last-log [--tmp-logdir=TMP_LOGDIR] --output-style=basic`, and the same without `--output-style` when that fails or prints nothing; the last line printed is the log |
 | stdout | `Failed build log: LOGDIR/NAME.failed.ebout.log`, `Failed command output: LOGDIR/NAME.failed.command-{out,err}.txt`, `Failed meson test log: LOGDIR/NAME.failed.meson-testlog.txt`, `Failed command output not kept: EASYBUILD_TMPDIR is not set.`, `Failed command output not kept: PATH is not under EASYBUILD_TMPDIR.`, `Failed command output not kept: PATH belongs to another user.`, `No EasyBuild log to keep for NAME.`, `No EasyBuild log to keep for NAME: eb is not on PATH.`, `No EasyBuild log to keep for NAME: eb --last-log exited N.`, `No EasyBuild log to keep for NAME: PATH is another build's log.`, `eb-keep-logs rotate: N files compressed, M runs deleted under ROOT`, with `1 file` and `1 run` for a count of one; LOGDIR in these lines without its trailing slashes |
 | files | kept files closed to others (command streams mode 0600), their resolved paths appended to `LOGDIR/.licensed-logs` unless already listed; on a failure, `NAME.stdout.log`, a TMP_LOGDIR below LOGDIR and the regular files directly in it closed to others, a symbolic link left as it is; `rotate` writes `FILE.gz` with the file's mode and updates `.licensed-logs` to the `.gz` path |
-| run ages | days from the local midnight of the date in the run's name, as `date -d YYYYMMDD` computes it, including TZ rules, except in the two cases of `TZ` and `TZDIR` under unintended differences; a run whose local midnight does not exist is skipped |
+| run ages | days from the local midnight of the date in the run's name, as `date -d YYYYMMDD` computes it, including TZ rules, except in the case of `TZ` under unintended differences; a run whose local midnight does not exist is skipped |
 | the run in progress | `rotate` neither compresses nor deletes the run that holds its stdout or stderr, when either is a regular file, or `EB_PIPELINE_LOG_DIR` |
 
 ## Deliberate differences
@@ -45,5 +45,4 @@ The Zig build differs here without meaning to; each is a bug in the Zig build.
 
 | case | shell script | Zig build |
 |---|---|---|
-| `TZDIR` set but empty, `TZ` naming a zone file | the file under `/usr/share/zoneinfo`, as `date` reads it | the name is looked up relative to the working directory, so the zone is UTC unless a file of that name is there |
 | `TZ` with a leading `:` that names no file, such as `:CET-1CEST,M3.5.0,M10.5.0/3` | the rule string after the `:`, as `date` reads it | UTC |

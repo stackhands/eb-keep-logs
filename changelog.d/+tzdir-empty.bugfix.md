@@ -1,0 +1,1 @@
+`rotate` takes an empty `TZDIR` as unset and finds the zone `TZ` names under `/usr/share/zoneinfo`, as the shell script's `date` does, instead of looking it up relative to the working directory and dating runs in UTC when no file of that name is there.

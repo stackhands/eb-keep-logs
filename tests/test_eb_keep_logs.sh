@@ -362,5 +362,22 @@ check "empty EB_KEEP_LOGS_NOW: the current time" \
     "eb-keep-logs rotate: 1 file compressed, 0 runs deleted under ${now_root}"
 check "empty EB_KEEP_LOGS_NOW: the run 40 days old compressed" "$(lsrun "${now_root}/${old_run}")" "H.stdout.log.gz "
 
+# rotate: with ENV, a run's local midnight is the one date(1) gives. Thirty
+# days after it the run is 30 days old, and 29 a second before.
+zoned() {
+    local label=$1 midnight
+    shift
+    rm -rf "${work}/zoned"
+    mkdir -p "${work}/zoned/20261101_000000"
+    echo log > "${work}/zoned/20261101_000000/J.stdout.log"
+    midnight=$(env "$@" date -d 20261101 +%s)
+    env "$@" EB_KEEP_LOGS_NOW=$((midnight + 30 * 86400 - 1)) "${tool}" rotate "${work}/zoned" --compress-after 30 >/dev/null
+    check "${label}: 29 days old a second before date's midnight" "$(lsrun "${work}/zoned/20261101_000000")" "J.stdout.log "
+    env "$@" EB_KEEP_LOGS_NOW=$((midnight + 30 * 86400)) "${tool}" rotate "${work}/zoned" --compress-after 30 >/dev/null
+    check "${label}: 30 days old at date's midnight" "$(lsrun "${work}/zoned/20261101_000000")" "J.stdout.log.gz "
+}
+zoned "TZ naming a zone file" TZ=Asia/Tokyo
+zoned "TZDIR empty" TZDIR= TZ=Asia/Tokyo
+
 if [ "${fails}" -ne 0 ]; then echo "${fails} failed"; exit 1; fi
 echo "all passed"

@@ -3,16 +3,14 @@
 //!
 //! The zone comes from TZ much as glibc reads it: unset means
 //! /etc/localtime; empty means UTC; otherwise the value, without a leading
-//! ':', names a TZif file, under TZDIR (default /usr/share/zoneinfo) unless
-//! it is an absolute path, and a value without a leading ':' that names no
-//! file is a POSIX TZ rule string. A zone that cannot be read or parsed is
-//! UTC. TZif files use their transitions, then the POSIX rule in their
-//! footer for times after the last transition.
+//! ':', names a TZif file, under TZDIR (/usr/share/zoneinfo when TZDIR is
+//! unset or empty) unless it is an absolute path, and a value without a
+//! leading ':' that names no file is a POSIX TZ rule string. A zone that
+//! cannot be read or parsed is UTC. TZif files use their transitions, then
+//! the POSIX rule in their footer for times after the last transition.
 //!
-//! Two cases differ from glibc, which takes an empty TZDIR as unset and
-//! reads a rule string after a leading ':' too: here an empty TZDIR leaves a
-//! zone name relative to the working directory, and a value with a leading
-//! ':' that names no file is UTC.
+//! One case differs from glibc, which reads a rule string after a leading
+//! ':' too: here a value with a leading ':' that names no file is UTC.
 const std = @import("std");
 const common = @import("zig_common");
 const fsx = common.fsx;
@@ -306,12 +304,15 @@ fn loadFile(gpa: Allocator, path: []const u8) !Zone {
     return .{ .transitions = trans, .offsets = offs, .first_off = first_off, .footer = footer, .arena = arena };
 }
 
-/// The zone named by `tz` (the value of TZ, or null when unset).
+/// The zone named by `tz` (the value of TZ, or null when unset), with zone
+/// files under `tzdir` (the value of TZDIR; /usr/share/zoneinfo when null
+/// or empty).
 pub fn load(gpa: Allocator, tz: ?[]const u8, tzdir: ?[]const u8) Zone {
     const value = tz orelse return loadFile(gpa, "/etc/localtime") catch .{};
     if (value.len == 0) return .{};
     const name = if (value[0] == ':') value[1..] else value;
-    const dir = tzdir orelse "/usr/share/zoneinfo";
+    const tzdir_s = tzdir orelse "";
+    const dir = if (tzdir_s.len > 0) tzdir_s else "/usr/share/zoneinfo";
     if (name.len > 0) {
         const path = if (name[0] == '/') gpa.dupe(u8, name) catch return .{} else std.fs.path.join(gpa, &.{ dir, name }) catch return .{};
         defer gpa.free(path);
@@ -340,4 +341,17 @@ test "a local midnight inside a DST gap does not exist" {
     // America/Santiago moves 00:00 to 01:00 on the first Sunday of September.
     const z: Zone = .{ .footer = try parsePosix("<-04>4<-03>,M9.1.6/24,M4.1.6/24") };
     try std.testing.expectEqual(@as(?i64, null), z.fromLocal(daysFromCivil(2026, 9, 6) * 86400));
+}
+
+test "an empty TZDIR is the default directory, as glibc takes it" {
+    const gpa = std.testing.allocator;
+    const nov1 = daysFromCivil(2026, 11, 1) * 86400;
+    var unset = load(gpa, "Asia/Tokyo", null);
+    defer unset.deinit();
+    // A system without the zone files has nothing to compare with.
+    if (unset.offsetAt(nov1) != 9 * 3600) return error.SkipZigTest;
+    var empty = load(gpa, "Asia/Tokyo", "");
+    defer empty.deinit();
+    // `TZDIR= TZ=Asia/Tokyo date -d 20261101 +%s` prints 1793458800.
+    try std.testing.expectEqual(@as(?i64, 1793458800), empty.fromLocal(nov1));
 }

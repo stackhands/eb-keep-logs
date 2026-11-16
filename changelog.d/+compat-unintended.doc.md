@@ -1,1 +1,1 @@
-COMPAT.md lists two differences between the Zig build and the shell script that are bugs, not choices: an empty `TZDIR` leaves a zone name relative to the working directory, and a `TZ` with a leading `:` that names no file is UTC. Its rows on `EB_KEEP_LOGS_NOW` and on run ages no longer claim more than the Zig build does.
+COMPAT.md lists a difference between the Zig build and the shell script that is a bug, not a choice: a `TZ` with a leading `:` that names no file is UTC. Its rows on `EB_KEEP_LOGS_NOW` and on run ages no longer claim more than the Zig build does.
