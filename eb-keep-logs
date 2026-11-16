@@ -313,7 +313,7 @@ cmd_rotate() {
         lock_timeout=600
     fi
     _lock_rotate "$(_joinable "${root}")/.eb-keep-logs-rotate.lock" "${lock_timeout}"
-    local run age file list path compressed=0 deleted=0 live
+    local run age file list tmp path compressed=0 deleted=0 live
     live="$(_own_runs "${root}")$(_written_runs "${root}")/"
     for run in "$(_joinable "${root}")"/*/; do
         run="${run%/}"
@@ -334,9 +334,13 @@ cmd_rotate() {
             gzip -9 -- "${file}" || continue
             compressed=$((compressed + 1))
             # A .licensed-logs in the run names the file by path; follow it.
+            # The new list is written beside the old one, under a name of its
+            # own, and renamed over it, so a reader sees one list or the other.
             while IFS= read -r -d '' list; do
-                awk -v p="${path}" '$0 == p { $0 = p ".gz" } { print }' "${list}" > "${list}.tmp" &&
-                    chmod --reference="${list}" "${list}.tmp" && mv -- "${list}.tmp" "${list}"
+                tmp=$(mktemp -- "${list%/*}/.licensed-logs.XXXXXXXX") || continue
+                { awk -v p="${path}" '$0 == p { $0 = p ".gz" } { print }' "${list}" > "${tmp}" &&
+                    chmod --reference="${list}" -- "${tmp}" && mv -f -- "${tmp}" "${list}"; } ||
+                    rm -f -- "${tmp}"
             done < <(find "${run}" -name .licensed-logs -type f -print0)
         done < <(find "${run}" -type f \( -name '*.log' -o -name '*.txt' \) -print0)
     done

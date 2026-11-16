@@ -298,6 +298,29 @@ check "old run compressed" "$(ls "${root}/20261001_120000/site-zen4" | sort | tr
 check "compressed content intact" "$(zcat "${root}/20261001_120000/site-zen4/A.stdout.log.gz")" "old"
 check "closed log stays closed" "$(stat -c '%A' "${root}/20261001_120000/site-zen4/B.failed.ebout.log.gz" | cut -c8-10)" "---"
 check ".licensed-logs follows" "$(cat "${root}/20261001_120000/site-zen4/.licensed-logs")" "$(realpath "${root}/20261001_120000/site-zen4")/B.failed.ebout.log.gz"
+check ".licensed-logs follows: no temporary file left" "$(find "${root}/20261001_120000" -name '.licensed-logs?*' | wc -l)" "0"
+# The new list is written to a file of its own beside the old one, not
+# through a symbolic link at the fixed name the shell script used to write to.
+planted="${work}/planted/20261001_120000/site-zen4"
+mkdir -p "${planted}"
+echo log > "${planted}/P.stdout.log"
+realpath "${planted}/P.stdout.log" > "${planted}/.licensed-logs"
+chmod 640 "${planted}/.licensed-logs"
+echo victim > "${work}/victim"
+ln -s "${work}/victim" "${planted}/.licensed-logs.tmp"
+"${tool}" rotate "${work}/planted" --compress-after 30 >/dev/null 2>&1
+check "a link beside a list: not written through" "$(cat "${work}/victim")" "victim"
+check "a link beside a list: the list replaced" "$(stat -c '%F %a' "${planted}/.licensed-logs"): $(cat "${planted}/.licensed-logs")" \
+    "regular file 640: $(realpath "${planted}")/P.stdout.log.gz"
+# A list its owner may not write is still replaced, and keeps its mode.
+ro="${work}/ro/20261001_120000"
+mkdir -p "${ro}"
+echo log > "${ro}/Q.stdout.log"
+realpath "${ro}/Q.stdout.log" > "${ro}/.licensed-logs"
+chmod 444 "${ro}/.licensed-logs"
+"${tool}" rotate "${work}/ro" --compress-after 30 >/dev/null 2>&1
+check "a list its owner may not write: replaced, mode kept" \
+    "$(stat -c '%a' "${ro}/.licensed-logs"): $(cat "${ro}/.licensed-logs")" "444: $(realpath "${ro}")/Q.stdout.log.gz"
 check "recent run untouched" "$(ls "${root}/20261110_120000")" "C.stdout.log"
 check "non-run directory untouched" "$(ls "${root}/notarun")" "E.log"
 check "no deletion without --delete-after" "$(ls -d "${root}/20260801_090000" 2>/dev/null | wc -l | tr -d ' ')" "1"
@@ -548,6 +571,31 @@ done
 check "two rotations at once: every list whole" "${race_lists}" ""
 check "two rotations at once: one rotates, the other then finds nothing" "$(printf '%s' "${race_out}")" \
     "$(for _ in 1 2 3; do echo "0 0 eb-keep-logs rotate: 0 files compressed, 0 runs deleted eb-keep-logs rotate: 12 files compressed, 0 runs deleted "; done)"
+# Without the lock, as the shell script rotates where the file system cannot
+# lock, two rotations at once can each list a file by the name it had when
+# they read the list; but each list is one of the lists they wrote, whole:
+# every line names one of the run's logs, each log once.
+race_torn=""
+for round in 1 2 3 4 5; do
+    rm -rf "${race}"
+    for t in a b; do
+        d="${race}/20261001_120000/${t}"
+        mkdir -p "${d}"
+        for i in 1 2 3 4 5 6; do seq 1 20000 > "${d}/n${i}.log"; done
+        for i in 1 2 3; do echo "$(realpath "${d}")/n${i}.log"; done > "${d}/.licensed-logs"
+    done
+    PATH="${work}/nolock-bin:${PATH}" "${tool}" rotate "${race}" --compress-after 30 > /dev/null 2>&1 &
+    r1=$!
+    PATH="${work}/nolock-bin:${PATH}" "${tool}" rotate "${race}" --compress-after 30 > /dev/null 2>&1 &
+    r2=$!
+    wait "${r1}" "${r2}"
+    for t in a b; do
+        d="$(realpath "${race}/20261001_120000/${t}")"
+        [ "$(sed 's/\.gz$//' "${d}/.licensed-logs")" = "$(printf '%s\n' "${d}/n1.log" "${d}/n2.log" "${d}/n3.log")" ] ||
+            race_torn+=" round ${round} ${t}"
+    done
+done
+check "two rotations without the lock: every list whole" "${race_torn}" ""
 
 if [ "${fails}" -ne 0 ]; then echo "${fails} failed"; exit 1; fi
 echo "all passed"

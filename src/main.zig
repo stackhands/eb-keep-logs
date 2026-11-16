@@ -546,7 +546,9 @@ fn compressTree(c: Ctx, arena: Allocator, dir: fsx.fd_t, renames: *Renames, coun
 }
 
 /// Rewrite every .licensed-logs under `dir` so it names the compressed
-/// files.
+/// files. Each new list is written beside the old one, synced, renamed over
+/// it and its directory synced, as copyDurable does, so a reader or a crash
+/// finds one list or the other.
 fn followLists(c: Ctx, dir: fsx.fd_t, renames: *const Renames) void {
     var it = fsx.DirIter.init(c.gpa, dir) catch return;
     defer it.deinit(c.gpa);
@@ -566,8 +568,11 @@ fn followLists(c: Ctx, dir: fsx.fd_t, renames: *const Renames) void {
             defer c.gpa.free(text);
             const new = (logs.renameInList(c.gpa, text, renames) catch continue) orelse continue;
             defer c.gpa.free(new);
-            fsx.replaceContents(c.gpa, dir, e.name, new) catch |err|
+            fsx.replaceContents(c.gpa, dir, e.name, new) catch |err| {
                 warn("cannot update a {s}: {t}", .{ logs.licensed_list, err });
+                continue;
+            };
+            sys.fsync(dir) catch |err| warn("cannot sync a {s}: {t}", .{ logs.licensed_list, err });
         }
     }
 }

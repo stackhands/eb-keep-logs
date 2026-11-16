@@ -75,6 +75,13 @@ Once the build has ended, the next rotation takes its run as it takes any other.
 
 The builds eb-pipeline starts are seen on the host eb-pipeline runs on even when srun runs them on another node: eb-pipeline opens each build's =NAME.stdout.log= in the run and hands it to the command it starts, which holds it open for writing until the build ends.
 
+** Lists replaced whole
+
+=rotate= changes a run's =.licensed-logs= by writing the new list to a file of its own beside the old one and renaming that file over the list, which the kernel does in one step.
+A reader finds the old list or the new one, never part of one, and so does a rotation that overlaps another where the file system cannot lock.
+The Zig build also syncs the new list before the rename and its directory after it, as it does for the files =failed= keeps, so the change outlasts a crash; the shell script syncs nothing.
+Two rotations that do overlap can still leave a list that names a log by the name it had before the other compressed it, which the lock is there to prevent.
+
 ** What was considered and turned down
 
 - /Sharing eb-pipeline's lock file./
@@ -102,6 +109,7 @@ The builds eb-pipeline starts are seen on the host eb-pipeline runs on even when
 - =rotate= sees the writers on its own host, and of those only the processes whose descriptors it may read in =/proc=: the user's own, except one running a set-user-ID program, and every process for root.
 - A process that has the tree at another path, as in a container that mounts it elsewhere, is not seen, nor one that opens a file in an old run after =rotate= has looked.
 - A build on another host is seen only through a process on this one that writes into its run, as eb-pipeline's output file is; a daily job on another host than eb-pipeline's takes eb-pipeline's lock around =rotate=, as above, to wait for its runs.
+- A line added to a =.licensed-logs= while =rotate= rewrites that list goes with the old list; add lines between rotations.
 
 ** Further reading
 

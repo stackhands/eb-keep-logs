@@ -135,7 +135,7 @@ What =failed= cannot do it reports on stderr as =eb-keep-logs: MESSAGE=, and goe
 |-------------------------------------+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | =ROOT/.eb-keep-logs-rotate.lock=    | Created empty when missing, and left in place. =rotate= holds an exclusive flock(2) lock on it from before it lists =ROOT= until it exits, and opens it for reading when it may not write it. eb-pipeline's =ROOT/.eb-pipeline-rotate.lock= is another lock, which =rotate= does not take. |
 | =ROOT/RUN/.../FILE.log=, =FILE.txt= | In a run old enough, replaced by =FILE.gz= with the file's mode, as =gzip -9= does; a symbolic link is not followed, and a file with other hard links or an existing =FILE.gz= is left as it is, with a message on stderr.                              |
-| =ROOT/RUN/.../.licensed-logs=       | In a run in which files were compressed, a line that names one of them, by its absolute path with symbolic links resolved, is changed to name its =.gz= file. A list that changes keeps its owner when permitted, its mode and its access control list. |
+| =ROOT/RUN/.../.licensed-logs=       | In a run in which files were compressed, a line that names one of them, by its absolute path with symbolic links resolved, is changed to name its =.gz= file. A list that changes keeps its owner when permitted, its mode and its access control list. It is replaced whole: the new list is written to a file beside it, synced and renamed over it, and the directory is synced, so a reader finds the old list or the new one, never part of one. |
 | =ROOT/RUN=                          | Removed with everything in it, when old enough for =--delete-after=, without being compressed first. A symbolic link in it is removed, not followed. Removal stops at the first error.                                                                  |
 | =/proc/PID/fd/N=                    | Read, for every process whose descriptors =rotate= may read, after it has the lock: a link with its owner's write bit names a file the process has open for writing, and the run that file is in is left alone. Without =/proc=, no run is left alone for it. |
 
@@ -159,6 +159,7 @@ What =rotate= cannot do it reports on stderr as =eb-keep-logs: MESSAGE=, and goe
 | =cannot resolve a run directory: ERROR= | The absolute path of a run, or of a directory in it, could not be found; nothing in it is compressed.                               |
 | =cannot read a .licensed-logs: ERROR=   | A list could not be read, or is larger than 64 MiB; it is left as it is.                                                            |
 | =cannot update a .licensed-logs: ERROR= | A list could not be replaced; it is left as it is.                                                                                  |
+| =cannot sync a .licensed-logs: ERROR=   | A list was replaced, but its directory could not be synced; after a crash the old list may be back.                                 |
 | =cannot delete ROOT/RUN: ERROR=         | The run could not be removed completely; what was removed stays removed.                                                            |
 
 *** --version
