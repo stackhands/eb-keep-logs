@@ -61,6 +61,38 @@ pub fn lastCommandOutput(text: []const u8) ?[]const u8 {
     return last;
 }
 
+/// What `lastCommandOutput` finds in a session log, unless the lines after
+/// it record that command ending well: EasyBuild logs "... completed
+/// successfully" or "... FAILED (exit code N)" when a command ends, and
+/// nothing when the build died while it ran.
+pub fn failedCommandOutput(text: []const u8) ?[]const u8 {
+    const path = lastCommandOutput(text) orelse return null;
+    const end = @intFromPtr(path.ptr) - @intFromPtr(text.ptr) + path.len;
+    const nl = std.mem.findScalarPos(u8, text, end, '\n') orelse return path;
+    const after = text[nl + 1 ..];
+    const ok = std.mem.find(u8, after, " completed successfully") orelse return path;
+    if (std.mem.find(u8, after[0..ok], " FAILED (exit code ") != null) return path;
+    return null;
+}
+
+/// Whether a meson testlog's summary shows every test passing: an "Ok:"
+/// line, and no "Fail:", "Unexpected Pass:" or "Timeout:" line counting
+/// more than 0.
+pub fn mesonPassed(text: []const u8) bool {
+    var summary = false;
+    var lines = std.mem.splitScalar(u8, text, '\n');
+    while (lines.next()) |line| {
+        if (std.mem.startsWith(u8, line, "Ok:")) summary = true;
+        for ([_][]const u8{ "Fail:", "Unexpected Pass:", "Timeout:" }) |label| {
+            if (!std.mem.startsWith(u8, line, label)) continue;
+            var i = label.len;
+            while (i < line.len and isSpace(line[i])) i += 1;
+            if (i < line.len and line[i] >= '1' and line[i] <= '9') return false;
+        }
+    }
+    return summary;
+}
+
 /// The last match of the PCRE `meson test -C\s+\K[^[:space:]]+` over the
 /// whole log, newlines counting as spaces.
 pub fn lastMesonDir(text: []const u8) ?[]const u8 {
@@ -119,6 +151,32 @@ test "otherBuild" {
     try std.testing.expect(!otherBuild("compile error\n", "calc-1.0"));
     // A longer name that starts with this one is another easyconfig.
     try std.testing.expect(otherBuild("== processing EasyBuild easyconfig /ec/calc-1.0-x.eb\n", "calc-1.0"));
+}
+
+test "failedCommandOutput" {
+    const cmd = "\toutput will be logged to /e/run-shell-cmd-output/make-1/out.txt\n";
+    const ok = "== run.py:650 INFO Shell command completed successfully\n";
+    const failed = "== run.py:652 WARNING Shell command FAILED (exit code 2)\n";
+    try std.testing.expectEqualStrings("/e/run-shell-cmd-output/make-1/out.txt", failedCommandOutput(cmd ++ failed ++ ok).?);
+    try std.testing.expect(failedCommandOutput(cmd ++ ok ++ failed) == null);
+    try std.testing.expect(failedCommandOutput(cmd ++ "x\n" ++ ok) == null);
+    // No outcome: the build died while the command ran.
+    try std.testing.expectEqualStrings("/e/run-shell-cmd-output/make-1/out.txt", failedCommandOutput(cmd ++ "x\n").?);
+    try std.testing.expect(failedCommandOutput(cmd[0 .. cmd.len - 1]) != null);
+    // Only the lines after the command's own line count.
+    try std.testing.expect(failedCommandOutput("== Shell command completed successfully " ++ cmd) != null);
+    try std.testing.expect(failedCommandOutput(ok) == null);
+}
+
+test "mesonPassed" {
+    try std.testing.expect(mesonPassed("x\n\nOk:                1   \nFail:              0   \n"));
+    try std.testing.expect(!mesonPassed("Ok:                0   \nFail:              1   \n"));
+    try std.testing.expect(!mesonPassed("Ok: 3\nFail: 0\nTimeout:  2\n"));
+    try std.testing.expect(!mesonPassed("Ok: 3\nUnexpected Pass:\t1\r\n"));
+    try std.testing.expect(mesonPassed("Ok: 3\nExpected Fail: 1\nSkipped: 4\n"));
+    // No summary: meson did not finish.
+    try std.testing.expect(!mesonPassed("---- tests::the_one stdout ----\n"));
+    try std.testing.expect(!mesonPassed(""));
 }
 
 test "lastMesonDir" {

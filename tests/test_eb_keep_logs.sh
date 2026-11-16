@@ -179,6 +179,39 @@ check "meson testlog kept" "$(cat "${tl}" 2>/dev/null)" "---- tests::the_one std
 check "meson testlog closed to others" "$(stat -c '%A' "${tl}" | cut -c8-10)" "---"
 check "meson testlog listed" "$(grep -c 'Qux-4.0.failed.meson-testlog.txt' "${work}/logs/.licensed-logs")" "1"
 
+# failed: the session log's last command output, and the meson testlog, are
+# kept only when that command and those tests failed. EasyBuild 5.4.2 logs
+# each command's out.txt, then "completed successfully" or "FAILED".
+ebtmp="$(realpath "${work}")/ebtmp"
+for cmd in meson-1 ninja-2 make-3; do
+    mkdir -p "${ebtmp}/eb-1/run-shell-cmd-output/${cmd}"
+    echo "${cmd} output" > "${ebtmp}/eb-1/run-shell-cmd-output/${cmd}/out.txt"
+done
+mkdir -p "${work}/build/sane/easybuild_obj/meson-logs" "${work}/build/broken/easybuild_obj/meson-logs"
+printf 'Ok:                1   \nFail:              0   \n' > "${work}/build/sane/easybuild_obj/meson-logs/testlog.txt"
+printf 'ring:wraparound FAIL\n\nOk:                0   \nFail:              1   \n' > "${work}/build/broken/easybuild_obj/meson-logs/testlog.txt"
+command_log() {
+    printf '\toutput will be logged to %s/eb-1/run-shell-cmd-output/meson-1/out.txt\n' "${ebtmp}"
+    printf '\tmeson test -C %s/build/%s/easybuild_obj --print-errorlogs\n' "${work}" "$1"
+    printf '== 2026-11-16 00:39:31,066 run.py:%s\n' "$2"
+    [ "$#" -lt 3 ] || printf '\toutput will be logged to %s/eb-1/run-shell-cmd-output/%s/out.txt\n' "${ebtmp}" "$3"
+    [ "$#" -lt 4 ] || printf '== 2026-11-16 00:39:31,399 run.py:%s\n' "$4"
+}
+command_log sane '650 INFO Shell command completed successfully' ninja-2 '650 INFO Shell command completed successfully' > "${work}/tmp/easybuild-Sane-1.0.log"
+echo "== 2026-11-16 00:39:31,802 build_log.py:233 ERROR EasyBuild encountered an error: Sanity check failed: no file found at 'lib/libsane.so'" >> "${work}/tmp/easybuild-Sane-1.0.log"
+command_log broken '652 WARNING Shell command FAILED (exit code 1)' > "${work}/tmp/easybuild-Broken-1.0.log"
+command_log sane '650 INFO Shell command completed successfully' make-3 > "${work}/tmp/easybuild-Killed-1.0.log"
+for n in Sane Broken Killed; do
+    printf '#!/bin/bash\necho %s/tmp/easybuild-%s-1.0.log\n' "${work}" "${n}" > "${work}/bin/eb"
+    EASYBUILD_TMPDIR="${ebtmp}" "${tool}" failed 1 "${n}-1.0" "${work}/logs" >/dev/null
+done
+check "sanity check failure: log kept" "$(count 'Sane-1.0.failed.ebout.log')" "1"
+check "sanity check failure: no command output" "$(count 'Sane-1.0.failed.command-*')" "0"
+check "sanity check failure: passing testlog not kept" "$(count 'Sane-1.0.failed.meson-testlog.txt')" "0"
+check "failed meson test: its output kept" "$(cat "${work}/logs/Broken-1.0.failed.command-out.txt" 2>/dev/null)" "meson-1 output"
+check "failed meson test: testlog kept" "$(tail -n 1 "${work}/logs/Broken-1.0.failed.meson-testlog.txt" 2>/dev/null)" "Fail:              1   "
+check "build died in a command: its output kept" "$(cat "${work}/logs/Killed-1.0.failed.command-out.txt" 2>/dev/null)" "make-3 output"
+
 # failed: bad arguments are refused with exit 2
 "${tool}" failed x Foo "${work}/logs" 2>/dev/null
 check "non-numeric status refused" "$?" "2"

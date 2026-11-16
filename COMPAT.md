@@ -33,4 +33,5 @@ on the same invocations.
 | compression | runs `gzip -9`, `find` and `awk` | in process; the gzip header (name, mtime, flags, OS) matches `gzip -9`, the compressed bytes differ; a file with other hard links or an existing `.gz` is skipped as gzip skips it |
 | `eb --last-log` that does not return | waits without a limit | its process group is killed after 300 s, and nothing is kept |
 | a log larger than 1 GiB | scanned | copied, not checked for another build and not scanned for the command output or meson paths, with a message on stderr |
+| a meson testlog larger than 1 GiB | kept unless its summary shows every test passing | kept without reading the summary, with a message on stderr |
 | a log with NUL bytes | `grep` reports a binary match and the scan finds nothing | scanned as text |
