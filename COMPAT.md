@@ -11,8 +11,8 @@ on the same invocations.
 |---|---|
 | commands | `failed STATUS NAME LOGDIR [TMP_LOGDIR]`, `rotate ROOT --compress-after DAYS [--delete-after DAYS]`, `-h`, `--help`, `--version` |
 | exit codes | 0 on success and on every `failed` that got past its arguments; 2 for a refused invocation, after `eb-keep-logs: MESSAGE` on stderr; 2 with the usage text on stdout for no arguments |
-| environment | `PATH` (finds `eb`), `EASYBUILD_TMPDIR`, `EB_KEEP_LOGS_NOW`, `TZ`, `TZDIR` |
-| stdout | `Failed build log: LOGDIR/NAME.failed.ebout.log`, `Failed command output: LOGDIR/NAME.failed.command-{out,err}.txt`, `Failed meson test log: LOGDIR/NAME.failed.meson-testlog.txt`, `No EasyBuild log to keep for NAME.`, `eb-keep-logs rotate: N files compressed, M runs deleted under ROOT` |
+| environment | `PATH` (finds `eb`), `EASYBUILD_TMPDIR`, `EB_KEEP_LOGS_NOW`, `TZ`, `TZDIR`; `eb --last-log` runs with `EASYBUILD_OUTPUT_STYLE=basic`, and when that fails once more without the variable |
+| stdout | `Failed build log: LOGDIR/NAME.failed.ebout.log`, `Failed command output: LOGDIR/NAME.failed.command-{out,err}.txt`, `Failed meson test log: LOGDIR/NAME.failed.meson-testlog.txt`, `No EasyBuild log to keep for NAME.`, `No EasyBuild log to keep for NAME: eb is not on PATH.`, `No EasyBuild log to keep for NAME: eb --last-log exited N.`, `eb-keep-logs rotate: N files compressed, M runs deleted under ROOT` |
 | files | kept files closed to others (command streams mode 0600), their resolved paths appended to `LOGDIR/.licensed-logs`; `rotate` writes `FILE.gz` with the file's mode and updates `.licensed-logs` to the `.gz` path |
 | run ages | days from the local midnight of the date in the run's name, as `date -d YYYYMMDD` computes it, including TZ rules; a run whose local midnight does not exist is skipped |
 

@@ -15,6 +15,7 @@ Documentation: <https://stackhands.github.io/eb-keep-logs/>
 A failed build's EasyBuild log stays in EasyBuild's tmpdir on the build node, which disappears with the job.
 Parsing EasyBuild's stdout for the log path is unreliable, because EasyBuild wraps the "Results of the build can be found in the log file(s)" line.
 `eb-keep-logs failed` asks `eb --last-log` for the path and keeps a copy.
+It runs `eb --last-log` with `EASYBUILD_OUTPUT_STYLE=basic`, because EasyBuild 5 wraps that path too when its output is not a terminal, and again without it for an EasyBuild that has no output styles.
 
 ## Install
 
