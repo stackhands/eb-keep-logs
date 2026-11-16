@@ -111,6 +111,7 @@ compare "rotate, bad compress" rotate "${work}/logs" --compress-after=x
 compare "rotate, delete not later" rotate "${work}/logs" --compress-after 5 --delete-after 5
 compare "rotate, empty delete" rotate "${work}/logs" --compress-after 5 --delete-after ""
 compare "rotate, nothing to do" rotate "${work}/logs" --compress-after 5 --delete-after 9
+EB_KEEP_LOGS_NOW='' compare "rotate, empty EB_KEEP_LOGS_NOW" rotate "${work}/logs" --compress-after 5
 
 echo "${diffs} differences"
 [ "${diffs}" -eq 0 ]

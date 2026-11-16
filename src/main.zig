@@ -585,8 +585,9 @@ fn cmdRotate(c: Ctx, args: []const [:0]const u8) u8 {
         if (delete_after.? <= compress_after) die("--delete-after must be later than --compress-after", .{});
     }
 
-    const now: i64 = if (c.getenv("EB_KEEP_LOGS_NOW")) |s|
-        std.fmt.parseInt(i64, s, 10) catch die("EB_KEEP_LOGS_NOW must be seconds since the epoch, not '{s}'", .{s})
+    const now_s = c.getenv("EB_KEEP_LOGS_NOW") orelse "";
+    const now: i64 = if (now_s.len > 0)
+        std.fmt.parseInt(i64, now_s, 10) catch die("EB_KEEP_LOGS_NOW must be seconds since the epoch, not '{s}'", .{now_s})
     else blk: {
         var ts: linux.timespec = undefined;
         _ = linux.clock_gettime(.REALTIME, &ts);

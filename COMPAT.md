@@ -45,6 +45,5 @@ The Zig build differs here without meaning to; each is a bug in the Zig build.
 
 | case | shell script | Zig build |
 |---|---|---|
-| `EB_KEEP_LOGS_NOW` set but empty | the current time | refused, exit 2: `eb-keep-logs: EB_KEEP_LOGS_NOW must be seconds since the epoch, not ''` |
 | `TZDIR` set but empty, `TZ` naming a zone file | the file under `/usr/share/zoneinfo`, as `date` reads it | the name is looked up relative to the working directory, so the zone is UTC unless a file of that name is there |
 | `TZ` with a leading `:` that names no file, such as `:CET-1CEST,M3.5.0,M10.5.0/3` | the rule string after the `:`, as `date` reads it | UTC |

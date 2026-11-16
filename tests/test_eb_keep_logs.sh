@@ -350,5 +350,17 @@ check "own run through a pipe: not compressed" "$(lsrun "${log_dir}")" "F.stdout
 EB_KEEP_LOGS_NOW=${next_day} "${tool}" rotate "${piped}" --compress-after 1 > /dev/null 2>&1
 check "a finished run is compressed" "$(lsrun "${log_dir}")" "F.stdout.log.gz rotate.log.gz "
 
+# rotate: an empty EB_KEEP_LOGS_NOW is the current time, as an unset one is
+now_root="${work}/now"
+old_run="$(TZ=UTC date -d '40 days ago' +%Y%m%d)_000000"
+young_run="$(TZ=UTC date -d '20 days ago' +%Y%m%d)_000000"
+mkdir -p "${now_root}/${old_run}" "${now_root}/${young_run}"
+echo old > "${now_root}/${old_run}/H.stdout.log"
+echo young > "${now_root}/${young_run}/I.stdout.log"
+check "empty EB_KEEP_LOGS_NOW: the current time" \
+    "$(TZ=UTC EB_KEEP_LOGS_NOW='' "${tool}" rotate "${now_root}" --compress-after 30 2>&1)" \
+    "eb-keep-logs rotate: 1 file compressed, 0 runs deleted under ${now_root}"
+check "empty EB_KEEP_LOGS_NOW: the run 40 days old compressed" "$(lsrun "${now_root}/${old_run}")" "H.stdout.log.gz "
+
 if [ "${fails}" -ne 0 ]; then echo "${fails} failed"; exit 1; fi
 echo "all passed"
