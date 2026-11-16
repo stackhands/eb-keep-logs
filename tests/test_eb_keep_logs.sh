@@ -58,6 +58,8 @@ for _ in 1 2; do
 done
 check "retry: the command output is kept" "$(count 'Retry-1.0.failed.command-*.txt')" "2"
 check "retry: each kept file is listed once" "$(grep -c 'Retry-1.0' "${work}/logs/.licensed-logs")" "3"
+# failed: a LOGDIR given with trailing slashes is named with one slash
+check "trailing slash: one slash in the message" "$("${tool}" failed 1 Foo-1.0-GCC-15.2.0 "${work}/logs//")" "Failed build log: ${work}/logs/Foo-1.0-GCC-15.2.0.failed.ebout.log"
 
 # failed: an explicit --tmp-logdir is passed on to eb --last-log
 cat > "${work}/bin/eb" <<EOF
@@ -254,9 +256,13 @@ check "recent run untouched" "$(ls "${root}/20261110_120000")" "C.stdout.log"
 check "non-run directory untouched" "$(ls "${root}/notarun")" "E.log"
 check "no deletion without --delete-after" "$(ls -d "${root}/20260801_090000" 2>/dev/null | wc -l | tr -d ' ')" "1"
 
-"${tool}" rotate "${root}" --compress-after 30 --delete-after 90 >/dev/null
+check "one run deleted, singular" "$("${tool}" rotate "${root}" --compress-after 30 --delete-after 90)" "eb-keep-logs rotate: 0 files compressed, 1 run deleted under ${root}"
 check "run past --delete-after deleted" "$(ls -d "${root}/20260801_090000" 2>/dev/null | wc -l | tr -d ' ')" "0"
 check "run inside --delete-after kept" "$(ls -d "${root}/20261001_120000" 2>/dev/null | wc -l | tr -d ' ')" "1"
+
+mkdir -p "${work}/one/20261001_120000"
+echo one > "${work}/one/20261001_120000/F.stdout.log"
+check "one file compressed, singular" "$("${tool}" rotate "${work}/one" --compress-after 30)" "eb-keep-logs rotate: 1 file compressed, 0 runs deleted under ${work}/one"
 
 "${tool}" rotate "${root}" --compress-after 30 --delete-after 10 2>/dev/null
 check "delete before compress refused" "$?" "2"

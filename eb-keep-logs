@@ -27,6 +27,19 @@ usage() { sed -n '2,18p' "$0" | sed 's/^# \{0,1\}//'; }
 
 die() { echo "eb-keep-logs: $*" >&2; exit 2; }
 
+# A directory argument as paths join it to a name with "/": without trailing
+# slashes, so "logs/" gives "logs/NAME" and "/" gives "/NAME".
+_joinable() {
+    local dir="$1"
+    while [[ "${dir}" == */ ]]; do dir="${dir%/}"; done
+    printf '%s\n' "${dir}"
+}
+
+# COUNT WORD: "1 WORD", else COUNT and WORD with an s.
+_count() {
+    if [ "$1" -eq 1 ]; then echo "$1 $2"; else echo "$1 $2s"; fi
+}
+
 # Record a kept file as one that may carry a licence number: a failed compile
 # line of licensed software prints it. Once: a retried build keeps the same
 # files again.
@@ -76,6 +89,7 @@ cmd_failed() {
     local src dest
     [[ "${status}" =~ ^[0-9]+$ ]] || die "STATUS must be a number, not '${status}'"
     [ -d "${logdir}" ] || die "LOGDIR ${logdir} is not a directory"
+    logdir=$(_joinable "${logdir}")
     if [ "${status}" -eq 0 ]; then
         return 0
     fi
@@ -202,7 +216,7 @@ cmd_rotate() {
         [ "${delete_after}" -gt "${compress_after}" ] || die "--delete-after must be later than --compress-after"
     fi
     local run age file list path compressed=0 deleted=0
-    for run in "${root}"/*/; do
+    for run in "$(_joinable "${root}")"/*/; do
         run="${run%/}"
         [ -d "${run}" ] && [ ! -L "${run}" ] || continue
         age=$(_run_age_days "${run}") || continue
@@ -224,7 +238,7 @@ cmd_rotate() {
             done < <(find "${run}" -name .licensed-logs -type f -print0)
         done < <(find "${run}" -type f \( -name '*.log' -o -name '*.txt' \) -print0)
     done
-    echo "eb-keep-logs rotate: ${compressed} files compressed, ${deleted} runs deleted under ${root}"
+    echo "eb-keep-logs rotate: $(_count "${compressed}" file) compressed, $(_count "${deleted}" run) deleted under ${root}"
 }
 
 case "${1:-}" in
