@@ -1,0 +1,1 @@
+The site has how-to guides for rotating a log tree and marking logs that may carry a licence number; an explanation of how a run's age is reckoned from its name in local time; and a reference of the `eb-keep-logs` command: its arguments, options, environment variables, exit statuses, every message it prints and the files it reads and writes.

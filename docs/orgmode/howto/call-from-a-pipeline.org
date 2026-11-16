@@ -86,5 +86,7 @@ Each build has =NAME.stdout.log= and its =--tmp-logdir= under =easybuild-logs/=;
 
 ** Related
 
+- [[file:rotate-a-log-tree.org][Rotate a log tree]]
 - [[file:../explanation/why-eb-last-log.org][Finding a failed build's log]]
+- [[file:../reference/cli.org][The eb-keep-logs command]]
 - [[file:../tutorials/keep-a-failed-build-log.org][Keep a failed build's logs]]

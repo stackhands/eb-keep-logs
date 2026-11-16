@@ -1,0 +1,166 @@
+#+TITLE: The eb-keep-logs command
+#+OPTIONS: toc:nil todo:nil num:nil author:nil title:nil
+#+STARTUP: content
+
+* The eb-keep-logs command
+
+=eb-keep-logs= keeps the logs of a failed EasyBuild build, and compresses and removes the old runs of a log tree.
+This page describes the Zig build; the shell script =eb-keep-logs= in the repository behaves the same, except as [[file:compatibility.org][Compatibility]] lists.
+
+** Synopsis
+
+#+begin_example
+eb-keep-logs failed STATUS NAME LOGDIR [TMP_LOGDIR]
+eb-keep-logs rotate ROOT --compress-after DAYS [--delete-after DAYS]
+eb-keep-logs --help | --version
+#+end_example
+
+** Arguments
+
+| Argument     | Command  | Meaning                                                                                                                                                                                                 |
+|--------------+----------+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| =STATUS=     | =failed= | The exit status =eb= returned, in decimal digits. A status of only zeros keeps and changes nothing, once =LOGDIR= has been checked.                                                                     |
+| =NAME=       | =failed= | The easyconfig's name without =.eb=, as in =LOGDIR/NAME.stdout.log=; it names the copies, and without =TMP_LOGDIR= it tells the build's own log from another build's.                                   |
+| =LOGDIR=     | =failed= | The run's directory, which holds =NAME.stdout.log= and gets the copies and =.licensed-logs=; a symbolic link to a directory is followed.                                                                |
+| =TMP_LOGDIR= | =failed= | The =--tmp-logdir= =eb= ran with, passed on to =eb --last-log=. Empty is the same as not given: =eb --last-log= then names the newest log in EasyBuild's default place. Arguments after it are ignored. |
+| =ROOT=       | =rotate= | The directory that holds the runs. A run is a directory directly under it, not a symbolic link, named =YYYYMMDD_HHMMSS= with a date that exists; everything else under it is left alone.                |
+
+** Options
+
+| Option                                           | Command  | Meaning                                                                                                                                      |
+|--------------------------------------------------+----------+----------------------------------------------------------------------------------------------------------------------------------------------|
+| =--compress-after DAYS=, =--compress-after=DAYS= | =rotate= | Required. Compress the =*.log= and =*.txt= files, at any depth, of runs at least =DAYS= old. =DAYS= is decimal digits.                       |
+| =--delete-after DAYS=, =--delete-after=DAYS=     | =rotate= | Remove whole runs at least =DAYS= old. =DAYS= must be larger than =--compress-after=. Without it, or with an empty value, no run is removed. |
+| =-h=, =--help=                                   |          | Print the usage on stdout and exit 0.                                                                                                        |
+| =--version=                                      |          | Print the version line on stdout and exit 0.                                                                                                 |
+
+- A run's age is the number of whole days from the local midnight of the date in its name; [[file:../explanation/local-time.org][Run ages and local time]] gives the details.
+- =rotate='s options and =ROOT= come in any order; the value of an option is the next argument, whatever it is.
+  An option given twice takes its last value.
+- =-h=, =--help= and =--version= count only in the place of the command.
+- =failed= takes no options.
+
+** Environment
+
+| Variable              | Command  | Meaning                                                                                                                                                                                                                                                                                                                                                           |
+|-----------------------+----------+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| =PATH=                | =failed= | Where =eb= is looked up. =eb= runs with the environment =failed= got.                                                                                                                                                                                                                                                                                             |
+| =EASYBUILD_TMPDIR=    | =failed= | A failed command's output is copied only from below this directory, both paths resolved. Unset or empty, it is not copied.                                                                                                                                                                                                                                        |
+| =EB_KEEP_LOGS_NOW=    | =rotate= | The time =rotate= takes as now, in seconds since the epoch. When set, it must be an integer; an empty value is refused too, where the shell script takes the current time.                                                                                                                                                                                        |
+| =EB_PIPELINE_LOG_DIR= | =rotate= | The run that holds this path is left alone: it is the run eb-pipeline writes into. Unset, empty, or a path that does not exist, it changes nothing.                                                                                                                                                                                                               |
+| =TZ=                  | =rotate= | The time zone of the local midnight: unset, =/etc/localtime=; empty, UTC; otherwise a zone file, by name under =TZDIR= or by absolute path, or a POSIX rule string such as =CET-1CEST,M3.5.0,M10.5.0/3=. A value starting with =:= is a zone file only, where the shell script's =date= reads a rule string after the =:= too. A zone that cannot be read is UTC. |
+| =TZDIR=               | =rotate= | The directory of zone files, =/usr/share/zoneinfo= when unset. Set but empty, a zone name is looked up relative to the working directory, where the shell script's =date= uses =/usr/share/zoneinfo=.                                                                                                                                                             |
+
+** Exit status
+
+| Status | Meaning                                                                                                                                                                          |
+|--------+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+|      0 | =--help= or =--version=, or a =failed= or =rotate= that accepted its arguments, whatever it could keep, compress or remove: what it could not do is reported, and is no failure. |
+|      2 | The invocation was refused, with =eb-keep-logs: MESSAGE= on stderr; or no command was given, and the usage is on stdout.                                                         |
+
+| =MESSAGE=                                                       | Cause                                                                                         |
+|-----------------------------------------------------------------+-----------------------------------------------------------------------------------------------|
+| =unknown command 'WORD' (failed, rotate, --help)=               | The first argument is none of the commands.                                                   |
+| =failed needs STATUS NAME LOGDIR [TMP_LOGDIR]=                  | =failed= got fewer than three arguments.                                                      |
+| =STATUS must be a number, not 'STATUS'=                         | =STATUS= is empty or holds something other than digits.                                       |
+| =LOGDIR LOGDIR is not a directory=                              | =LOGDIR= does not name a directory that can be opened.                                        |
+| =rotate needs ROOT=                                             | =rotate= got no =ROOT=, or an empty one.                                                      |
+| =rotate takes one ROOT=                                         | =rotate= got two arguments that are not options.                                              |
+| =unknown option OPTION=                                         | =rotate= got an argument starting with =-= that is none of its options.                       |
+| =ROOT ROOT is not a directory=                                  | =ROOT= does not name a directory that can be opened.                                          |
+| =OPTION needs a number of days=                                 | =--compress-after= is missing, or a value is missing, empty, not decimal digits or too large. |
+| =--delete-after must be later than --compress-after=            | =--delete-after= is not larger than =--compress-after=.                                       |
+| =EB_KEEP_LOGS_NOW must be seconds since the epoch, not 'VALUE'= | =EB_KEEP_LOGS_NOW= is set, and is not an integer.                                             |
+| =cannot read ROOT ROOT=, =cannot read ROOT ROOT: ERROR=         | =ROOT= could not be listed.                                                                   |
+| =cannot read the arguments=                                     | The arguments could not be read into memory.                                                  |
+
+=rotate= checks =ROOT= before its options' values, and =failed= checks =STATUS= and then =LOGDIR=.
+
+** Files
+
+*** failed
+
+| File                                             | Use                                                                                                                                                                                                      |
+|--------------------------------------------------+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| =LOGDIR/NAME.stdout.log=                         | Read: the last =.../run-shell-cmd-output/DIR/out.txt= path in it names the failed command's output. Closed to others, not through a symbolic link.                                                       |
+| the session log =eb --last-log= names            | Read, and copied to =LOGDIR/NAME.failed.ebout.log=. When =NAME.stdout.log= names no =out.txt=, the last one the session log names is taken, unless the log records that command completing successfully. |
+| =LOGDIR/NAME.failed.ebout.log=                   | The session log.                                                                                                                                                                                         |
+| =LOGDIR/NAME.failed.command-out.txt=, =-err.txt= | The failed command's =out.txt= and, when there is one, =err.txt=, mode 0600. A stream that is a symbolic link is not opened.                                                                             |
+| =LOGDIR/NAME.failed.meson-testlog.txt=           | =meson-logs/testlog.txt= of the last =meson test -C DIR= the session log names, unless every test in it passed.                                                                                          |
+| =LOGDIR/.licensed-logs=                          | Each copy's absolute path, with symbolic links resolved, is appended unless the list has it.                                                                                                             |
+| =TMP_LOGDIR=                                     | Closed to others, with the regular files directly in it, when it lies below =LOGDIR=.                                                                                                                    |
+
+Each copy is written to a temporary file in =LOGDIR= and renamed over the name, so a copy that fails part way leaves an earlier one as it was.
+A copy takes the source's mode, or the mode and, when permitted, the owner of the file it replaces, without others' bits; the command's streams are mode 0600.
+A symbolic link, a directory or another file that is not a regular one at a copy's name is not written through: the copy is refused, with =eb-keep-logs: cannot keep LOGDIR/FILE: ERROR= on stderr.
+What =failed= prints on stdout:
+
+| Line                                                                  | When                                                                                                                       |
+|-----------------------------------------------------------------------+----------------------------------------------------------------------------------------------------------------------------|
+| =Failed build log: LOGDIR/NAME.failed.ebout.log=                      | The session log was kept.                                                                                                  |
+| =Failed command output: LOGDIR/NAME.failed.command-out.txt=           | A command stream was kept, one line for each.                                                                              |
+| =Failed meson test log: LOGDIR/NAME.failed.meson-testlog.txt=         | The meson test log was kept.                                                                                               |
+| =No EasyBuild log to keep for NAME: eb is not on PATH.=               | =eb= is not on =PATH=; nothing is kept.                                                                                    |
+| =No EasyBuild log to keep for NAME: eb --last-log exited N.=          | =eb --last-log= failed; nothing is kept.                                                                                   |
+| =No EasyBuild log to keep for NAME.=                                  | =eb --last-log= printed nothing, named no log that could be opened, or did not return within 300 seconds; nothing is kept. |
+| =No EasyBuild log to keep for NAME: PATH is another build's log.=     | Without =TMP_LOGDIR=, the newest log is another build's; the command output =NAME.stdout.log= names is still kept.         |
+| =Failed command output not kept: EASYBUILD_TMPDIR is not set.=        | =EASYBUILD_TMPDIR= is unset or empty.                                                                                      |
+| =Failed command output not kept: PATH is not under EASYBUILD_TMPDIR.= | The stream lies elsewhere.                                                                                                 |
+| =Failed command output not kept: PATH belongs to another user.=       | The stream is not the caller's.                                                                                            |
+
+=LOGDIR= appears in these lines without its trailing slashes.
+What =failed= cannot do it reports on stderr as =eb-keep-logs: MESSAGE=, and goes on with the rest:
+
+| =MESSAGE=                                   | Cause                                                                                                                                                                                                                                                                          |
+|---------------------------------------------+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| =cannot keep LOGDIR/FILE: ERROR=            | The copy could not be written: =LOGDIR= is not writable, or =FILE= is a symbolic link, a directory or not a regular file.                                                                                                                                                      |
+| =cannot stat PATH: ERROR=                   | A copy, =NAME.stdout.log=, =TMP_LOGDIR= or a file in it could not be examined; it is not closed to others.                                                                                                                                                                     |
+| =cannot close PATH to others: ERROR=        | Its mode could not be changed.                                                                                                                                                                                                                                                 |
+| =cannot resolve a kept file: ERROR=         | A copy's absolute path could not be found; it is not listed.                                                                                                                                                                                                                   |
+| =cannot list PATH in .licensed-logs: ERROR= | The line could not be appended to =.licensed-logs=.                                                                                                                                                                                                                            |
+| =cannot scan PATH: ERROR=                   | The session log, =NAME.stdout.log= or the meson test log could not be read, or is larger than 1 GiB. Such a session log is still copied, but nothing is taken from it; for such a =NAME.stdout.log=, the session log is searched instead; such a meson test log is still kept. |
+
+*** rotate
+
+| File                                | Use                                                                                                                                                                                                                                                     |
+|-------------------------------------+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| =ROOT/RUN/.../FILE.log=, =FILE.txt= | In a run old enough, replaced by =FILE.gz= with the file's mode, as =gzip -9= does; a symbolic link is not followed, and a file with other hard links or an existing =FILE.gz= is left as it is, with a message on stderr.                              |
+| =ROOT/RUN/.../.licensed-logs=       | In a run in which files were compressed, a line that names one of them, by its absolute path with symbolic links resolved, is changed to name its =.gz= file. A list that changes keeps its owner when permitted, its mode and its access control list. |
+| =ROOT/RUN=                          | Removed with everything in it, when old enough for =--delete-after=, without being compressed first. A symbolic link in it is removed, not followed. Removal stops at the first error.                                                                  |
+
+A run that holds the file =rotate='s standard output or standard error goes to, or =EB_PIPELINE_LOG_DIR=, is left alone; the next =rotate= takes it.
+On stdout =rotate= prints one line, with =ROOT= as given:
+
+#+begin_example
+eb-keep-logs rotate: N files compressed, M runs deleted under ROOT
+#+end_example
+
+with =1 file= and =1 run= for a count of one.
+What =rotate= cannot do it reports on stderr as =eb-keep-logs: MESSAGE=, and goes on with the rest; a file or run it reports is not counted:
+
+| =MESSAGE=                               | Cause                                                                                                                               |
+|-----------------------------------------+-------------------------------------------------------------------------------------------------------------------------------------|
+| =cannot compress PATH: ERROR=           | =PATH= is left as it is: it has other hard links (=TooManyLinks=), =PATH.gz= exists (=Exists=), or it could not be read or written. |
+| =cannot open PATH: ERROR=               | A run, or a directory in a run, could not be opened; nothing in it is compressed.                                                   |
+| =cannot read PATH: ERROR=               | Listing a run, or a directory in it, failed part way; nothing in it is compressed.                                                  |
+| =cannot resolve a run directory: ERROR= | The absolute path of a run, or of a directory in it, could not be found; nothing in it is compressed.                               |
+| =cannot read a .licensed-logs: ERROR=   | A list could not be read, or is larger than 64 MiB; it is left as it is.                                                            |
+| =cannot update a .licensed-logs: ERROR= | A list could not be replaced; it is left as it is.                                                                                  |
+| =cannot delete ROOT/RUN: ERROR=         | The run could not be removed completely; what was removed stays removed.                                                            |
+
+*** --version
+
+The version line follows the [[site:zig-common:reference/cli-conventions][command-line conventions]] of the stackhands Zig tools.
+Version 0.2.1, built with =zig build -Drelease=true -Dcommit=5ceaead=:
+
+#+begin_example
+eb-keep-logs 0.2.1 (x86_64-linux-musl, safe, zig 0.17.1, 5ceaead)
+#+end_example
+
+** See also
+
+- [[file:../tutorials/keep-a-failed-build-log.org][Keep a failed build's logs]]
+- [[file:../howto/call-from-a-pipeline.org][Call eb-keep-logs from a build pipeline]], [[file:../howto/rotate-a-log-tree.org][Rotate a log tree]] and [[file:../howto/mark-licensed-logs.org][Mark logs that may carry a licence number]]
+- [[file:../explanation/why-eb-last-log.org][Finding a failed build's log]] and [[file:../explanation/local-time.org][Run ages and local time]]
+- [[file:compatibility.org][Compatibility]], the differences from the shell script.
+- [[file:api/zig/eb-keep-logs.md][The Zig API]], from the doc comments of the source.

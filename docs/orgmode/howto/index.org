@@ -12,4 +12,6 @@ The title names the task.
    :maxdepth: 1
 
    call-from-a-pipeline
+   rotate-a-log-tree
+   mark-licensed-logs
 #+end_export

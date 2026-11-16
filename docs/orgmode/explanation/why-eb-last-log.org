@@ -52,8 +52,8 @@ A log that shows EasyBuild processing an easyconfig and never names =NAME.eb= is
   The session log covers the whole =eb= run, including what EasyBuild did before it reached the easyconfig that failed.
 - /Keeping the last command's output whatever its outcome./
   After a sanity check fails, that is the output of a command that worked.
-- /Waiting for =eb --last-log= without a limit./
-  The shell script does; the binary does not, as [[file:../reference/compatibility.org][Compatibility]] records.
+- /Waiting for EasyBuild without a limit./
+  The shell script waits for =eb --last-log= as long as it takes; the binary does not, as [[file:../reference/compatibility.org][Compatibility]] records.
 
 ** Limits
 
@@ -66,5 +66,6 @@ A log that shows EasyBuild processing an easyconfig and never names =NAME.eb= is
 ** Further reading
 
 - [[file:../howto/call-from-a-pipeline.org][Call eb-keep-logs from a build pipeline]]
+- [[file:../reference/cli.org][The eb-keep-logs command]], every message =failed= prints.
 - EasyBuild's pages on [[https://docs.easybuild.io/log-files/][log files]] and on [[https://docs.easybuild.io/easybuild-v5/run_shell_cmd/][run_shell_cmd]], which saves each command's output.
 - [[site:zig-common:explanation/process-groups-and-deadlines][Process groups and deadlines]], how the deadline stops =eb= and whatever it started.

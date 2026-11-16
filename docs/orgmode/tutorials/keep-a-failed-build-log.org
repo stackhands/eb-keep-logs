@@ -179,10 +179,13 @@ cat "$LOGDIR/.licensed-logs"
 2. The build's output named the file that holds the failed command's output.
    It lay under =EASYBUILD_TMPDIR= and belonged to you, so =failed= copied it.
 3. A failed compile line of licensed software can print the licence number, so =failed= closed both copies, the build's output and the =--tmp-logdir= to other users, and listed the copies in =.licensed-logs=.
+   [[file:../howto/mark-licensed-logs.org][Mark logs that may carry a licence number]] shows how to use the list.
 4. The run directory's name holds its date, from which =eb-keep-logs rotate= later decides to compress the run's logs and then to remove the run.
 
 ** Next steps
 
 - [[file:../howto/call-from-a-pipeline.org][Call eb-keep-logs from a build pipeline]]
+- [[file:../howto/rotate-a-log-tree.org][Rotate a log tree]]
+- [[file:../reference/cli.org][The eb-keep-logs command]]
 
 Checked with EasyBuild 5.4.2, Lmod 8.6.19 and eb-keep-logs at commit 5ceaead on 2026-11-16.

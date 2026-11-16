@@ -1,0 +1,81 @@
+#+TITLE: Rotate a log tree
+#+OPTIONS: toc:nil todo:nil num:nil author:nil title:nil
+#+STARTUP: content
+
+* Rotate a log tree
+
+Use this to keep a directory of build runs from growing without end: compress the logs of runs some days old, and remove runs older still.
+=eb-keep-logs rotate= works on the run directories directly under the directory you give it, named by their date and time, =YYYYMMDD_HHMMSS=, as [[file:call-from-a-pipeline.org][Call eb-keep-logs from a build pipeline]] makes them.
+
+** Before you start
+
+- =eb-keep-logs= on your =PATH=; [[file:../tutorials/keep-a-failed-build-log.org][Keep a failed build's logs]] installs it.
+- A log tree, here =~/build-logs=, and write access to its runs: =rotate= replaces each log with a =.gz= file beside it, and removes whole runs.
+
+** Steps
+
+1. Choose two ages, in days.
+   A run's age is the number of whole days from the local midnight of the date in its name.
+   =--compress-after DAYS= compresses the =*.log= and =*.txt= files of runs at least =DAYS= old, at any depth.
+   =--delete-after DAYS= removes runs at least =DAYS= old, and must be larger; without it, no run is removed.
+2. Try the ages on a copy of the tree, at a later date.
+   =EB_KEEP_LOGS_NOW= sets the time =rotate= takes as now, in seconds since the epoch:
+
+   #+begin_src bash
+   cp -a ~/build-logs /tmp/build-logs-preview
+   EB_KEEP_LOGS_NOW=$(date -d 2027-01-01 +%s) \
+     eb-keep-logs rotate /tmp/build-logs-preview --compress-after 30 --delete-after 365
+   #+end_src
+
+   #+begin_example
+   eb-keep-logs rotate: 5 files compressed, 0 runs deleted under /tmp/build-logs-preview
+   #+end_example
+
+   On 2027-01-01 the run is 46 days old: at least 30, less than 365.
+3. Rotate the tree:
+
+   #+begin_src bash
+   eb-keep-logs rotate ~/build-logs --compress-after 30 --delete-after 365
+   #+end_src
+
+   #+begin_example
+   eb-keep-logs rotate: 0 files compressed, 0 runs deleted under /home/alice/build-logs
+   #+end_example
+
+   No run is 30 days old yet, so nothing changed.
+   Run the same command at the end of each pipeline run, as the pipeline how-to does, or from a daily job.
+
+** Check that it worked
+
+The summary line counts the files =rotate= compressed and the runs it removed.
+In a compressed run, each log is a =.gz= file with the log's mode:
+
+#+begin_src bash
+ls -l /tmp/build-logs-preview/*/
+#+end_src
+
+#+begin_example
+total 20
+-rw------- 1 alice alice  165 Nov 16 17:53 Example-1.0.failed.command-out.txt.gz
+-rw------- 1 alice alice 5791 Nov 16 17:53 Example-1.0.failed.ebout.log.gz
+-rw-rw---- 1 alice alice  939 Nov 16 17:53 Example-1.0.stdout.log.gz
+drwxrwxr-x 3 alice alice 4096 Nov 16 17:53 easybuild-logs
+#+end_example
+
+** If it fails
+
+| Message                                                            | Cause                                                                                                | What to do                                                            |
+|--------------------------------------------------------------------+------------------------------------------------------------------------------------------------------+-----------------------------------------------------------------------|
+| =eb-keep-logs: --compress-after needs a number of days=            | The option is missing, or its value is not a whole number, like =30d=.                               | Give a number of days: =--compress-after 30=.                         |
+| =eb-keep-logs: --delete-after must be later than --compress-after= | =--delete-after= is not larger than =--compress-after=.                                              | Raise =--delete-after=, or leave it out to remove nothing.            |
+| =eb-keep-logs: unknown option --dry-run=                           | =rotate= has no dry run.                                                                             | Try the ages on a copy, as in step 2.                                 |
+| =eb-keep-logs: ROOT PATH is not a directory=                       | The path is wrong, or names a run, not the tree.                                                     | Give the directory that holds the runs.                               |
+| =eb-keep-logs: cannot compress PATH: TooManyLinks=                 | The log has other hard links. The shell script prints =gzip='s own message.                          | Nothing: like =gzip=, =rotate= leaves it as it is.                    |
+| =eb-keep-logs: cannot compress PATH: Exists=                       | =PATH.gz= exists already. The shell script prints =gzip='s own message.                              | Remove or rename one of the two, and rotate again.                    |
+| A run is not compressed, and there is no message                   | Its name is not =YYYYMMDD_HHMMSS=, or it holds the output of this =rotate= or =EB_PIPELINE_LOG_DIR=. | Rename it, or leave it to the next =rotate=, after the run has ended. |
+
+** Related
+
+- [[file:mark-licensed-logs.org][Mark logs that may carry a licence number]]: =rotate= renames the lines of =.licensed-logs= to the =.gz= files.
+- [[file:../explanation/local-time.org][Run ages and local time]]
+- [[file:../reference/cli.org][The eb-keep-logs command]]
