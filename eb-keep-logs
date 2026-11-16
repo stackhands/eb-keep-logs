@@ -88,15 +88,25 @@ cmd_failed() {
         command_output=$(grep -oE '/[^[:space:]]*/run-shell-cmd-output/[^/[:space:]]+/out\.txt' "${src}" | tail -n 1)
     fi
     command_root="${command_output%/out.txt}"
-    if [ -n "${command_output}" ] && [ -n "${EASYBUILD_TMPDIR:-}" ]; then
+    if [ -n "${command_output}" ] && [ -z "${EASYBUILD_TMPDIR:-}" ]; then
+        echo "Failed command output not kept: EASYBUILD_TMPDIR is not set."
+    elif [ -n "${command_output}" ]; then
+        # EasyBuild names the streams through EASYBUILD_TMPDIR as it was
+        # given, so both are compared resolved.
+        local tmp_real stream_path
+        tmp_real=$(realpath -e "${EASYBUILD_TMPDIR}" 2>/dev/null)
         for stream in out err; do
-            resolved_output=$(realpath -e "${command_root}/${stream}.txt" 2>/dev/null) || continue
-            case "${resolved_output}" in
-                "${EASYBUILD_TMPDIR%/}/"*) ;;
-                *) continue ;;
-            esac
-            [ -f "${resolved_output}" ] && [ ! -L "${command_root}/${stream}.txt" ] &&
-                [ "$(stat -c '%u' "${resolved_output}")" = "$(id -u)" ] || continue
+            stream_path="${command_root}/${stream}.txt"
+            [ ! -L "${stream_path}" ] && [ -f "${stream_path}" ] || continue
+            resolved_output=$(realpath -e "${stream_path}" 2>/dev/null) || continue
+            if [ -z "${tmp_real}" ] || [[ "${resolved_output}" != "${tmp_real%/}/"* ]]; then
+                echo "Failed command output not kept: ${stream_path} is not under EASYBUILD_TMPDIR."
+                continue
+            fi
+            if [ "$(stat -c '%u' "${resolved_output}")" != "$(id -u)" ]; then
+                echo "Failed command output not kept: ${stream_path} belongs to another user."
+                continue
+            fi
             dest="${logdir}/${name}.failed.command-${stream}.txt"
             cp "${resolved_output}" "${dest}" || continue
             chmod 600 "${dest}"
