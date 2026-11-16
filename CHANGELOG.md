@@ -1,5 +1,7 @@
 # Changelog
 
+<!-- towncrier release notes start -->
+
 ## 0.2.1
 
 * A kept copy whose mode cannot be read is no longer set to mode 000.

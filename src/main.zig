@@ -95,11 +95,63 @@ fn listKept(c: Ctx, logdir: fsx.fd_t, kept: fsx.fd_t) void {
         warn("cannot list {s} in {s}: {t}", .{ abs, logs.licensed_list, err });
 }
 
+/// Copy `src` onto `dir/name` by writing a temporary file and renaming it.
+/// A short write leaves an existing file as it was: the pinned library's
+/// `fsx.copyTo` truncates the destination before the copy finishes, so a
+/// full disk would destroy a log that was already kept.
+fn copyDurable(dir: fsx.fd_t, name: []const u8, src: fsx.fd_t, src_stat: fsx.Stat) sys.Error!fsx.fd_t {
+    const existing: ?fsx.Stat = fsx.statAt(dir, name, false) catch |err| switch (err) {
+        error.NotFound => null,
+        else => |e| return e,
+    };
+    if (existing) |st| {
+        if (st.isLink()) return error.SymLink;
+        if (st.isDir()) return error.IsDir;
+        if (!st.isReg()) return error.InvalidArgument;
+    }
+    var rnd: [4]u8 = undefined;
+    _ = try sys.call(linux.getrandom, .{ &rnd, rnd.len, 0 });
+    var tmp_buf: [sys.path_max]u8 = undefined;
+    const tmp = std.fmt.bufPrint(&tmp_buf, ".{s}.{d}.{x:0>8}.tmp", .{ std.fs.path.basename(name), linux.getpid(), std.mem.readInt(u32, &rnd, .little) }) catch return error.NameTooLong;
+    const fd = try sys.openat(dir, tmp, .{
+        .ACCMODE = .WRONLY,
+        .CREAT = true,
+        .EXCL = true,
+        .NOFOLLOW = true,
+    }, if (existing != null) 0o600 else @intCast(src_stat.mode & 0o777));
+    var done = false;
+    errdefer {
+        sys.close(fd);
+        if (!done) sys.unlinkat(dir, tmp, 0) catch {};
+    }
+    var buf: [64 * 1024]u8 = undefined;
+    while (true) {
+        const n = try sys.read(src, &buf);
+        if (n == 0) break;
+        try sys.writeAll(fd, buf[0..n]);
+    }
+    if (existing) |st| {
+        const now = try fsx.fstat(fd);
+        if (now.uid != st.uid or now.gid != st.gid) {
+            sys.fchown(fd, st.uid, st.gid) catch |err| switch (err) {
+                error.AccessDenied => {},
+                else => |e| return e,
+            };
+        }
+        try sys.fchmod(fd, @intCast(st.perm()));
+    }
+    try sys.fsync(fd);
+    try sys.renameat(dir, tmp, dir, name);
+    done = true;
+    try sys.fsync(dir);
+    return fd;
+}
+
 /// Copy an open file into LOGDIR as `name`, set its mode to `closed_mode`
 /// or, when that is null, take others' bits off the copy's own mode (chmod
 /// o-rwx), and list it. False when the copy failed.
 fn keep(c: Ctx, logdir: fsx.fd_t, logdir_s: []const u8, src: fsx.fd_t, src_stat: fsx.Stat, name: []const u8, comptime closed_mode: ?u32) bool {
-    const fd = fsx.copyTo(src, src_stat, logdir, name) catch |err| {
+    const fd = copyDurable(logdir, name, src, src_stat) catch |err| {
         warn("cannot keep {s}/{s}: {t}", .{ logdir_s, name, err });
         return false;
     };
@@ -433,6 +485,47 @@ pub fn main(init: std.process.Init) u8 {
 test {
     _ = localtime;
     _ = scan;
+}
+
+test "a failed copy does not replace a log already kept" {
+    const gpa = std.testing.allocator;
+    var cwd_buf: [sys.path_max]u8 = undefined;
+    const here = try fsx.realpath(fsx.cwd, ".", &cwd_buf);
+    const base = try std.fmt.allocPrint(gpa, "{s}/.zig-cache/eb-keep-logs-copy-{d}", .{ here, linux.getpid() });
+    defer gpa.free(base);
+    var zb: [sys.path_max:0]u8 = undefined;
+    _ = linux.mkdirat(fsx.cwd, (try sys.z(&zb, base)).ptr, 0o700);
+    const dir = try fsx.openDir(fsx.cwd, base, false);
+    defer {
+        fsx.deleteTree(gpa, fsx.cwd, base) catch {};
+        sys.close(dir);
+    }
+    const dst = try sys.openat(dir, "kept.log", .{ .ACCMODE = .WRONLY, .CREAT = true }, 0o640);
+    try sys.writeAll(dst, "OLDDATA\n");
+    sys.close(dst);
+    const srcfd = try sys.openat(dir, "src", .{ .ACCMODE = .WRONLY, .CREAT = true }, 0o644);
+    try sys.writeAll(srcfd, "NEWDATA-IS-LONGER-THAN-THE-LIMIT\n");
+    sys.close(srcfd);
+    const opened = try fsx.openRegular(dir, "src", false);
+    defer sys.close(opened.fd);
+
+    var old: linux.rlimit = undefined;
+    try std.testing.expectEqual(linux.E.SUCCESS, linux.errno(linux.prlimit(0, .FSIZE, null, &old)));
+    const lim: linux.rlimit = .{ .cur = 8, .max = old.max };
+    try std.testing.expectEqual(linux.E.SUCCESS, linux.errno(linux.prlimit(0, .FSIZE, &lim, null)));
+    const ign: linux.Sigaction = .{ .handler = .{ .handler = linux.SIG.IGN }, .mask = linux.sigemptyset(), .flags = 0 };
+    var prev: linux.Sigaction = undefined;
+    _ = linux.sigaction(.XFSZ, &ign, &prev);
+    if (copyDurable(dir, "kept.log", opened.fd, opened.stat)) |fd| sys.close(fd) else |_| {}
+    _ = linux.sigaction(.XFSZ, &prev, null);
+    _ = linux.prlimit(0, .FSIZE, &old, null);
+
+    const got = try fsx.openRegular(dir, "kept.log", false);
+    defer sys.close(got.fd);
+    const text = try fsx.readAll(gpa, got.fd, 100);
+    defer gpa.free(text);
+    try std.testing.expectEqualStrings("OLDDATA\n", text);
+    try std.testing.expectEqual(@as(u32, 0o640), got.stat.perm());
 }
 
 test "runAgeDays" {
