@@ -139,6 +139,31 @@ check "outside EASYBUILD_TMPDIR: says so" \
     "$(EASYBUILD_TMPDIR="${work}/elsewhere" "${tool}" failed 2 Cmd-1.0 "${work}/logs" | grep -v '^Failed build log')" \
     "Failed command output not kept: ${work}/ebtmp-link/eb-1/run-shell-cmd-output/make-1/out.txt is not under EASYBUILD_TMPDIR."
 check "command output not kept: nothing copied" "$(count 'Cmd-1.0.failed.command-*')" "0"
+# failed: without TMP_LOGDIR, eb --last-log names the newest log in
+# EasyBuild's default place, which can be another build's
+printf '== processing EasyBuild easyconfig /ec/Ring-1.0.eb\nring test failed\n' > "${work}/tmp/easybuild-ring.log"
+printf 'Command line: /ec/Calc-1.0.eb --robot\n== processing EasyBuild easyconfig /ec/Dep-2.0.eb\n' > "${work}/tmp/easybuild-calc.log"
+cat > "${work}/bin/eb" <<EOF
+#!/bin/bash
+[ "\$1" = "--last-log" ] && cat "${work}/tmp/last"
+EOF
+echo "${work}/tmp/easybuild-ring.log" > "${work}/tmp/last"
+# The build's own stdout log still names its failing command.
+mkdir -p "${work}/ebtmp/eb-2/run-shell-cmd-output/make-2"
+echo "calc.c: error" > "${work}/ebtmp/eb-2/run-shell-cmd-output/make-2/out.txt"
+echo "    output (stdout + stderr)  ->  ${work}/ebtmp/eb-2/run-shell-cmd-output/make-2/out.txt" > "${work}/logs/Calc-1.0.stdout.log"
+check "another build's log: refused" "$(EASYBUILD_TMPDIR="${work}/ebtmp" "${tool}" failed 1 Calc-1.0 "${work}/logs")" \
+    "No EasyBuild log to keep for Calc-1.0: ${work}/tmp/easybuild-ring.log is another build's log.
+Failed command output: ${work}/logs/Calc-1.0.failed.command-out.txt"
+check "another build's log: not copied" "$(count 'Calc-1.0.failed.ebout.log')" "0"
+"${tool}" failed 1 Ring-1.0 "${work}/logs" >/dev/null
+check "own log: kept" "$(count 'Ring-1.0.failed.ebout.log')" "1"
+"${tool}" failed 1 Calc-1.0 "${work}/logs" "${work}/explicit" >/dev/null
+check "with TMP_LOGDIR: not checked" "$(count 'Calc-1.0.failed.ebout.log')" "1"
+rm -f "${work}/logs/Calc-1.0.failed.ebout.log"
+echo "${work}/tmp/easybuild-calc.log" > "${work}/tmp/last"
+"${tool}" failed 1 Calc-1.0 "${work}/logs" >/dev/null
+check "own log, named on the command line: kept" "$(count 'Calc-1.0.failed.ebout.log')" "1"
 
 # failed: a meson test step's testlog is kept, found across wrapped lines
 mkdir -p "${work}/build/foo/easybuild_obj/meson-logs"
