@@ -14,6 +14,8 @@ const scan = @import("scan.zig");
 
 const Allocator = std.mem.Allocator;
 const tool = "eb-keep-logs";
+/// The version `--version` prints after the tool's name. `.version` in
+/// build.zig.zon names the same one, and a release changes both.
 pub const version = "0.2.1";
 
 const usage_text =
@@ -643,6 +645,10 @@ fn cmdRotate(c: Ctx, args: []const [:0]const u8) u8 {
     return 0;
 }
 
+/// The command line. `failed` and `rotate` run those commands; `--help` or
+/// `-h` prints the usage and `--version` the version line, both returning
+/// 0. No command prints the usage and returns 2, and an unknown one is
+/// refused with 2.
 pub fn main(init: std.process.Init) u8 {
     const gpa = init.gpa;
     const args = init.minimal.args.toSlice(init.arena.allocator()) catch die("cannot read the arguments", .{});
