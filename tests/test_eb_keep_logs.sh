@@ -113,6 +113,33 @@ EOF
 "${tool}" failed 1 Baz-3.0 "${work}/logs" >/dev/null
 check "missing file: nothing copied" "$(count 'Baz*')" "0"
 
+# failed: the failing command's output is kept from inside EASYBUILD_TMPDIR,
+# also when EASYBUILD_TMPDIR is reached through a symbolic link; when it is
+# not kept, the reason is given
+cmd="${work}/ebtmp/eb-1/run-shell-cmd-output/make-1"
+mkdir -p "${cmd}" "${work}/elsewhere"
+ln -s ebtmp "${work}/ebtmp-link"
+echo "calc.c:6: error: 'scale' undeclared" > "${cmd}/out.txt"
+printf '\toutput will be logged to %s/eb-1/run-shell-cmd-output/make-1/out.txt\n' "${work}/ebtmp-link" > "${work}/tmp/easybuild-Cmd-1.0.log"
+cat > "${work}/bin/eb" <<EOF
+#!/bin/bash
+[ "\$1" = "--last-log" ] && echo "${work}/tmp/easybuild-Cmd-1.0.log"
+EOF
+out_kept="${work}/logs/Cmd-1.0.failed.command-out.txt"
+EASYBUILD_TMPDIR="${work}/ebtmp" "${tool}" failed 2 Cmd-1.0 "${work}/logs" >/dev/null
+check "command output kept" "$(cat "${out_kept}" 2>/dev/null)" "calc.c:6: error: 'scale' undeclared"
+rm -f "${out_kept}"
+EASYBUILD_TMPDIR="${work}/ebtmp-link" "${tool}" failed 2 Cmd-1.0 "${work}/logs" >/dev/null
+check "command output kept through a linked EASYBUILD_TMPDIR" "$(cat "${out_kept}" 2>/dev/null)" "calc.c:6: error: 'scale' undeclared"
+rm -f "${out_kept}"
+check "EASYBUILD_TMPDIR unset: says so" \
+    "$(env -u EASYBUILD_TMPDIR "${tool}" failed 2 Cmd-1.0 "${work}/logs" | grep -v '^Failed build log')" \
+    "Failed command output not kept: EASYBUILD_TMPDIR is not set."
+check "outside EASYBUILD_TMPDIR: says so" \
+    "$(EASYBUILD_TMPDIR="${work}/elsewhere" "${tool}" failed 2 Cmd-1.0 "${work}/logs" | grep -v '^Failed build log')" \
+    "Failed command output not kept: ${work}/ebtmp-link/eb-1/run-shell-cmd-output/make-1/out.txt is not under EASYBUILD_TMPDIR."
+check "command output not kept: nothing copied" "$(count 'Cmd-1.0.failed.command-*')" "0"
+
 # failed: a meson test step's testlog is kept, found across wrapped lines
 mkdir -p "${work}/build/foo/easybuild_obj/meson-logs"
 echo "---- tests::the_one stdout ----" > "${work}/build/foo/easybuild_obj/meson-logs/testlog.txt"

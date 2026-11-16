@@ -48,7 +48,7 @@ eb-keep-logs failed "${PIPESTATUS[0]}" Foo-1.0 "$LOGDIR" "$LOGDIR/easybuild-logs
 On a non-zero status this writes, next to `Foo-1.0.stdout.log`:
 
 - `Foo-1.0.failed.ebout.log`, the EasyBuild log;
-- `Foo-1.0.failed.command-out.txt` and `-err.txt`, the failing command's own output, when it lies under `EASYBUILD_TMPDIR` and belongs to the build account;
+- `Foo-1.0.failed.command-out.txt` and `-err.txt`, the failing command's own output, when it lies under `EASYBUILD_TMPDIR`, with symbolic links resolved in both, and belongs to the build account; when it does not, `failed` says why;
 - `Foo-1.0.failed.meson-testlog.txt`, the full meson test log, when a meson test step failed.
 
 Each kept file is closed to others and listed in `$LOGDIR/.licensed-logs`, because a failed compile line of licensed software can print the licence number.

@@ -69,6 +69,15 @@ else
 fi
 EOF
 compare "failed, wrapped last-log" failed 3 Foo "${work}/logs"
+unset EASYBUILD_TMPDIR
+mkdir -p "${work}/ebtmp/eb-1/run-shell-cmd-output/make-1" "${work}/elsewhere"
+ln -s ebtmp "${work}/ebtmp-link"
+echo "error: undeclared" > "${work}/ebtmp/eb-1/run-shell-cmd-output/make-1/out.txt"
+printf '\toutput will be logged to %s/eb-1/run-shell-cmd-output/make-1/out.txt\n' "${work}/ebtmp-link" > "${work}/easybuild-Cmd.log"
+printf '#!/bin/bash\necho %s\n' "${work}/easybuild-Cmd.log" > "${work}/bin/eb"
+EASYBUILD_TMPDIR="${work}/ebtmp-link" compare "failed, linked EASYBUILD_TMPDIR" failed 3 Cmd "${work}/logs"
+compare "failed, EASYBUILD_TMPDIR unset" failed 3 Cmd "${work}/logs"
+EASYBUILD_TMPDIR="${work}/elsewhere" compare "failed, output outside EASYBUILD_TMPDIR" failed 3 Cmd "${work}/logs"
 printf '#!/bin/bash\nexit 0\n' > "${work}/bin/eb"
 compare "rotate, no root" rotate --compress-after 3
 compare "rotate, two roots" rotate a b

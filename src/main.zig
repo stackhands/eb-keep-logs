@@ -260,11 +260,9 @@ fn cmdFailed(c: Ctx, args: []const [:0]const u8) u8 {
 /// The failing command's own output holds the diagnostic beyond EasyBuild's
 /// printed tail. Only the final command's text streams are kept, only from
 /// inside EASYBUILD_TMPDIR, not through a symbolic link, and owned by this
-/// user.
+/// user. A stream is compared with EASYBUILD_TMPDIR with both resolved, as
+/// EasyBuild names the stream through EASYBUILD_TMPDIR as it was given.
 fn keepCommandOutput(c: Ctx, logdir: fsx.fd_t, logdir_s: []const u8, name: []const u8, src_text: ?[]const u8) void {
-    const tmpdir = c.getenv("EASYBUILD_TMPDIR") orelse return;
-    if (tmpdir.len == 0) return;
-
     var out_txt: ?[]const u8 = null;
     var stdout_text: ?[]u8 = null;
     defer if (stdout_text) |t| c.gpa.free(t);
@@ -282,9 +280,19 @@ fn keepCommandOutput(c: Ctx, logdir: fsx.fd_t, logdir_s: []const u8, name: []con
         out_txt = scan.lastCommandOutput(t);
     };
     const command_out = out_txt orelse return;
+    const tmpdir = c.getenv("EASYBUILD_TMPDIR") orelse "";
+    if (tmpdir.len == 0) {
+        cli.out("Failed command output not kept: EASYBUILD_TMPDIR is not set.\n", .{});
+        return;
+    }
     const root = command_out[0 .. command_out.len - "/out.txt".len];
-    const prefix = c.gpa.print("{s}/", .{if (tmpdir[tmpdir.len - 1] == '/') tmpdir[0 .. tmpdir.len - 1] else tmpdir}) catch return;
-    defer c.gpa.free(prefix);
+    var tb: [sys.path_max]u8 = undefined;
+    const tmp_real: ?[]const u8 = fsx.realpath(fsx.cwd, tmpdir, &tb) catch null;
+    const prefix: ?[]u8 = if (tmp_real) |t|
+        c.gpa.print("{s}/", .{if (t[t.len - 1] == '/') t[0 .. t.len - 1] else t}) catch return
+    else
+        null;
+    defer if (prefix) |p| c.gpa.free(p);
 
     for ([_][]const u8{ "out", "err" }) |stream| {
         const path = c.gpa.print("{s}/{s}.txt", .{ root, stream }) catch return;
@@ -293,8 +301,14 @@ fn keepCommandOutput(c: Ctx, logdir: fsx.fd_t, logdir_s: []const u8, name: []con
         defer sys.close(f.fd);
         var rb: [sys.path_max]u8 = undefined;
         const resolved = fsx.realpathFd(f.fd, &rb) catch continue;
-        if (!std.mem.startsWith(u8, resolved, prefix)) continue;
-        if (f.stat.uid != sys.getuid()) continue;
+        if (prefix == null or !std.mem.startsWith(u8, resolved, prefix.?)) {
+            cli.out("Failed command output not kept: {s} is not under EASYBUILD_TMPDIR.\n", .{path});
+            continue;
+        }
+        if (f.stat.uid != sys.getuid()) {
+            cli.out("Failed command output not kept: {s} belongs to another user.\n", .{path});
+            continue;
+        }
         const dest = c.gpa.print("{s}.failed.command-{s}.txt", .{ name, stream }) catch return;
         defer c.gpa.free(dest);
         if (keep(c, logdir, logdir_s, f.fd, f.stat, dest, 0o600))
