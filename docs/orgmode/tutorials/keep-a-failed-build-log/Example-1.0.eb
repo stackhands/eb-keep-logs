@@ -1,0 +1,21 @@
+easyblock = 'Binary'
+
+name = 'Example'
+version = '1.0'
+
+homepage = 'https://example.org'
+description = "A program whose build fails, to show what eb-keep-logs keeps."
+
+toolchain = SYSTEM
+
+sources = ['example.c']
+checksums = ['6f3d50a25fc7773d3eb35ec1da673acd588e5af0c610acfb4c81918fe4c87231']
+
+install_cmd = "cc example.c -o %(installdir)s/example"
+
+sanity_check_paths = {
+    'files': ['example'],
+    'dirs': [],
+}
+
+moduleclass = 'tools'

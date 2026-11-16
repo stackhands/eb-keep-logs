@@ -1,0 +1,70 @@
+#+TITLE: Finding a failed build's log
+#+OPTIONS: toc:nil todo:nil num:nil author:nil title:nil
+#+STARTUP: content
+
+* Finding a failed build's log
+
+Why does =eb-keep-logs failed= ask =eb --last-log= where the log is, instead of reading the path from what the build printed, and why does it copy a failed command's output from one place only?
+
+** The problem
+
+A build pipeline runs =eb= in a batch job, and EasyBuild keeps what explains a failure in temporary places.
+During a run, EasyBuild writes everything it does to a temporary log, the session log, and removes it when the run succeeds; a build that fails leaves it behind.
+EasyBuild 5 also saves the output of each command it runs to a file of its own, =run-shell-cmd-output/COMMAND-RANDOM/out.txt= under its temporary directory, and prints that path, not the output, when the command fails.
+The compiler's error, or the test that failed, is in those two files, and when the job ends its temporary directories are cleaned, the two files with them.
+
+What the build prints does not lead to the session log reliably.
+The line =Results of the build can be found in the log file(s) PATH= names the shorter log of the one easyconfig, and it can arrive in pieces: EasyBuild 5.3 and later, printing through the Python package =rich=, fold long lines at the terminal width, 80 columns when the output goes to a pipe or a file.
+
+** How eb-keep-logs handles it
+
+The pipeline gives each build a log directory of its own, and =failed= asks EasyBuild which log in it is the build's.
+
+1. The pipeline runs =eb --tmp-logdir=DIR=, with =DIR= under the run directory, =LOGDIR/easybuild-logs/NAME=, on a file system the end of the job leaves alone.
+   EasyBuild writes the session log there.
+2. =failed= runs =eb --last-log --tmp-logdir=DIR --output-style=basic= and takes the last line it prints as the session log's path.
+   The basic output style prints the path whole.
+   An =eb= older than 4.5 has no =--output-style= and refuses it, but does not fold either, so when that call fails or prints nothing, =failed= asks again without the option.
+3. =failed= copies the session log next to the build's output, =LOGDIR/NAME.stdout.log=, as =NAME.failed.ebout.log=.
+4. For the command's output, =failed= takes the last =run-shell-cmd-output= path that =NAME.stdout.log= names, which is the command whose error EasyBuild printed.
+   When the build's output names none, it takes the last one the session log names, unless the session log records that command as completed successfully: a build that fails its sanity check fails after its last command worked, and that command's output is not the diagnosis.
+   It copies =out.txt=, and =err.txt= beside it when EasyBuild kept the command's stderr apart.
+5. When the session log shows a =meson test -C DIR= command, =failed= also copies =DIR/meson-logs/testlog.txt=, unless its summary shows every test passing: meson prints only the last 100 lines of a failing test.
+
+[[zig:eb-keep-logs.scan.lastCommandOutput]] and [[zig:eb-keep-logs.scan.failedCommandOutput]] are the two searches for the command's output.
+
+=eb --last-log= gets a deadline.
+When it has not returned after 300 seconds, its process group is stopped with =SIGTERM= and then =SIGKILL=, and =failed= keeps nothing, so a stalled file system holds the pipeline for 5 minutes, not for good.
+
+The command output's path is text the build printed, and the software's own build system writes part of that text.
+So =failed= copies only what EasyBuild itself could have written for this account: a regular file under =EASYBUILD_TMPDIR=, compared with both paths resolved, that belongs to the user running =failed=.
+It opens the file without following a symbolic link at the last component, and checks the file it opened, not the path.
+A file elsewhere, or another user's, is reported and left where it is; a symbolic link is not opened.
+
+Without =TMP_LOGDIR=, =eb --last-log= names the newest log in EasyBuild's default place, which can be another build's: one the pipeline ran after the failure, or one running beside it.
+A log that shows EasyBuild processing an easyconfig and never names =NAME.eb= is taken for such a log: =failed= keeps nothing from it, says so, and keeps the command output that =NAME.stdout.log= names.
+
+** What was considered and turned down
+
+- /Reading the log's path from the build's output./
+  It names the easyconfig's log, not the session log, and arrives folded.
+- /Keeping the easyconfig's own log./
+  The session log covers the whole =eb= run, including what EasyBuild did before it reached the easyconfig that failed.
+- /Keeping the last command's output whatever its outcome./
+  After a sanity check fails, that is the output of a command that worked.
+- /Waiting for =eb --last-log= without a limit./
+  The shell script does; the binary does not, as [[file:../reference/compatibility.org][Compatibility]] records.
+
+** Limits
+
+- =failed= needs =eb= on the =PATH= it runs with.
+  Without it, nothing is kept, not even the command's output, which needs no =eb=.
+- A session log larger than 1 GiB is copied but not read: =failed= does not check whether it is another build's, and finds no command output or meson test log in it.
+- The command output is found only through EasyBuild 5's =run-shell-cmd-output= paths; with an =eb= that writes none, =failed= keeps the session log alone.
+- Without =TMP_LOGDIR=, a log of an =eb= run that processed no easyconfig cannot be told from the build's own, and is kept.
+
+** Further reading
+
+- [[file:../howto/call-from-a-pipeline.org][Call eb-keep-logs from a build pipeline]]
+- EasyBuild's pages on [[https://docs.easybuild.io/log-files/][log files]] and on [[https://docs.easybuild.io/easybuild-v5/run_shell_cmd/][run_shell_cmd]], which saves each command's output.
+- [[site:zig-common:explanation/process-groups-and-deadlines][Process groups and deadlines]], how the deadline stops =eb= and whatever it started.

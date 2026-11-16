@@ -1,0 +1,53 @@
+#+TITLE: eb-keep-logs
+#+OPTIONS: toc:nil todo:nil num:nil author:nil title:nil
+#+STARTUP: content
+
+* eb-keep-logs
+
+Keep the logs of EasyBuild builds that a build pipeline would otherwise lose, and keep the pipeline's log tree bounded.
+After a failed build, =eb-keep-logs failed= copies the EasyBuild log and the failing command's own output next to the build's output, where the end of the job does not take them, and closes the copies to other users, because a failed compile line of licensed software can print the licence number.
+=eb-keep-logs rotate= compresses the logs of old runs and removes the oldest runs.
+Each release is one static binary per architecture that needs nothing but =eb=; the shell script it was ported from stays in the repository as the same tool.
+
+New here?
+[[file:tutorials/keep-a-failed-build-log.org][Keep a failed build's logs]] runs an EasyBuild build that fails and ends with its log and the compiler's error kept in a directory of your own.
+
+| You want to                      | Read                                        |
+|----------------------------------+---------------------------------------------|
+| learn by doing, start to finish  | [[file:tutorials/index.org][Tutorials]]     |
+| get one task done                | [[file:howto/index.org][How-to guides]]     |
+| understand why it works this way | [[file:explanation/index.org][Explanation]] |
+| look up a command, file or API   | [[file:reference/index.org][Reference]]     |
+
+#+begin_export rst
+.. toctree::
+   :hidden:
+   :caption: Tutorials
+
+   tutorials/index
+
+.. toctree::
+   :hidden:
+   :caption: How-to guides
+
+   howto/index
+
+.. toctree::
+   :hidden:
+   :caption: Explanation
+
+   explanation/index
+
+.. toctree::
+   :hidden:
+   :caption: Reference
+
+   reference/index
+
+.. toctree::
+   :hidden:
+   :caption: Project
+
+   contributing
+   changelog
+#+end_export
