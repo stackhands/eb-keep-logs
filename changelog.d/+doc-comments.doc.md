@@ -1,1 +1,1 @@
-Every `pub` declaration has a doc comment, whose first sentence is the summary the API pages list, and the comment at the top of `src/localtime.zig` names the case in which the zone is read differently from glibc: a `TZ` with a leading `:` that names no file.
+Every `pub` declaration has a doc comment, whose first sentence is the summary the API pages list.

@@ -4,13 +4,10 @@
 //! The zone comes from TZ much as glibc reads it: unset means
 //! /etc/localtime; empty means UTC; otherwise the value, without a leading
 //! ':', names a TZif file, under TZDIR (/usr/share/zoneinfo when TZDIR is
-//! unset or empty) unless it is an absolute path, and a value without a
-//! leading ':' that names no file is a POSIX TZ rule string. A zone that
-//! cannot be read or parsed is UTC. TZif files use their transitions, then
-//! the POSIX rule in their footer for times after the last transition.
-//!
-//! One case differs from glibc, which reads a rule string after a leading
-//! ':' too: here a value with a leading ':' that names no file is UTC.
+//! unset or empty) unless it is an absolute path, or, when it names no
+//! file, is a POSIX TZ rule string. A zone that cannot be read or parsed is
+//! UTC. TZif files use their transitions, then the POSIX rule in their
+//! footer for times after the last transition.
 const std = @import("std");
 const common = @import("zig_common");
 const fsx = common.fsx;
@@ -309,17 +306,14 @@ fn loadFile(gpa: Allocator, path: []const u8) !Zone {
 /// or empty).
 pub fn load(gpa: Allocator, tz: ?[]const u8, tzdir: ?[]const u8) Zone {
     const value = tz orelse return loadFile(gpa, "/etc/localtime") catch .{};
-    if (value.len == 0) return .{};
-    const name = if (value[0] == ':') value[1..] else value;
+    const name = if (value.len > 0 and value[0] == ':') value[1..] else value;
+    if (name.len == 0) return .{};
     const tzdir_s = tzdir orelse "";
     const dir = if (tzdir_s.len > 0) tzdir_s else "/usr/share/zoneinfo";
-    if (name.len > 0) {
-        const path = if (name[0] == '/') gpa.dupe(u8, name) catch return .{} else std.fs.path.join(gpa, &.{ dir, name }) catch return .{};
-        defer gpa.free(path);
-        if (loadFile(gpa, path)) |zone| return zone else |_| {}
-    }
-    if (value[0] == ':') return .{};
-    const p = parsePosix(value) catch return .{};
+    const path = if (name[0] == '/') gpa.dupe(u8, name) catch return .{} else std.fs.path.join(gpa, &.{ dir, name }) catch return .{};
+    defer gpa.free(path);
+    if (loadFile(gpa, path)) |zone| return zone else |_| {}
+    const p = parsePosix(name) catch return .{};
     return .{ .footer = p };
 }
 
@@ -354,4 +348,18 @@ test "an empty TZDIR is the default directory, as glibc takes it" {
     defer empty.deinit();
     // `TZDIR= TZ=Asia/Tokyo date -d 20261101 +%s` prints 1793458800.
     try std.testing.expectEqual(@as(?i64, 1793458800), empty.fromLocal(nov1));
+}
+
+test "a rule string after a leading ':' is read, as glibc reads it" {
+    const gpa = std.testing.allocator;
+    var z = load(gpa, ":CET-1CEST,M3.5.0,M10.5.0/3", null);
+    defer z.deinit();
+    // `TZ=':CET-1CEST,M3.5.0,M10.5.0/3' date -d 20260701 +%s` prints
+    // 1782856800, and 1793487600 for 20261101.
+    try std.testing.expectEqual(@as(?i64, 1782856800), z.fromLocal(daysFromCivil(2026, 7, 1) * 86400));
+    try std.testing.expectEqual(@as(?i64, 1793487600), z.fromLocal(daysFromCivil(2026, 11, 1) * 86400));
+    var colon = load(gpa, ":", null);
+    defer colon.deinit();
+    // `TZ=: date -d 20261101 +%s` prints 1793491200, the UTC midnight.
+    try std.testing.expectEqual(@as(?i64, 1793491200), colon.fromLocal(daysFromCivil(2026, 11, 1) * 86400));
 }

@@ -378,6 +378,7 @@ zoned() {
 }
 zoned "TZ naming a zone file" TZ=Asia/Tokyo
 zoned "TZDIR empty" TZDIR= TZ=Asia/Tokyo
+zoned "TZ ':' then a rule string" TZ=':AEST-10AEDT,M10.1.0,M4.1.0/3'
 
 if [ "${fails}" -ne 0 ]; then echo "${fails} failed"; exit 1; fi
 echo "all passed"
