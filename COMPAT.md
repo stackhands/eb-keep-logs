@@ -18,6 +18,7 @@ on the same invocations.
 | files | kept files closed to others (command streams mode 0600), their resolved paths appended to `LOGDIR/.licensed-logs` unless already listed; on a failure, `NAME.stdout.log`, a TMP_LOGDIR below LOGDIR and the regular files directly in it closed to others, a symbolic link left as it is; `rotate` writes `FILE.gz` with the file's mode and updates `.licensed-logs` to the `.gz` path |
 | run ages | days from the local midnight of the date in the run's name, as `date -d YYYYMMDD` computes it, including TZ rules, except for the zones under unintended differences; a run whose local midnight does not exist is skipped |
 | the run in progress | `rotate` neither compresses nor deletes the run that holds its stdout or stderr, when either is a regular file, or `EB_PIPELINE_LOG_DIR` |
+| runs still written into | after taking its lock, `rotate` reads the links `/proc/PID/fd/N` of every process whose descriptors it may read; a run that holds the path a link with its owner's write bit names, also when the path ends in ` (deleted)`, is neither compressed nor deleted; without `/proc`, no run is left alone for this |
 
 ## Deliberate differences
 

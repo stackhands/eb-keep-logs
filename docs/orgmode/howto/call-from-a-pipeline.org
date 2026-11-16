@@ -52,6 +52,7 @@ The script keeps each failed build's logs next to its output and, at the end of 
    #+end_src
 
    =rotate= leaves alone the run that holds its output, so this run stays as it is however long it took, and a later run's =rotate= compresses it once it is old enough.
+   It leaves alone as well the runs of other jobs whose builds still write their logs, when they run on the same host.
    When another run's =rotate= of the tree is under way, this one waits for it, up to 600 seconds; with =--lock-timeout 0= it leaves the work to that one at once and exits 75.
 
 ** Check that it worked

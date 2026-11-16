@@ -321,7 +321,7 @@ check "help: EB_KEEP_LOGS_NOW" "$("${tool}" --help | grep -c 'EB_KEEP_LOGS_NOW')
 # rotate: the run rotate writes into is still going and is left alone. A run
 # that started before midnight is a day old just after it.
 next_day=$(date -d '2026-11-14 00:10' +%s)
-lsrun() { find "$1" -mindepth 1 -maxdepth 1 ! -name .eb-keep-logs-rotate.lock -printf '%f\n' | sort | tr '\n' ' '; }
+lsrun() { find "$1" -mindepth 1 -maxdepth 1 ! -name .eb-keep-logs-rotate.lock -printf '%f\n' | LC_ALL=C sort | tr '\n' ' '; }
 mkrun() {
     mkdir -p "$1/20261113_235000/site-zen4" "$1/20261110_120000"
     echo build > "$1/20261113_235000/site-zen4/F.stdout.log"
@@ -352,6 +352,61 @@ EB_PIPELINE_LOG_DIR=${log_dir} EB_KEEP_LOGS_NOW=${next_day} "${tool}" rotate "${
 check "own run through a pipe: not compressed" "$(lsrun "${log_dir}")" "F.stdout.log rotate.log "
 EB_KEEP_LOGS_NOW=${next_day} "${tool}" rotate "${piped}" --compress-after 1 > /dev/null 2>&1
 check "a finished run is compressed" "$(lsrun "${log_dir}")" "F.stdout.log.gz rotate.log.gz "
+
+# rotate: a build of another run, started before midnight UTC, is still
+# going: EasyBuild holds its session log open for writing, and copies it to
+# the installation at the end. rotate runs from a run started after midnight.
+# hold MODE FILE: a process that holds FILE open, for writing with >> and for
+# reading with <, until it is killed; its PID is in ${holder}.
+hold() {
+    rm -f "${work}/held"
+    case "$1" in
+        '>>') (exec 3>>"$2" && : > "${work}/held" && exec sleep 60) & ;;
+        '<') (exec 3<"$2" && : > "${work}/held" && exec sleep 60) & ;;
+    esac
+    holder=$!
+    until [ -e "${work}/held" ]; do sleep 0.05; done
+}
+utc_next_day=$(TZ=UTC date -d '2026-11-14 00:10' +%s)
+live="${work}/live"
+live_dir="${live}/20261113_235000/site-zen3/easybuild-logs/Foo-1.0"
+mkdir -p "${live_dir}" "${live}/20261114_000500/site-zen4" "${live}/20261001_120000"
+echo started > "${live_dir}/easybuild-Foo-1.0-20261113.235001.log"
+echo build > "${live}/20261113_235000/site-zen3/Foo-1.0.stdout.log"
+echo older > "${live}/20261001_120000/G.stdout.log"
+hold '>>' "${live_dir}/easybuild-Foo-1.0-20261113.235001.log"
+log="${live}/20261114_000500/site-zen4/rotate.log"
+TZ=UTC EB_KEEP_LOGS_NOW=${utc_next_day} "${tool}" rotate "${live}" --compress-after 1 > "${log}" 2>&1
+check "a build still going in another run: its log left alone" "$(lsrun "${live_dir}")" "easybuild-Foo-1.0-20261113.235001.log "
+check "a build still going in another run: nothing in its run compressed" \
+    "$(lsrun "${live}/20261113_235000/site-zen3")" "Foo-1.0.stdout.log easybuild-logs "
+check "a build still going in another run: an older run compressed" "$(lsrun "${live}/20261001_120000")" "G.stdout.log.gz "
+check "a build still going in another run: rotate's summary" "$(cat "${log}")" \
+    "eb-keep-logs rotate: 1 file compressed, 0 runs deleted under ${live}"
+kill "${holder}"; wait "${holder}" 2>/dev/null
+TZ=UTC EB_KEEP_LOGS_NOW=${utc_next_day} "${tool}" rotate "${live}" --compress-after 1 > /dev/null 2>&1
+check "a build that has ended: its run compressed" "$(lsrun "${live_dir}")$(lsrun "${live}/20261113_235000/site-zen3")" \
+    "easybuild-Foo-1.0-20261113.235001.log.gz Foo-1.0.stdout.log.gz easybuild-logs "
+
+# A process that only reads a run's logs does not hold the run back.
+read_root="${work}/read"
+mkdir -p "${read_root}/20261113_235000"
+echo build > "${read_root}/20261113_235000/R.stdout.log"
+hold '<' "${read_root}/20261113_235000/R.stdout.log"
+TZ=UTC EB_KEEP_LOGS_NOW=${utc_next_day} "${tool}" rotate "${read_root}" --compress-after 1 > /dev/null 2>&1
+check "a run a process only reads: compressed" "$(lsrun "${read_root}/20261113_235000")" "R.stdout.log.gz "
+kill "${holder}"; wait "${holder}" 2>/dev/null
+
+# Nor is a run that is still written into deleted past --delete-after.
+gone_live="${work}/gone-live"
+mkdir -p "${gone_live}/20261001_120000" "${gone_live}/20261002_120000"
+echo hung > "${gone_live}/20261001_120000/H.stdout.log"
+echo ended > "${gone_live}/20261002_120000/I.stdout.log"
+hold '>>' "${gone_live}/20261001_120000/H.stdout.log"
+TZ=UTC EB_KEEP_LOGS_NOW=${utc_next_day} "${tool}" rotate "${gone_live}" --compress-after 1 --delete-after 30 > /dev/null 2>&1
+check "a run still written into past --delete-after: kept as it is" "$(lsrun "${gone_live}")$(lsrun "${gone_live}/20261001_120000")" \
+    "20261001_120000 H.stdout.log "
+kill "${holder}"; wait "${holder}" 2>/dev/null
 
 # rotate: an empty EB_KEEP_LOGS_NOW is the current time, as an unset one is
 now_root="${work}/now"

@@ -605,6 +605,44 @@ fn contains(names: []const []const u8, name: []const u8) bool {
     return false;
 }
 
+/// The runs directly under `root` that a process in `procfs` has a file in
+/// open for writing, of the processes whose descriptors this one may read: a
+/// build that is still going, whichever run it writes into. A link PID/fd/N
+/// has its owner's write bit when N is open for writing; for a file removed
+/// since, the link names the path it had, with " (deleted)" added.
+fn writtenRuns(gpa: Allocator, arena: Allocator, procfs: []const u8, root: fsx.fd_t) []const []const u8 {
+    var names: std.ArrayList([]const u8) = .empty;
+    var rb: [sys.path_max]u8 = undefined;
+    const real = fsx.realpathFd(root, &rb) catch return &.{};
+    const here = arena.dupe(u8, if (std.mem.eql(u8, real, "/")) "" else real) catch return &.{};
+    const pd = fsx.openDir(fsx.cwd, procfs, false) catch return &.{};
+    defer sys.close(pd);
+    var it = fsx.DirIter.init(gpa, pd) catch return &.{};
+    defer it.deinit(gpa);
+    while (it.next() catch null) |p| {
+        if (!allDigits(p.name)) continue;
+        var fb: [32]u8 = undefined;
+        const fd_dir = std.fmt.bufPrint(&fb, "{s}/fd", .{p.name}) catch continue;
+        const fds = fsx.openDir(pd, fd_dir, false) catch continue;
+        defer sys.close(fds);
+        var fit = fsx.DirIter.init(gpa, fds) catch continue;
+        defer fit.deinit(gpa);
+        while (fit.next() catch null) |f| {
+            const st = fsx.statAt(fds, f.name, false) catch continue;
+            if (st.mode & 0o200 == 0) continue;
+            addRunOf(arena, &names, here, readLinkAt(fds, f.name, &rb) catch continue);
+        }
+    }
+    return names.items;
+}
+
+/// The target of the symbolic link `name` in `dir`.
+fn readLinkAt(dir: fsx.fd_t, name: []const u8, out: *[sys.path_max]u8) sys.Error![]const u8 {
+    var zb: [sys.path_max:0]u8 = undefined;
+    const n = try sys.call(linux.readlinkat, .{ dir, (try sys.z(&zb, name)).ptr, out, out.len });
+    return out[0..n];
+}
+
 fn cmdRotate(c: Ctx, args: []const [:0]const u8) u8 {
     var root_s: ?[]const u8 = null;
     var compress_v: ?[]const u8 = null;
@@ -701,12 +739,14 @@ fn cmdRotate(c: Ctx, args: []const [:0]const u8) u8 {
     }.lt);
 
     const own = ownRuns(c, arena, root);
+    const written = writtenRuns(c.gpa, arena, "/proc", root);
     var compressed: usize = 0;
     var deleted: usize = 0;
     for (runs.items) |run| {
         const age = runAgeDays(&zone, run, now) orelse continue;
-        // The next rotate takes the run this one writes into.
-        if (contains(own, run)) continue;
+        // A later rotate takes a run that is still written into, by this
+        // rotate or by a build that is still going.
+        if (contains(own, run) or contains(written, run)) continue;
         if (delete_after) |d| if (age >= @as(i64, @intCast(@min(d, std.math.maxInt(i64))))) {
             fsx.deleteTree(c.gpa, root, run) catch |err| {
                 warn("cannot delete {s}/{s}: {t}", .{ joinable(root_p), run, err });
@@ -841,6 +881,34 @@ test "the rotate lock: one holder at a time" {
     try sys.unlinkat(dir, rotate_lock, 0);
     _ = try sys.call(linux.mkdirat, .{ dir, rotate_lock, 0o755 });
     try std.testing.expectError(error.IsDir, openLock(dir));
+}
+
+test "writtenRuns: the runs a process has a file in open for writing" {
+    const gpa = std.testing.allocator;
+    const base = try testDir(gpa, "written");
+    defer gpa.free(base);
+    defer fsx.deleteTree(gpa, fsx.cwd, base) catch {};
+    const root = try fsx.openDir(fsx.cwd, base, false);
+    defer sys.close(root);
+    for ([_][:0]const u8{ "20261113_235000", "20261001_120000", "20261002_120000" }) |run|
+        _ = try sys.call(linux.mkdirat, .{ root, run.ptr, 0o755 });
+
+    const writing = try sys.openat(root, "20261113_235000/build.log", .{ .ACCMODE = .WRONLY, .APPEND = true, .CREAT = true }, 0o644);
+    defer sys.close(writing);
+    const reading = try sys.openat(root, "20261001_120000/old.log", .{ .CREAT = true }, 0o644);
+    defer sys.close(reading);
+    const removed = try sys.openat(root, "20261002_120000/gone.log", .{ .ACCMODE = .RDWR, .CREAT = true }, 0o644);
+    defer sys.close(removed);
+    try sys.unlinkat(root, "20261002_120000/gone.log", 0);
+
+    var arena_state = std.heap.ArenaAllocator.init(gpa);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+    const names = writtenRuns(gpa, arena, "/proc", root);
+    try std.testing.expect(contains(names, "20261113_235000"));
+    try std.testing.expect(!contains(names, "20261001_120000"));
+    try std.testing.expect(contains(names, "20261002_120000"));
+    try std.testing.expectEqual(@as(usize, 0), writtenRuns(gpa, arena, "/nonexistent", root).len);
 }
 
 test "parseSeconds" {

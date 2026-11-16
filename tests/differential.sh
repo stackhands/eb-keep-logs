@@ -126,6 +126,14 @@ exec {held}>&-
 mkdir -p "${work}/symlock"
 ln -s "${work}/nowhere" "${work}/symlock/.eb-keep-logs-rotate.lock"
 compare "rotate, lock is a symbolic link" rotate "${work}/symlock" --compress-after 5
+# The one run is past --delete-after, and another process writes into it.
+mkdir -p "${work}/live/20261001_120000"
+echo build > "${work}/live/20261001_120000/B.stdout.log"
+(exec 3>>"${work}/live/20261001_120000/B.stdout.log" && : > "${work}/held" && exec sleep 60) &
+holder=$!
+until [ -e "${work}/held" ]; do sleep 0.05; done
+compare "rotate, a run still written into" rotate "${work}/live" --compress-after 5 --delete-after 9
+kill "${holder}"; wait "${holder}" 2>/dev/null
 
 echo "${diffs} differences"
 [ "${diffs}" -eq 0 ]

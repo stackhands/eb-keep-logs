@@ -137,8 +137,10 @@ What =failed= cannot do it reports on stderr as =eb-keep-logs: MESSAGE=, and goe
 | =ROOT/RUN/.../FILE.log=, =FILE.txt= | In a run old enough, replaced by =FILE.gz= with the file's mode, as =gzip -9= does; a symbolic link is not followed, and a file with other hard links or an existing =FILE.gz= is left as it is, with a message on stderr.                              |
 | =ROOT/RUN/.../.licensed-logs=       | In a run in which files were compressed, a line that names one of them, by its absolute path with symbolic links resolved, is changed to name its =.gz= file. A list that changes keeps its owner when permitted, its mode and its access control list. |
 | =ROOT/RUN=                          | Removed with everything in it, when old enough for =--delete-after=, without being compressed first. A symbolic link in it is removed, not followed. Removal stops at the first error.                                                                  |
+| =/proc/PID/fd/N=                    | Read, for every process whose descriptors =rotate= may read, after it has the lock: a link with its owner's write bit names a file the process has open for writing, and the run that file is in is left alone. Without =/proc=, no run is left alone for it. |
 
-A run that holds the file =rotate='s standard output or standard error goes to, or =EB_PIPELINE_LOG_DIR=, is left alone; the next =rotate= takes it.
+A run that holds the file =rotate='s standard output or standard error goes to, or =EB_PIPELINE_LOG_DIR=, or a file another process has open for writing, as a build that is still going has its log, is left alone, neither compressed nor deleted; a later =rotate= takes it.
+The path is what counts: the path the link in =/proc= names, or for a file removed since, that path with =" (deleted)"= after it, has to start with =ROOT='s, with symbolic links resolved.
 On stdout =rotate= prints one line, with =ROOT= as given:
 
 #+begin_example
