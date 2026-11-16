@@ -19,11 +19,25 @@ It runs `eb --last-log` with `EASYBUILD_OUTPUT_STYLE=basic`, because EasyBuild 5
 
 ## Install
 
-Copy `eb-keep-logs` onto `PATH`, or install it with its EasyBuild recipe.
-It needs `bash`, coreutils, `find`, `gzip`, `awk` and, for `failed`, `eb`.
+Each release has a static binary for `x86_64` and `aarch64` Linux, with `SHA256SUMS`.
+It needs nothing but `eb`:
 
-A static Zig build of the same tool needs nothing but `eb`.
-Build it with Zig 0.17.1:
+```bash
+v=0.2.1 arch=x86_64
+url=https://github.com/stackhands/eb-keep-logs/releases/download/v$v
+curl -sSfL -O "$url/eb-keep-logs-$v-$arch-linux-musl" -O "$url/SHA256SUMS"
+sha256sum --check --ignore-missing SHA256SUMS
+install -m 0755 "eb-keep-logs-$v-$arch-linux-musl" ~/.local/bin/eb-keep-logs
+```
+
+The shell script `eb-keep-logs` in this repository is the same tool; copy it onto `PATH`.
+It needs `bash`, coreutils, GNU `grep` (for `grep -P`), `sed`, `find`, `gzip`, `awk` and, for `failed`, `eb`.
+Without `grep -P` it still keeps the log and the command output, but not the meson testlog.
+
+There is no EasyBuild recipe for eb-keep-logs here or in the EasyBuild easyconfigs repository.
+To install it as a module, write an easyconfig that installs a release binary and checks it against `SHA256SUMS`.
+
+To build the binary instead, use Zig 0.17.1:
 
 ```bash
 zig build -Drelease=true
@@ -50,7 +64,7 @@ A log that shows EasyBuild processing easyconfigs but never names `Foo-1.0.eb` i
 
 On a non-zero status this writes, next to `Foo-1.0.stdout.log`:
 
-- `Foo-1.0.failed.ebout.log`, the EasyBuild log;
+- `Foo-1.0.failed.ebout.log`, the EasyBuild session log `eb --last-log` names: the log of the whole `eb` run, not the shorter `easybuild-Foo-1.0-*.log` EasyBuild writes for the easyconfig in the `--tmp-logdir`;
 - `Foo-1.0.failed.command-out.txt` and `-err.txt`, the failing command's own output, when it lies under `EASYBUILD_TMPDIR`, with symbolic links resolved in both, and belongs to the build account; when it does not, `failed` says why;
 - `Foo-1.0.failed.meson-testlog.txt`, the full meson test log, when a meson test step failed.
 
@@ -67,6 +81,14 @@ eb-keep-logs rotate /srv/build-logs --compress-after 30 --delete-after 365
 `rotate` looks only at run directories named `YYYYMMDD_HHMMSS` directly under the root, and dates each run by its name.
 It gzips the `*.log` and `*.txt` files of runs older than `--compress-after` days, keeps each file's mode, and updates the run's `.licensed-logs`.
 It removes whole runs older than `--delete-after` days only when that option is given.
+
+`EB_KEEP_LOGS_NOW`, in seconds since the epoch, sets the time `rotate` dates runs against.
+On a copy of the tree, it previews what a later rotation compresses and removes:
+
+```bash
+cp -a /srv/build-logs /tmp/logs-preview
+EB_KEEP_LOGS_NOW=$(date -d 2027-09-20 +%s) eb-keep-logs rotate /tmp/logs-preview --compress-after 30 --delete-after 365
+```
 
 ## Tests
 

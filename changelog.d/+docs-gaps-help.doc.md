@@ -1,0 +1,1 @@
+`--help` and README.md name the copy `failed` keeps as the EasyBuild session log `eb --last-log` names, and say that `EB_KEEP_LOGS_NOW` sets the time `rotate` dates runs against; README.md shows a preview with it.
