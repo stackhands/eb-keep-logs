@@ -23,16 +23,17 @@ const usage_text =
     \\
     \\  eb-keep-logs failed STATUS NAME LOGDIR [TMP_LOGDIR]
     \\      After `eb` returned STATUS for easyconfig NAME: when STATUS is not 0,
-    \\      copy the EasyBuild log, the failing command's output and a meson
-    \\      testlog next to LOGDIR/NAME.stdout.log, closed to others and listed
-    \\      in LOGDIR/.licensed-logs. TMP_LOGDIR is the --tmp-logdir eb ran with;
-    \\      without it, the newest log in EasyBuild's default place is used,
-    \\      unless it is another build's.
+    \\      copy the EasyBuild session log `eb --last-log` names, the failing
+    \\      command's output and a meson testlog next to LOGDIR/NAME.stdout.log,
+    \\      closed to others and listed in LOGDIR/.licensed-logs. TMP_LOGDIR is
+    \\      the --tmp-logdir eb ran with; without it, the newest log in
+    \\      EasyBuild's default place is used, unless it is another build's.
     \\      NAME.stdout.log and a TMP_LOGDIR below LOGDIR are closed to others too.
     \\  eb-keep-logs rotate ROOT --compress-after DAYS [--delete-after DAYS]
     \\      In the run directories directly under ROOT (named YYYYMMDD_HHMMSS),
     \\      gzip the logs of runs older than DAYS; with --delete-after, remove
     \\      whole runs older than that. Permissions and .licensed-logs follow.
+    \\      EB_KEEP_LOGS_NOW, in seconds since the epoch, sets the current time.
     \\  eb-keep-logs --help | --version
     \\
 ;

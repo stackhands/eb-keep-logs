@@ -23,5 +23,6 @@ the tag and comparing the sha256.
 6. Build the tag locally with `zig build -Drelease=true -Dcommit=<7-char sha>
    -Dtarget=x86_64-linux-musl` and compare its sha256 with `SHA256SUMS`.
 7. Publish the draft.
-8. Update the EasyBuild recipe: version and the checksum of each binary from
+8. Where a site keeps an EasyBuild recipe for eb-keep-logs (none is
+   published), update it: version and the checksum of each binary from
    `SHA256SUMS`, then test-install it.

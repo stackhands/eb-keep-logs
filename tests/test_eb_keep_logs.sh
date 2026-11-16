@@ -287,5 +287,9 @@ check "delete before compress refused" "$?" "2"
 "${tool}" rotate "${root}" 2>/dev/null
 check "rotate without --compress-after refused" "$?" "2"
 
+# --help: what `failed` copies, and the variable `rotate` reads
+check "help: the copy is the session log" "$("${tool}" --help | grep -c 'EasyBuild session log')" "1"
+check "help: EB_KEEP_LOGS_NOW" "$("${tool}" --help | grep -c 'EB_KEEP_LOGS_NOW')" "1"
+
 if [ "${fails}" -ne 0 ]; then echo "${fails} failed"; exit 1; fi
 echo "all passed"
