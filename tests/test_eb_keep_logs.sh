@@ -294,7 +294,7 @@ check "help: EB_KEEP_LOGS_NOW" "$("${tool}" --help | grep -c 'EB_KEEP_LOGS_NOW')
 # rotate: the run rotate writes into is still going and is left alone. A run
 # that started before midnight is a day old just after it.
 next_day=$(date -d '2026-11-14 00:10' +%s)
-lsrun() { ls "$1" | sort | tr '\n' ' '; }
+lsrun() { find "$1" -mindepth 1 -maxdepth 1 -printf '%f\n' | sort | tr '\n' ' '; }
 mkrun() {
     mkdir -p "$1/20261113_235000/snel-zen4" "$1/20261110_120000"
     echo build > "$1/20261113_235000/snel-zen4/F.stdout.log"
