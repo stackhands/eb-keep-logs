@@ -216,6 +216,29 @@ _run_age_days() {
     echo $(( (now - start) / 86400 ))
 }
 
+# "/NAME" for each run directly under ROOT that this rotate writes into: the
+# run holding its stdout or stderr when either is a file and, as srun passes
+# the output on over a pipe, the run holding EB_PIPELINE_LOG_DIR, the log
+# directory eb-pipeline exports. Such a run is still going.
+_own_runs() {
+    local root fd
+    root=$(realpath -e -- "$1") || return 0
+    root="${root%/}"
+    for fd in 1 2; do
+        [ -f "/proc/$$/fd/${fd}" ] && _run_of "${root}" "$(readlink -e -- "/proc/$$/fd/${fd}")"
+    done
+    [ -n "${EB_PIPELINE_LOG_DIR:-}" ] && _run_of "${root}" "$(readlink -e -- "${EB_PIPELINE_LOG_DIR}")"
+    return 0
+}
+
+# "/NAME" when PATH lies in NAME directly under ROOT.
+_run_of() {
+    local rest
+    case "$2" in
+        "$1/"?*) rest="${2#"$1/"}"; printf '/%s' "${rest%%/*}" ;;
+    esac
+}
+
 cmd_rotate() {
     local root="" compress_after="" delete_after=""
     while [ $# -gt 0 ]; do
@@ -235,11 +258,14 @@ cmd_rotate() {
         [[ "${delete_after}" =~ ^[0-9]+$ ]] || die "--delete-after needs a number of days"
         [ "${delete_after}" -gt "${compress_after}" ] || die "--delete-after must be later than --compress-after"
     fi
-    local run age file list path compressed=0 deleted=0
+    local run age file list path compressed=0 deleted=0 own
+    own="$(_own_runs "${root}")/"
     for run in "$(_joinable "${root}")"/*/; do
         run="${run%/}"
         [ -d "${run}" ] && [ ! -L "${run}" ] || continue
         age=$(_run_age_days "${run}") || continue
+        # The next rotate takes the run this one writes into.
+        case "${own}" in *"/${run##*/}/"*) continue ;; esac
         if [ -n "${delete_after}" ] && [ "${age}" -ge "${delete_after}" ]; then
             rm -rf -- "${run}"
             deleted=$((deleted + 1))

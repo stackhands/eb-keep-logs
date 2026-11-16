@@ -7,6 +7,7 @@ set -u
 repo_root=$(cd "$(dirname "$0")/.." && pwd)
 # TOOL_BIN runs the suite against another build of the tool.
 tool="${TOOL_BIN:-${repo_root}/eb-keep-logs}"
+unset EB_PIPELINE_LOG_DIR
 
 fails=0
 check() {
@@ -290,6 +291,40 @@ check "rotate without --compress-after refused" "$?" "2"
 # --help: what `failed` copies, and the variable `rotate` reads
 check "help: the copy is the session log" "$("${tool}" --help | grep -c 'EasyBuild session log')" "1"
 check "help: EB_KEEP_LOGS_NOW" "$("${tool}" --help | grep -c 'EB_KEEP_LOGS_NOW')" "1"
+# rotate: the run rotate writes into is still going and is left alone. A run
+# that started before midnight is a day old just after it.
+next_day=$(date -d '2026-11-14 00:10' +%s)
+lsrun() { find "$1" -mindepth 1 -maxdepth 1 -printf '%f\n' | sort | tr '\n' ' '; }
+mkrun() {
+    mkdir -p "$1/20261113_235000/snel-zen4" "$1/20261110_120000"
+    echo build > "$1/20261113_235000/snel-zen4/F.stdout.log"
+    echo older > "$1/20261110_120000/G.stdout.log"
+}
+
+own="${work}/own"
+mkrun "${own}"
+log="${own}/20261113_235000/snel-zen4/rotate.log"
+EB_KEEP_LOGS_NOW=${next_day} "${tool}" rotate "${own}" --compress-after 1 > "${log}" 2>&1
+check "own run: rotate.log stays open" "$(cat "${log}" 2>/dev/null)" "eb-keep-logs rotate: 1 file compressed, 0 runs deleted under ${own}"
+check "own run: not compressed" "$(lsrun "${own}/20261113_235000/snel-zen4")" "F.stdout.log rotate.log "
+check "own run: an older run compressed" "$(lsrun "${own}/20261110_120000")" "G.stdout.log.gz "
+
+gone="${work}/gone"
+mkrun "${gone}"
+log="${gone}/20261113_235000/snel-zen4/rotate.log"
+EB_KEEP_LOGS_NOW=$(date -d '2026-11-16 00:10' +%s) "${tool}" rotate "${gone}" --compress-after 1 --delete-after 2 > "${log}" 2>&1
+check "own run past --delete-after: kept" "$(lsrun "${gone}/20261113_235000/snel-zen4")" "F.stdout.log rotate.log "
+check "own run past --delete-after: an older run deleted" "$(lsrun "${gone}")" "20261113_235000 "
+
+# Through srun the output reaches rotate.log over a pipe; eb-pipeline exports
+# the run's log directory as EB_PIPELINE_LOG_DIR.
+piped="${work}/piped"
+mkrun "${piped}"
+log_dir="${piped}/20261113_235000/snel-zen4"
+EB_PIPELINE_LOG_DIR=${log_dir} EB_KEEP_LOGS_NOW=${next_day} "${tool}" rotate "${piped}" --compress-after 1 2>&1 | cat > "${log_dir}/rotate.log"
+check "own run through a pipe: not compressed" "$(lsrun "${log_dir}")" "F.stdout.log rotate.log "
+EB_KEEP_LOGS_NOW=${next_day} "${tool}" rotate "${piped}" --compress-after 1 > /dev/null 2>&1
+check "a finished run is compressed" "$(lsrun "${log_dir}")" "F.stdout.log.gz rotate.log.gz "
 
 if [ "${fails}" -ne 0 ]; then echo "${fails} failed"; exit 1; fi
 echo "all passed"

@@ -500,6 +500,39 @@ fn followLists(c: Ctx, dir: fsx.fd_t, renames: *const Renames) void {
     }
 }
 
+/// The runs directly under `root` that this rotate writes into: the run
+/// holding its standard output or error when either is a file and, as srun
+/// passes the output on over a pipe, the run holding EB_PIPELINE_LOG_DIR, the
+/// log directory eb-pipeline exports. Such a run is still going.
+fn ownRuns(c: Ctx, arena: Allocator, root: fsx.fd_t) []const []const u8 {
+    var names: std.ArrayList([]const u8) = .empty;
+    var rb: [sys.path_max]u8 = undefined;
+    const real = fsx.realpathFd(root, &rb) catch return &.{};
+    const here = arena.dupe(u8, if (std.mem.eql(u8, real, "/")) "" else real) catch return &.{};
+    for ([_]fsx.fd_t{ 1, 2 }) |fd| {
+        const st = fsx.fstat(fd) catch continue;
+        if (!st.isReg() or st.nlink == 0) continue;
+        addRunOf(arena, &names, here, fsx.realpathFd(fd, &rb) catch continue);
+    }
+    if (c.getenv("EB_PIPELINE_LOG_DIR")) |d| if (d.len > 0) {
+        if (fsx.realpath(fsx.cwd, d, &rb)) |p| addRunOf(arena, &names, here, p) else |_| {}
+    };
+    return names.items;
+}
+
+/// Add the name of the directory directly under `root` that holds `path`.
+fn addRunOf(arena: Allocator, names: *std.ArrayList([]const u8), root: []const u8, path: []const u8) void {
+    if (path.len <= root.len + 1 or !std.mem.startsWith(u8, path, root) or path[root.len] != '/') return;
+    const rest = path[root.len + 1 ..];
+    const name = rest[0 .. std.mem.findScalar(u8, rest, '/') orelse rest.len];
+    names.append(arena, arena.dupe(u8, name) catch return) catch return;
+}
+
+fn contains(names: []const []const u8, name: []const u8) bool {
+    for (names) |n| if (std.mem.eql(u8, n, name)) return true;
+    return false;
+}
+
 fn cmdRotate(c: Ctx, args: []const [:0]const u8) u8 {
     var root_s: ?[]const u8 = null;
     var compress_v: ?[]const u8 = null;
@@ -573,10 +606,13 @@ fn cmdRotate(c: Ctx, args: []const [:0]const u8) u8 {
         }
     }.lt);
 
+    const own = ownRuns(c, arena, root);
     var compressed: usize = 0;
     var deleted: usize = 0;
     for (runs.items) |run| {
         const age = runAgeDays(&zone, run, now) orelse continue;
+        // The next rotate takes the run this one writes into.
+        if (contains(own, run)) continue;
         if (delete_after) |d| if (age >= @as(i64, @intCast(@min(d, std.math.maxInt(i64))))) {
             fsx.deleteTree(c.gpa, root, run) catch |err| {
                 warn("cannot delete {s}/{s}: {t}", .{ joinable(root_p), run, err });
@@ -708,4 +744,21 @@ test "runAgeDays" {
     try std.testing.expectEqual(@as(?i64, null), runAgeDays(&z, "20260230_120000", now));
     try std.testing.expectEqual(@as(?i64, null), runAgeDays(&z, "notarun", now));
     try std.testing.expectEqual(@as(?i64, 0), runAgeDays(&z, "20261113_235959", now + 3600));
+}
+
+test "addRunOf" {
+    var arena_state = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+    var names: std.ArrayList([]const u8) = .empty;
+    addRunOf(arena, &names, "/logs", "/logs/20261113_235000/snel-zen4/rotate.log");
+    addRunOf(arena, &names, "/logs", "/logs/20261110_120000");
+    addRunOf(arena, &names, "/logs", "/logs");
+    addRunOf(arena, &names, "/logs", "/logs/");
+    addRunOf(arena, &names, "/logs", "/logs2/20261113_235000/rotate.log");
+    addRunOf(arena, &names, "", "/20261101_120000/rotate.log");
+    try std.testing.expectEqual(@as(usize, 3), names.items.len);
+    try std.testing.expectEqualStrings("20261113_235000", names.items[0]);
+    try std.testing.expectEqualStrings("20261110_120000", names.items[1]);
+    try std.testing.expectEqualStrings("20261101_120000", names.items[2]);
 }
