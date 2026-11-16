@@ -45,6 +45,9 @@ eb Foo-1.0.eb --tmp-logdir="$LOGDIR/easybuild-logs/Foo-1.0" 2>&1 | tee "$LOGDIR/
 eb-keep-logs failed "${PIPESTATUS[0]}" Foo-1.0 "$LOGDIR" "$LOGDIR/easybuild-logs/Foo-1.0"
 ```
 
+Without the last argument, `eb --last-log` names the newest log in EasyBuild's default place, which can be a later build's.
+A log that shows EasyBuild processing easyconfigs but never names `Foo-1.0.eb` is another build's: `failed` keeps nothing from it and says so, and still keeps the command output that `Foo-1.0.stdout.log` names.
+
 On a non-zero status this writes, next to `Foo-1.0.stdout.log`:
 
 - `Foo-1.0.failed.ebout.log`, the EasyBuild log;

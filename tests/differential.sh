@@ -78,6 +78,10 @@ printf '#!/bin/bash\necho %s\n' "${work}/easybuild-Cmd.log" > "${work}/bin/eb"
 EASYBUILD_TMPDIR="${work}/ebtmp-link" compare "failed, linked EASYBUILD_TMPDIR" failed 3 Cmd "${work}/logs"
 compare "failed, EASYBUILD_TMPDIR unset" failed 3 Cmd "${work}/logs"
 EASYBUILD_TMPDIR="${work}/elsewhere" compare "failed, output outside EASYBUILD_TMPDIR" failed 3 Cmd "${work}/logs"
+printf '== processing EasyBuild easyconfig /ec/Ring-1.0.eb\n' > "${work}/easybuild-ring.log"
+printf '#!/bin/bash\necho %s\n' "${work}/easybuild-ring.log" > "${work}/bin/eb"
+compare "failed, another build's log" failed 3 Calc-1.0 "${work}/logs"
+compare "failed, own log" failed 3 Ring-1.0 "${work}/logs"
 printf '#!/bin/bash\nexit 0\n' > "${work}/bin/eb"
 compare "rotate, no root" rotate --compress-after 3
 compare "rotate, two roots" rotate a b

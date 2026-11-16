@@ -1,0 +1,1 @@
+Without TMP_LOGDIR, `failed` no longer keeps a later build's log, or the meson testlog it names, under this NAME. A log that shows EasyBuild processing easyconfigs but never names `NAME.eb` is refused with a message; the command output `NAME.stdout.log` names is still kept. The usage text and README say what happens without TMP_LOGDIR.
