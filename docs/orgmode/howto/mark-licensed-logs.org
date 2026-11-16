@@ -1,0 +1,86 @@
+#+TITLE: Mark logs that may carry a licence number
+#+OPTIONS: toc:nil todo:nil num:nil author:nil title:nil
+#+STARTUP: content
+
+* Mark logs that may carry a licence number
+
+Use this to find which files of a run must not leave it, for example before you attach a build's logs to a ticket.
+A failed compile line of licensed software can print the licence number, so =eb-keep-logs failed= closes the copies it keeps to other users and lists them in =.licensed-logs= in the run directory, one absolute path per line.
+The build's output and the files EasyBuild wrote to the =--tmp-logdir= hold the same lines, and EasyBuild's test report there holds the build's environment; =failed= closes them too, but does not list them.
+This guide lists them, then shows what is left.
+
+** Before you start
+
+- A run directory in which =eb-keep-logs failed= kept a build's logs, such as the one from [[file:../tutorials/keep-a-failed-build-log.org][Keep a failed build's logs]], and =LOGDIR= set to it, as the tutorial sets it.
+- =realpath=, =grep= and =find=.
+
+** Steps
+
+1. Read the list:
+
+   #+begin_src bash
+   cat "$LOGDIR/.licensed-logs"
+   #+end_src
+
+   #+begin_example
+   /home/alice/build-logs/20261116_175326/Example-1.0.failed.ebout.log
+   /home/alice/build-logs/20261116_175326/Example-1.0.failed.command-out.txt
+   #+end_example
+
+2. Add the files =failed= closed: the build's output, and the regular files directly in the =--tmp-logdir=.
+   Add each once, by its absolute path with symbolic links resolved, as =failed= lists a file:
+
+   #+begin_src bash
+   { realpath "$LOGDIR/Example-1.0.stdout.log"
+     find "$LOGDIR/easybuild-logs/Example-1.0" -maxdepth 1 -type f -exec realpath {} +
+   } | while read -r p; do
+       grep -qxF "$p" "$LOGDIR/.licensed-logs" || printf '%s\n' "$p" >> "$LOGDIR/.licensed-logs"
+   done
+   #+end_src
+
+   Close a file you add to other users as well, unless =failed= already has: =chmod o-rwx FILE=.
+3. List the files of the run that are not on the list:
+
+   #+begin_src bash
+   find "$LOGDIR" -type f ! -name .licensed-logs -exec realpath {} + \
+     | grep -vxF -f "$LOGDIR/.licensed-logs"
+   #+end_src
+
+   #+begin_example
+   /home/alice/build-logs/20261116_175326/easybuild-logs/Example-1.0/reprod_20261116175326_9014/Example-1.0.eb
+   /home/alice/build-logs/20261116_175326/easybuild-logs/Example-1.0/reprod_20261116175326_9014/easyblocks/binary.py
+   #+end_example
+
+   Here they are the copies of the easyconfig and the easyblock that EasyBuild keeps to reproduce the build.
+   Look at any file before you share it: the list says which files are known to hold such lines, not that the others are free of them.
+
+** Check that it worked
+
+The list names the build's output and the three files of the =--tmp-logdir= after the two copies:
+
+#+begin_src bash
+cat "$LOGDIR/.licensed-logs"
+#+end_src
+
+#+begin_example
+/home/alice/build-logs/20261116_175326/Example-1.0.failed.ebout.log
+/home/alice/build-logs/20261116_175326/Example-1.0.failed.command-out.txt
+/home/alice/build-logs/20261116_175326/Example-1.0.stdout.log
+/home/alice/build-logs/20261116_175326/easybuild-logs/Example-1.0/easybuild-Example-1.0-20261116.175326.iEeXN_test_report.md
+/home/alice/build-logs/20261116_175326/easybuild-logs/Example-1.0/easybuild-id6ffdi2.log
+/home/alice/build-logs/20261116_175326/easybuild-logs/Example-1.0/easybuild-Example-1.0-20261116.175326.iEeXN.log
+#+end_example
+
+When =eb-keep-logs rotate= compresses the run, it changes each listed path to that of the =.gz= file, so the marks stay with the logs.
+
+** If it fails
+
+| Message or symptom                                      | Cause                                                                         | What to do                                                               |
+|---------------------------------------------------------+-------------------------------------------------------------------------------+--------------------------------------------------------------------------|
+| =cat: LOGDIR/.licensed-logs: No such file or directory= | =failed= kept nothing in this run, so it wrote no list.                       | To mark files anyway, create the list: =touch "$LOGDIR/.licensed-logs"=. |
+| After =rotate=, a line still names a file without =.gz= | The line names the file by another path, such as one through a symbolic link. | List the path =realpath= prints, as in step 2.                           |
+
+** Related
+
+- [[file:rotate-a-log-tree.org][Rotate a log tree]]
+- [[site:zig-common:howto/compress-and-mark-logs][Compress logs and keep them marked]], for a tool that compresses marked logs itself, and [[zig:zig_common.logs.licensed_list]], the list's name.

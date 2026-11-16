@@ -1,0 +1,53 @@
+#+TITLE: Run ages and local time
+#+OPTIONS: toc:nil todo:nil num:nil author:nil title:nil
+#+STARTUP: content
+
+* Run ages and local time
+
+How does =eb-keep-logs rotate= tell how old a run is, and why from the date in the run's name, counted in local time, not from the directory's modification time?
+
+** The problem
+
+=rotate= decides for each run whether to compress its logs, remove it, or leave it, and that decision is only as good as the run's age.
+A directory's modification time is not the run's age: it moves whenever an entry is added, removed or renamed in it.
+Compressing a run renames every log in it to a =.gz= file, so a run =rotate= compressed would look new again, and so would a run a retried build wrote into.
+
+The pipeline names each run by the local time it started, =date +%Y%m%d_%H%M%S=, and the shell script dated runs with =date -d YYYYMMDD +%s=, the epoch second of the local midnight of that date.
+The Zig build has to give the same ages without =date=: it is one static binary with no C library, so there is no =mktime(3)= to ask.
+
+** How eb-keep-logs handles it
+
+=rotate= takes the run's age from its name.
+
+1. Only a directory directly under the root whose name is =YYYYMMDD_HHMMSS=, fifteen characters with digits around the underscore, and whose date exists in the calendar, is a run.
+   Anything else, including a name that starts with a dot, is left alone, with no message.
+2. The age is the number of whole days from the local midnight of the run's date to now, in days of 86,400 seconds.
+   The time in the name is not used, so every run of one day ages together.
+3. Local midnight follows the time zone the C library would use: =TZ=, or =/etc/localtime= when =TZ= is unset.
+   [[zig:eb-keep-logs.localtime.load]] reads the zone file itself, using its transitions and then the rule at its end for later dates, and [[zig:eb-keep-logs.localtime.Zone.fromLocal]] turns the local midnight into an epoch second.
+4. Where a change to daylight saving time skips midnight, the clock jumping from 00:00 to 01:00, that date's midnight does not exist.
+   =date -d= refuses such a date, and =rotate= skips the run, as the shell script did.
+
+=EB_KEEP_LOGS_NOW= replaces now with a time of your choosing, in seconds since the epoch; nothing else changes.
+
+** What was considered and turned down
+
+- /The run directory's modification time./
+  It moves when the run is compressed or written to, as above.
+- /Asking the date command for each run, as the shell script does./
+  It starts a =date -d= process per run and needs GNU =date=, where the binary needs nothing but =eb=, and =rotate= does not even need that.
+- /Linking a C library./
+  It would give =mktime(3)= to =rotate=, but the Zig tools are built without one, for the reasons in [[site:zig-common:explanation/system-calls-without-libc][System calls without a C library]].
+
+** Limits
+
+- Days are 86,400 seconds long, as in the shell script, so for an hour around the midnight after a daylight saving change a run's age is a day off the calendar: just after midnight following the change to summer time, a run from two days before counts as one day old.
+- A run dated in the future is younger than 0 days and is left alone, except one dated less than a day ahead, which counts as 0 days old.
+- Only the date is checked: =HHMMSS= has to be six digits, not a time that exists.
+- The zone is read as glibc reads it except in two cases, an empty =TZDIR= and a =TZ= with a leading =:= that names no file, which [[file:../reference/compatibility.org][Compatibility]] lists under unintended differences.
+
+** Further reading
+
+- [[file:../howto/rotate-a-log-tree.org][Rotate a log tree]]
+- [[file:../reference/api/zig/eb-keep-logs.localtime.md][The localtime module's API]]
+- [[man:tzfile(5)]], the format of a zone file, and [[man:tzset(3)]], how the C library reads =TZ=.

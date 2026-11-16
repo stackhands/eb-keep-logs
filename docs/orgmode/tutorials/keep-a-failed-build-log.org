@@ -1,0 +1,191 @@
+#+TITLE: Keep a failed build's logs
+#+OPTIONS: toc:nil todo:nil num:nil author:nil title:nil
+#+STARTUP: content
+
+* Keep a failed build's logs
+
+By the end of this tutorial you will have an EasyBuild build that failed, with its EasyBuild log and the compiler's error kept in a directory of your own and closed to other users.
+Every command runs as an ordinary user on a Linux machine with EasyBuild 5.
+
+** What you will need
+
+- A Linux machine with =curl= and a C compiler, =cc=.
+- EasyBuild 5, with Lmod for its modules:
+
+  #+begin_src bash
+  eb --version
+  #+end_src
+
+  #+begin_example
+  This is EasyBuild 5.4.2 (framework: 5.4.2, easyblocks: 5.4.2) on host login1.
+  #+end_example
+
+  If =eb= is not found, follow EasyBuild's [[https://docs.easybuild.io/installation/][installation guide]] first.
+- =~/.local/bin= on your =PATH=.
+
+** Install eb-keep-logs
+
+# The 0.2.1 release binary keeps no log when EasyBuild 5.3 or later folds the
+# path eb --last-log prints, which later commits fix.  Install the release
+# binary here once a release after 0.2.1 is out, and run the tutorial again.
+Download =eb-keep-logs=, the shell script, at a fixed commit into =~/.local/bin=, and make it executable:
+
+#+begin_src bash
+curl -sSfL -o ~/.local/bin/eb-keep-logs \
+  https://raw.githubusercontent.com/stackhands/eb-keep-logs/5ceaead6b7f1ab7a0f5ddcc0fad14f6d3a51f5cc/eb-keep-logs
+chmod 0755 ~/.local/bin/eb-keep-logs
+command -v eb-keep-logs
+#+end_src
+
+#+begin_example
+/home/alice/.local/bin/eb-keep-logs
+#+end_example
+
+** Make a directory for this run's logs
+
+Name it by the date and time, =YYYYMMDD_HHMMSS=, which is how =eb-keep-logs rotate= tells how old a run is:
+
+#+begin_src bash
+LOGDIR=~/build-logs/$(date +%Y%m%d_%H%M%S)
+mkdir -p "$LOGDIR"
+echo "$LOGDIR"
+#+end_src
+
+#+begin_example
+/home/alice/build-logs/20261116_175326
+#+end_example
+
+** Choose EasyBuild's temporary directory
+
+EasyBuild saves the output of every command it runs under its temporary directory, and =eb-keep-logs= copies a failed command's output only from inside it, so give both the same one:
+
+#+begin_src bash
+export EASYBUILD_TMPDIR=/tmp/$USER/easybuild
+#+end_src
+
+** Write a build that fails
+
+Save this easyconfig in your home directory as =Example-1.0.eb=.
+It compiles one C file with =cc= into its installation directory:
+
+#+INCLUDE: "keep-a-failed-build-log/Example-1.0.eb" src python
+
+Save the C file next to it as =example.c=.
+It prints a variable that it never declares, so the compiler stops with an error:
+
+#+INCLUDE: "keep-a-failed-build-log/example.c" src c
+
+** Run the build
+
+Run =eb= with =--tmp-logdir= in the run directory, so that EasyBuild writes its log there and not to a temporary place, and copy everything it prints into =Example-1.0.stdout.log= with =tee=.
+The second line saves the exit status of =eb=, the first command of the pipeline:
+
+#+begin_src bash
+eb Example-1.0.eb --tmp-logdir="$LOGDIR/easybuild-logs/Example-1.0" 2>&1 | tee "$LOGDIR/Example-1.0.stdout.log"
+status=${PIPESTATUS[0]}
+#+end_src
+
+#+begin_example
+ERROR: Shell command failed!
+    full command              ->  cc example.c -o /home/alice/.local/easybuild/software/Example/1.0/example
+    exit code                 ->  1
+...
+    output (stdout + stderr)  ->  /tmp/alice/easybuild/eb-ak_95u_p/run-shell-cmd-output/cc-maxoyd5r/out.txt
+...
+== Temporary log file in case of crash /home/alice/build-logs/20261116_175326/easybuild-logs/Example-1.0/easybuild-id6ffdi2.log
+...
+== FAILED: Installation ended unsuccessfully: shell command 'cc ...' failed with exit code 1 in install step for Example-1.0.eb (took 0 secs)
+== Results of the build can be found in the log file(s) /home/alice/build-logs/20261116_175326/easybuild-logs/Example-1.0/easybuild-Example-1.0-20261116.175326.iEeXN.log
+== Summary:
+   * [FAILED]  Example/1.0
+#+end_example
+
+The error comes first: =eb= writes it to stderr at once, while its progress lines on stdout wait in a buffer, as stdout is a pipe.
+=eb= exited with 18, EasyBuild's status for a failed installation step:
+
+#+begin_src bash
+echo "$status"
+#+end_src
+
+#+begin_example
+18
+#+end_example
+
+** Keep its logs
+
+Give =eb-keep-logs failed= the status, the easyconfig's name without =.eb=, the run directory and the =--tmp-logdir=:
+
+#+begin_src bash
+eb-keep-logs failed "$status" Example-1.0 "$LOGDIR" "$LOGDIR/easybuild-logs/Example-1.0"
+#+end_src
+
+#+begin_example
+Failed build log: /home/alice/build-logs/20261116_175326/Example-1.0.failed.ebout.log
+Failed command output: /home/alice/build-logs/20261116_175326/Example-1.0.failed.command-out.txt
+#+end_example
+
+** Look at what it kept
+
+#+begin_src bash
+ls -l "$LOGDIR"
+#+end_src
+
+#+begin_example
+total 56
+-rw------- 1 alice alice   145 Nov 16 17:53 Example-1.0.failed.command-out.txt
+-rw------- 1 alice alice 44794 Nov 16 17:53 Example-1.0.failed.ebout.log
+-rw-rw---- 1 alice alice  2475 Nov 16 17:53 Example-1.0.stdout.log
+drwxrwxr-x 3 alice alice  4096 Nov 16 17:53 easybuild-logs
+#+end_example
+
+The two copies and the build's output are closed to other users, and so is the =--tmp-logdir=, with EasyBuild's logs in it:
+
+#+begin_src bash
+ls -ld "$LOGDIR/easybuild-logs/Example-1.0"
+#+end_src
+
+#+begin_example
+drwxrwx--- 3 alice alice 4096 Nov 16 17:53 /home/alice/build-logs/20261116_175326/easybuild-logs/Example-1.0
+#+end_example
+
+The command output is the compiler's error, of which the build printed only the path:
+
+#+begin_src bash
+cat "$LOGDIR/Example-1.0.failed.command-out.txt"
+#+end_src
+
+#+begin_example
+example.c:5:20: error: use of undeclared identifier 'answer'
+    5 |     printf("%d\n", answer);
+      |                    ^
+1 error generated.
+#+end_example
+
+=.licensed-logs= in the run directory names the copies:
+
+#+begin_src bash
+cat "$LOGDIR/.licensed-logs"
+#+end_src
+
+#+begin_example
+/home/alice/build-logs/20261116_175326/Example-1.0.failed.ebout.log
+/home/alice/build-logs/20261116_175326/Example-1.0.failed.command-out.txt
+#+end_example
+
+** What just happened
+
+1. =failed= asked =eb --last-log= which log the build wrote to the =--tmp-logdir=, instead of reading the path from the build's output, and copied that log, the session log of the whole =eb= run.
+   [[file:../explanation/why-eb-last-log.org][Finding a failed build's log]] says why.
+2. The build's output named the file that holds the failed command's output.
+   It lay under =EASYBUILD_TMPDIR= and belonged to you, so =failed= copied it.
+3. A failed compile line of licensed software can print the licence number, so =failed= closed both copies, the build's output and the =--tmp-logdir= to other users, and listed the copies in =.licensed-logs=.
+   [[file:../howto/mark-licensed-logs.org][Mark logs that may carry a licence number]] shows how to use the list.
+4. The run directory's name holds its date, from which =eb-keep-logs rotate= later decides to compress the run's logs and then to remove the run.
+
+** Next steps
+
+- [[file:../howto/call-from-a-pipeline.org][Call eb-keep-logs from a build pipeline]]
+- [[file:../howto/rotate-a-log-tree.org][Rotate a log tree]]
+- [[file:../reference/cli.org][The eb-keep-logs command]]
+
+Checked with EasyBuild 5.4.2, Lmod 8.6.19 and eb-keep-logs at commit 5ceaead on 2026-11-16.

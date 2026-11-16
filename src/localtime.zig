@@ -1,12 +1,18 @@
 //! Local time as the C library sees it, enough to turn a calendar date into
 //! the epoch second of its local midnight, as `date -d YYYYMMDD +%s` does.
 //!
-//! The zone comes from TZ the way glibc reads it: unset means
-//! /etc/localtime; empty means UTC; a leading ':' or any value naming a TZif
-//! file under TZDIR (default /usr/share/zoneinfo) or an absolute path is
-//! that file; anything else is a POSIX TZ rule string. A zone that cannot be
-//! read or parsed is UTC. TZif files use their transitions, then the POSIX
-//! rule in their footer for times after the last transition.
+//! The zone comes from TZ much as glibc reads it: unset means
+//! /etc/localtime; empty means UTC; otherwise the value, without a leading
+//! ':', names a TZif file, under TZDIR (default /usr/share/zoneinfo) unless
+//! it is an absolute path, and a value without a leading ':' that names no
+//! file is a POSIX TZ rule string. A zone that cannot be read or parsed is
+//! UTC. TZif files use their transitions, then the POSIX rule in their
+//! footer for times after the last transition.
+//!
+//! Two cases differ from glibc, which takes an empty TZDIR as unset and
+//! reads a rule string after a leading ':' too: here an empty TZDIR leaves a
+//! zone name relative to the working directory, and a value with a leading
+//! ':' that names no file is UTC.
 const std = @import("std");
 const common = @import("zig_common");
 const fsx = common.fsx;
@@ -14,6 +20,8 @@ const sys = common.sys;
 
 const Allocator = std.mem.Allocator;
 
+/// The day of the year on which a POSIX TZ rule starts or ends daylight
+/// saving time: `Jn`, `n` or `Mm.w.d`.
 pub const Rule = union(enum) {
     /// Day of year 1..365, February 29 never counted.
     julian1: u16,
@@ -23,9 +31,15 @@ pub const Rule = union(enum) {
     mwd: struct { m: u8, w: u8, d: u8 },
 };
 
+/// A POSIX TZ rule string, such as `CET-1CEST,M3.5.0,M10.5.0/3`, as
+/// `parsePosix` reads it.
 pub const Posix = struct {
     /// Seconds east of UTC.
     std_off: i32,
+    /// Daylight saving time, null when the zone has none: `off` in seconds
+    /// east of UTC, and the days it starts and ends with their times in
+    /// seconds from that day's local midnight, `start_time` in standard time
+    /// and `end_time` in daylight time.
     dst: ?struct {
         off: i32,
         start: Rule,
@@ -35,14 +49,23 @@ pub const Posix = struct {
     } = null,
 };
 
+/// A time zone: the transitions of a TZif file and the POSIX rule after
+/// them, or a POSIX rule alone. The default value is UTC.
 pub const Zone = struct {
+    /// UTC seconds at which the offset changes, in ascending order.
     transitions: []const i64 = &.{},
+    /// Seconds east of UTC from the transition at the same index on.
     offsets: []const i32 = &.{},
     /// Offset before the first transition.
     first_off: i32 = 0,
+    /// The rule from the last transition on, or for all times when there
+    /// are none; without it the last transition's offset stays in force.
     footer: ?Posix = null,
+    /// Holds what was read from a TZif file; `deinit` frees it.
     arena: ?std.heap.ArenaAllocator = null,
 
+    /// Free what was read from a TZif file; a zone without one holds
+    /// nothing to free.
     pub fn deinit(z: *Zone) void {
         if (z.arena) |*a| a.deinit();
     }
@@ -80,7 +103,9 @@ pub const Zone = struct {
     }
 };
 
-// Calendar arithmetic (Howard Hinnant's days_from_civil).
+/// Days from 1970-01-01 to `y_in`-`m`-`d` in the proleptic Gregorian
+/// calendar, negative before it (Howard Hinnant's days_from_civil). `m` is
+/// 1..12; neither it nor `d` is checked.
 pub fn daysFromCivil(y_in: i64, m: u8, d: u8) i64 {
     const y = if (m <= 2) y_in - 1 else y_in;
     const era = @divFloor(y, 400);
@@ -91,10 +116,12 @@ pub fn daysFromCivil(y_in: i64, m: u8, d: u8) i64 {
     return era * 146097 + doe - 719468;
 }
 
+/// Whether `y` is a leap year in the proleptic Gregorian calendar.
 pub fn isLeap(y: i64) bool {
     return @mod(y, 4) == 0 and (@mod(y, 100) != 0 or @mod(y, 400) == 0);
 }
 
+/// Days in month `m` of year `y`; `m` must be 1..12.
 pub fn daysInMonth(y: i64, m: u8) u8 {
     const t = [_]u8{ 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31 };
     return if (m == 2 and isLeap(y)) 29 else t[m - 1];
@@ -132,6 +159,10 @@ fn ruleDay(r: Rule, y: i64) i64 {
     }
 }
 
+/// Seconds east of UTC that rule `p` puts in force at UTC time `t`: the
+/// daylight offset from the year's start of daylight saving time to its end,
+/// the standard offset otherwise. A start later in the year than the end,
+/// as in the southern hemisphere, means daylight time spans the new year.
 pub fn posixOffset(p: Posix, t: i64) i32 {
     const dst = p.dst orelse return p.std_off;
     const y = yearOf(@divFloor(t + p.std_off, 86400));
@@ -219,6 +250,13 @@ const Parser = struct {
     }
 };
 
+/// Parse a POSIX TZ rule string, `std offset[dst[offset][,start[/time],end[/time]]]`.
+/// A name is three or more letters, or three or more characters in `<>`;
+/// an offset is `[+-]hh[:mm[:ss]]` west of UTC. Without its offset,
+/// daylight time is one hour ahead of standard time; without rules it runs
+/// from the second Sunday in March to the first Sunday in November, and a
+/// rule without a time changes at 02:00. Anything else, trailing text
+/// included, is `error.Bad`.
 pub fn parsePosix(s: []const u8) !Posix {
     var p: Parser = .{ .s = s };
     try p.name();

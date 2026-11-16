@@ -25,6 +25,17 @@ pub fn build(b: *std.Build) void {
     const exe = b.addExecutable(.{ .name = "eb-keep-logs", .root_module = mod, .linkage = .static });
     b.installArtifact(exe);
 
+    // The Zig autodoc site, into <prefix>/docs (pixi task autodoc). A compile
+    // of its own: asking the installed one for docs would add -femit-docs to
+    // every build of the binary.
+    const doc_exe = b.addExecutable(.{ .name = "eb-keep-logs", .root_module = mod });
+    const docs = b.addInstallDirectory(.{
+        .source_dir = doc_exe.getEmittedDocs(),
+        .install_dir = .prefix,
+        .install_subdir = "docs",
+    });
+    b.step("docs", "Generate the API reference").dependOn(&docs.step);
+
     const unit = b.addTest(.{ .root_module = mod });
     b.step("unit", "Run the unit tests").dependOn(&b.addRunArtifact(unit).step);
 

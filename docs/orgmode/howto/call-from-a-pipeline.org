@@ -1,0 +1,92 @@
+#+TITLE: Call eb-keep-logs from a build pipeline
+#+OPTIONS: toc:nil todo:nil num:nil author:nil title:nil
+#+STARTUP: content
+
+* Call eb-keep-logs from a build pipeline
+
+Use this when a script builds each easyconfig of a build list with =eb=, in a batch job whose temporary directories are cleaned when it ends.
+The script keeps each failed build's logs next to its output and, at the end of the run, compresses and removes old runs.
+[[https://github.com/stackhands/eb-pipeline][eb-pipeline]] makes the same calls itself, as its site file's =[logs]= table sets.
+
+** Before you start
+
+- =eb= and =eb-keep-logs= on the job's =PATH=.
+  [[file:../tutorials/keep-a-failed-build-log.org][Keep a failed build's logs]] installs =eb-keep-logs=.
+- =bash= to run the script: it reads the exit status of =eb= from =PIPESTATUS=.
+- A directory for the logs of every run, here =~/build-logs=, that the build account can write and the end of a job leaves alone.
+- A build list, here =zen4.list=, with one easyconfig per line.
+
+** Steps
+
+1. Start the run: make its log directory, named by the date and time, and choose EasyBuild's temporary directory.
+
+   #+begin_src bash
+   LOGDIR=~/build-logs/$(date +%Y%m%d_%H%M%S)
+   mkdir -p "$LOGDIR"
+   export EASYBUILD_TMPDIR=/tmp/$USER/easybuild
+   #+end_src
+
+   =eb-keep-logs rotate= tells a run's age from its name, =YYYYMMDD_HHMMSS=, and =eb-keep-logs failed= copies a failed command's output only from under =EASYBUILD_TMPDIR=.
+2. Build each easyconfig with its own =--tmp-logdir= and output file, and call =eb-keep-logs failed= after it:
+
+   #+begin_src bash
+   mapfile -t easyconfigs < zen4.list
+   for ec in "${easyconfigs[@]}"; do
+       name=$(basename "$ec" .eb)
+       eb "$ec" --robot --tmp-logdir="$LOGDIR/easybuild-logs/$name" 2>&1 \
+         | tee "$LOGDIR/$name.stdout.log"
+       status=${PIPESTATUS[0]}
+       eb-keep-logs failed "$status" "$name" "$LOGDIR" "$LOGDIR/easybuild-logs/$name" \
+         || echo "eb-keep-logs failed exited $? for $name" >&2
+   done
+   #+end_src
+
+   =failed= reads =LOGDIR/NAME.stdout.log= and asks =eb= for the newest log in the =--tmp-logdir= it is given, so the name and the directory must be the ones the build used.
+   After a build that succeeded, it keeps and changes nothing.
+   When it refuses its arguments, the loop reports that and goes on with the next build.
+3. End the run by rotating the log tree, with rotate's own output in this run's directory:
+
+   #+begin_src bash
+   eb-keep-logs rotate ~/build-logs --compress-after 30 --delete-after 365 \
+     > "$LOGDIR/rotate.log" 2>&1
+   #+end_src
+
+   =rotate= leaves alone the run that holds its output, so this run stays as it is however long it took, and a later run's =rotate= compresses it once it is old enough.
+
+** Check that it worked
+
+List the run's directory and read rotate's summary.
+Here the list held one easyconfig, the tutorial's, whose build fails:
+
+#+begin_src bash
+ls "$LOGDIR"
+cat "$LOGDIR/rotate.log"
+#+end_src
+
+#+begin_example
+Example-1.0.failed.command-out.txt
+Example-1.0.failed.ebout.log
+Example-1.0.stdout.log
+easybuild-logs
+rotate.log
+eb-keep-logs rotate: 0 files compressed, 0 runs deleted under /home/alice/build-logs
+#+end_example
+
+Each build has =NAME.stdout.log= and its =--tmp-logdir= under =easybuild-logs/=; a failed build also has =NAME.failed.ebout.log= and, when its last command failed, =NAME.failed.command-out.txt=.
+
+** If it fails
+
+| Message                                                                  | Cause                                                                                | What to do                                                       |
+|--------------------------------------------------------------------------+--------------------------------------------------------------------------------------+------------------------------------------------------------------|
+| =No EasyBuild log to keep for NAME: eb is not on PATH.=                  | =eb= is not on the =PATH= =failed= runs with.                                        | Make =eb= available before the loop, for =failed= as for =eb=.   |
+| =No EasyBuild log to keep for NAME.=                                     | =eb= wrote no log to the =--tmp-logdir= given to =failed=.                           | Give =eb= and =failed= the same directory.                       |
+| =Failed command output not kept: EASYBUILD_TMPDIR is not set.=           | =EASYBUILD_TMPDIR= is not in the environment of =failed=.                            | Export it at the start of the run.                               |
+| =Failed command output not kept: PATH is not under EASYBUILD_TMPDIR.=    | =eb= used another temporary directory, as when =--tmpdir= is on its command line.    | Set EasyBuild's temporary directory with =EASYBUILD_TMPDIR= only. |
+| =eb-keep-logs: LOGDIR PATH is not a directory=                           | The run's directory was not made.                                                    | Make it at the start of the run.                                 |
+
+** Related
+
+- [[file:rotate-a-log-tree.org][Rotate a log tree]]
+- [[file:../explanation/why-eb-last-log.org][Finding a failed build's log]]
+- [[file:../reference/cli.org][The eb-keep-logs command]]
+- [[file:../tutorials/keep-a-failed-build-log.org][Keep a failed build's logs]]
