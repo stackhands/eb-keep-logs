@@ -248,7 +248,7 @@ check "failed meson test: testlog kept" "$(tail -n 1 "${work}/logs/Broken-1.0.fa
 check "build died in a command: its output kept" "$(cat "${work}/logs/Killed-1.0.failed.command-out.txt" 2>/dev/null)" "make-3 output"
 # failed: EasyBuild 5.3 and later fold the --last-log path at 80 columns on a
 # pipe, unless --output-style=basic is given
-deep="${work}/tmp/scratch/easybuild/build-logs/20261113_235000/snel-zen4/easybuild-logs/Long-1.0-GCC-15.2.0"
+deep="${work}/tmp/scratch/easybuild/build-logs/20261113_235000/site-zen4/easybuild-logs/Long-1.0-GCC-15.2.0"
 mkdir -p "${deep}"
 echo "compile error: long path" > "${deep}/easybuild-Long-1.0-20261113.235959.log"
 cat > "${work}/bin/eb" <<EOF
@@ -279,11 +279,11 @@ check "missing logdir refused" "$?" "2"
 
 # rotate: runs named by date; 'now' is fixed at 2026-11-13
 root="${work}/root"
-mkdir -p "${root}/20261001_120000/snel-zen4" "${root}/20261110_120000" "${root}/20260801_090000" "${root}/notarun"
-echo old > "${root}/20261001_120000/snel-zen4/A.stdout.log"
-echo secret > "${root}/20261001_120000/snel-zen4/B.failed.ebout.log"
-chmod 640 "${root}/20261001_120000/snel-zen4/B.failed.ebout.log"
-realpath "${root}/20261001_120000/snel-zen4/B.failed.ebout.log" > "${root}/20261001_120000/snel-zen4/.licensed-logs"
+mkdir -p "${root}/20261001_120000/site-zen4" "${root}/20261110_120000" "${root}/20260801_090000" "${root}/notarun"
+echo old > "${root}/20261001_120000/site-zen4/A.stdout.log"
+echo secret > "${root}/20261001_120000/site-zen4/B.failed.ebout.log"
+chmod 640 "${root}/20261001_120000/site-zen4/B.failed.ebout.log"
+realpath "${root}/20261001_120000/site-zen4/B.failed.ebout.log" > "${root}/20261001_120000/site-zen4/.licensed-logs"
 echo recent > "${root}/20261110_120000/C.stdout.log"
 echo ancient > "${root}/20260801_090000/D.stdout.log"
 echo other > "${root}/notarun/E.log"
@@ -291,10 +291,10 @@ EB_KEEP_LOGS_NOW=$(date -d 2026-11-13 +%s)
 export EB_KEEP_LOGS_NOW
 
 "${tool}" rotate "${root}" --compress-after 30 >/dev/null
-check "old run compressed" "$(ls "${root}/20261001_120000/snel-zen4" | sort | tr '\n' ' ')" "A.stdout.log.gz B.failed.ebout.log.gz "
-check "compressed content intact" "$(zcat "${root}/20261001_120000/snel-zen4/A.stdout.log.gz")" "old"
-check "closed log stays closed" "$(stat -c '%A' "${root}/20261001_120000/snel-zen4/B.failed.ebout.log.gz" | cut -c8-10)" "---"
-check ".licensed-logs follows" "$(cat "${root}/20261001_120000/snel-zen4/.licensed-logs")" "$(realpath "${root}/20261001_120000/snel-zen4")/B.failed.ebout.log.gz"
+check "old run compressed" "$(ls "${root}/20261001_120000/site-zen4" | sort | tr '\n' ' ')" "A.stdout.log.gz B.failed.ebout.log.gz "
+check "compressed content intact" "$(zcat "${root}/20261001_120000/site-zen4/A.stdout.log.gz")" "old"
+check "closed log stays closed" "$(stat -c '%A' "${root}/20261001_120000/site-zen4/B.failed.ebout.log.gz" | cut -c8-10)" "---"
+check ".licensed-logs follows" "$(cat "${root}/20261001_120000/site-zen4/.licensed-logs")" "$(realpath "${root}/20261001_120000/site-zen4")/B.failed.ebout.log.gz"
 check "recent run untouched" "$(ls "${root}/20261110_120000")" "C.stdout.log"
 check "non-run directory untouched" "$(ls "${root}/notarun")" "E.log"
 check "no deletion without --delete-after" "$(ls -d "${root}/20260801_090000" 2>/dev/null | wc -l | tr -d ' ')" "1"
@@ -320,31 +320,31 @@ check "help: EB_KEEP_LOGS_NOW" "$("${tool}" --help | grep -c 'EB_KEEP_LOGS_NOW')
 next_day=$(date -d '2026-11-14 00:10' +%s)
 lsrun() { find "$1" -mindepth 1 -maxdepth 1 -printf '%f\n' | sort | tr '\n' ' '; }
 mkrun() {
-    mkdir -p "$1/20261113_235000/snel-zen4" "$1/20261110_120000"
-    echo build > "$1/20261113_235000/snel-zen4/F.stdout.log"
+    mkdir -p "$1/20261113_235000/site-zen4" "$1/20261110_120000"
+    echo build > "$1/20261113_235000/site-zen4/F.stdout.log"
     echo older > "$1/20261110_120000/G.stdout.log"
 }
 
 own="${work}/own"
 mkrun "${own}"
-log="${own}/20261113_235000/snel-zen4/rotate.log"
+log="${own}/20261113_235000/site-zen4/rotate.log"
 EB_KEEP_LOGS_NOW=${next_day} "${tool}" rotate "${own}" --compress-after 1 > "${log}" 2>&1
 check "own run: rotate.log stays open" "$(cat "${log}" 2>/dev/null)" "eb-keep-logs rotate: 1 file compressed, 0 runs deleted under ${own}"
-check "own run: not compressed" "$(lsrun "${own}/20261113_235000/snel-zen4")" "F.stdout.log rotate.log "
+check "own run: not compressed" "$(lsrun "${own}/20261113_235000/site-zen4")" "F.stdout.log rotate.log "
 check "own run: an older run compressed" "$(lsrun "${own}/20261110_120000")" "G.stdout.log.gz "
 
 gone="${work}/gone"
 mkrun "${gone}"
-log="${gone}/20261113_235000/snel-zen4/rotate.log"
+log="${gone}/20261113_235000/site-zen4/rotate.log"
 EB_KEEP_LOGS_NOW=$(date -d '2026-11-16 00:10' +%s) "${tool}" rotate "${gone}" --compress-after 1 --delete-after 2 > "${log}" 2>&1
-check "own run past --delete-after: kept" "$(lsrun "${gone}/20261113_235000/snel-zen4")" "F.stdout.log rotate.log "
+check "own run past --delete-after: kept" "$(lsrun "${gone}/20261113_235000/site-zen4")" "F.stdout.log rotate.log "
 check "own run past --delete-after: an older run deleted" "$(lsrun "${gone}")" "20261113_235000 "
 
 # Through srun the output reaches rotate.log over a pipe; eb-pipeline exports
 # the run's log directory as EB_PIPELINE_LOG_DIR.
 piped="${work}/piped"
 mkrun "${piped}"
-log_dir="${piped}/20261113_235000/snel-zen4"
+log_dir="${piped}/20261113_235000/site-zen4"
 EB_PIPELINE_LOG_DIR=${log_dir} EB_KEEP_LOGS_NOW=${next_day} "${tool}" rotate "${piped}" --compress-after 1 2>&1 | cat > "${log_dir}/rotate.log"
 check "own run through a pipe: not compressed" "$(lsrun "${log_dir}")" "F.stdout.log rotate.log "
 EB_KEEP_LOGS_NOW=${next_day} "${tool}" rotate "${piped}" --compress-after 1 > /dev/null 2>&1
