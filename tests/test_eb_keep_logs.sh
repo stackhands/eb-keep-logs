@@ -45,6 +45,20 @@ check "failure keeps the log" "$(cat "${kept}" 2>/dev/null)" "compile error: som
 check "kept log is closed to others" "$(stat -c '%A' "${kept}" | cut -c8-10)" "---"
 check "kept log is in .licensed-logs" "$(cat "${work}/logs/.licensed-logs")" "$(realpath "${kept}")"
 
+# failed: a retried build keeps the same files again, and each stays listed once
+"${tool}" failed 1 Foo-1.0-GCC-15.2.0 "${work}/logs" >/dev/null
+check "retry: the log is listed once" "$(cat "${work}/logs/.licensed-logs")" "$(realpath "${kept}")"
+ebtmp="$(realpath "${work}")/ebtmp"
+mkdir -p "${ebtmp}/eb-3/run-shell-cmd-output/make-3"
+echo out > "${ebtmp}/eb-3/run-shell-cmd-output/make-3/out.txt"
+echo err > "${ebtmp}/eb-3/run-shell-cmd-output/make-3/err.txt"
+printf '    output (stdout + stderr) -> %s/eb-3/run-shell-cmd-output/make-3/out.txt\n' "${ebtmp}" > "${work}/logs/Retry-1.0.stdout.log"
+for _ in 1 2; do
+    EASYBUILD_TMPDIR="${ebtmp}" "${tool}" failed 1 Retry-1.0 "${work}/logs" >/dev/null
+done
+check "retry: the command output is kept" "$(count 'Retry-1.0.failed.command-*.txt')" "2"
+check "retry: each kept file is listed once" "$(grep -c 'Retry-1.0' "${work}/logs/.licensed-logs")" "3"
+
 # failed: an explicit --tmp-logdir is passed on to eb --last-log
 cat > "${work}/bin/eb" <<EOF
 #!/bin/bash
