@@ -756,7 +756,7 @@ test "addRunOf" {
     defer arena_state.deinit();
     const arena = arena_state.allocator();
     var names: std.ArrayList([]const u8) = .empty;
-    addRunOf(arena, &names, "/logs", "/logs/20261113_235000/snel-zen4/rotate.log");
+    addRunOf(arena, &names, "/logs", "/logs/20261113_235000/site-zen4/rotate.log");
     addRunOf(arena, &names, "/logs", "/logs/20261110_120000");
     addRunOf(arena, &names, "/logs", "/logs");
     addRunOf(arena, &names, "/logs", "/logs/");
