@@ -82,6 +82,22 @@ printf '== processing EasyBuild easyconfig /ec/Ring-1.0.eb\n' > "${work}/easybui
 printf '#!/bin/bash\necho %s\n' "${work}/easybuild-ring.log" > "${work}/bin/eb"
 compare "failed, another build's log" failed 3 Calc-1.0 "${work}/logs"
 compare "failed, own log" failed 3 Ring-1.0 "${work}/logs"
+ebtmp="$(realpath "${work}")/ebtmp"
+mkdir -p "${ebtmp}/eb-1/run-shell-cmd-output/meson-1" "${ebtmp}/eb-1/run-shell-cmd-output/ninja-2" "${work}/obj/meson-logs"
+echo meson > "${ebtmp}/eb-1/run-shell-cmd-output/meson-1/out.txt"
+echo ninja > "${ebtmp}/eb-1/run-shell-cmd-output/ninja-2/out.txt"
+printf '\toutput will be logged to %s/eb-1/run-shell-cmd-output/meson-1/out.txt\n\tmeson test -C %s/obj\n' "${ebtmp}" "${work}" > "${work}/easybuild-Tests.log"
+cp "${work}/easybuild-Tests.log" "${work}/easybuild-Sanity.log"
+echo '== run.py:652 WARNING Shell command FAILED (exit code 1)' >> "${work}/easybuild-Tests.log"
+printf '== run.py:650 INFO Shell command completed successfully\n\toutput will be logged to %s/eb-1/run-shell-cmd-output/ninja-2/out.txt\n== run.py:650 INFO Shell command completed successfully\n' "${ebtmp}" >> "${work}/easybuild-Sanity.log"
+export EASYBUILD_TMPDIR="${ebtmp}"
+printf 'Ok:                1   \nFail:              0   \n' > "${work}/obj/meson-logs/testlog.txt"
+printf '#!/bin/bash\necho %s\n' "${work}/easybuild-Sanity.log" > "${work}/bin/eb"
+compare "failed, sanity check after passing tests" failed 45 Sanity "${work}/logs"
+printf 'Ok:                0   \nFail:              1   \n' > "${work}/obj/meson-logs/testlog.txt"
+printf '#!/bin/bash\necho %s\n' "${work}/easybuild-Tests.log" > "${work}/bin/eb"
+compare "failed, failing meson test" failed 1 Tests "${work}/logs"
+unset EASYBUILD_TMPDIR
 printf '#!/bin/bash\nexit 0\n' > "${work}/bin/eb"
 compare "rotate, no root" rotate --compress-after 3
 compare "rotate, two roots" rotate a b
