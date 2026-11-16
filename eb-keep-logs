@@ -58,15 +58,6 @@ _private() {
     _list "${path}" "${logdir}"
 }
 
-# `eb --last-log`, asked about the --tmp-logdir in $1 when that is not empty.
-_last_log() {
-    if [ -n "$1" ]; then
-        eb --last-log --tmp-logdir="$1" 2>/dev/null
-    else
-        eb --last-log 2>/dev/null
-    fi
-}
-
 # The last command output a session log names, unless the lines after it
 # record that command ending well: EasyBuild logs "... completed
 # successfully" or "... FAILED (exit code N)" when a command ends, and
@@ -83,6 +74,19 @@ _failed_command_output() {
 # and no "Fail:", "Unexpected Pass:" or "Timeout:" line counting more than 0.
 _meson_passed() {
     grep -q '^Ok:' "$1" && ! grep -qE '^(Fail|Unexpected Pass|Timeout):[[:space:]]*[1-9]' "$1"
+}
+
+# The last line `eb --last-log` prints. EasyBuild 5.3 and later fold that path
+# at the terminal width, 80 columns on a pipe, unless given
+# --output-style=basic (EasyBuild 4.5 and later); an older eb refuses the
+# option and does not fold, so it is asked again without it.
+_last_log() {
+    local line
+    if line=$(eb --last-log "$@" --output-style=basic 2>/dev/null | tail -1) && [ -n "${line}" ]; then
+        printf '%s\n' "${line}"
+    else
+        eb --last-log "$@" 2>/dev/null | tail -1
+    fi
 }
 
 cmd_failed() {
@@ -117,18 +121,16 @@ cmd_failed() {
         echo "No EasyBuild log to keep for ${name}: eb is not on PATH."
         return 0
     fi
-    # EasyBuild 5 prints through rich, which wraps the path at 80 columns when
-    # stdout is not a terminal; the basic output style prints it on one line.
-    # An EasyBuild without output styles refuses EASYBUILD_OUTPUT_STYLE, so a
-    # failed call is made again without it.
-    local out rc=0
-    out=$(export EASYBUILD_OUTPUT_STYLE=basic; _last_log "${explicit_logdir}") ||
-        out=$(unset EASYBUILD_OUTPUT_STYLE; _last_log "${explicit_logdir}") || rc=$?
+    local rc=0
+    if [ -n "${explicit_logdir}" ]; then
+        src=$(_last_log --tmp-logdir="${explicit_logdir}") || rc=$?
+    else
+        src=$(_last_log) || rc=$?
+    fi
     if [ "${rc}" -ne 0 ]; then
         echo "No EasyBuild log to keep for ${name}: eb --last-log exited ${rc}."
         return 0
     fi
-    src=$(printf '%s\n' "${out}" | tail -n 1)
     if [ -z "${src}" ] || [ ! -f "${src}" ]; then
         echo "No EasyBuild log to keep for ${name}."
         return 0

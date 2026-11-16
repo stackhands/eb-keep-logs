@@ -62,7 +62,7 @@ mkdir -p "${long}"
 echo "link error" > "${long}/easybuild-Foo.log"
 cat > "${work}/bin/eb" <<EOF
 #!/bin/bash
-if [ "\${EASYBUILD_OUTPUT_STYLE:-auto}" = basic ]; then
+if [[ " \$* " == *" --output-style=basic "* ]]; then
     echo "${long}/easybuild-Foo.log"
 else
     echo "${long}/easybuild-Foo.log" | fold -w 80

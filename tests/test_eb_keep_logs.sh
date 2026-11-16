@@ -81,7 +81,7 @@ cat > "${work}/bin/eb" <<EOF
 [ "\$1" = "--last-log" ] || exit 0
 width=\${COLUMNS:-80}
 [ -n "\${FORCE_COLOR:-}" ] && width=80
-if [ "\${EASYBUILD_OUTPUT_STYLE:-auto}" = basic ]; then
+if [[ " \$* " == *" --output-style=basic "* ]]; then
     echo "${long}/easybuild-Wrap-1.0.log"
 else
     echo "${long}/easybuild-Wrap-1.0.log" | fold -w "\${width}"
@@ -93,11 +93,11 @@ rm -f "${work}/logs/Wrap-1.0.failed.ebout.log"
 FORCE_COLOR=1 COLUMNS=4096 "${tool}" failed 1 Wrap-1.0 "${work}/logs" >/dev/null
 check "wrapped path with FORCE_COLOR: log kept" "$(cat "${work}/logs/Wrap-1.0.failed.ebout.log" 2>/dev/null)" "link error: wrapped"
 
-# failed: an EasyBuild without output styles refuses EASYBUILD_OUTPUT_STYLE
+# failed: an EasyBuild without output styles refuses --output-style
 cat > "${work}/bin/eb" <<EOF
 #!/bin/bash
-if [ -n "\${EASYBUILD_OUTPUT_STYLE+set}" ]; then
-    echo "ERROR: Failed to parse configuration options: EASYBUILD_OUTPUT_STYLE" >&2
+if [[ " \$* " == *" --output-style="* ]]; then
+    echo "ERROR: Failed to parse configuration options: no such option: --output-style" >&2
     exit 1
 fi
 [ "\$1" = "--last-log" ] && echo "${work}/tmp/easybuild-Foo-1.0.log"

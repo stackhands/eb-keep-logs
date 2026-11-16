@@ -7,7 +7,6 @@ const common = @import("zig_common");
 const sys = common.sys;
 const fsx = common.fsx;
 const proc = common.proc;
-const env = common.env;
 const logs = common.logs;
 const cli = common.cli;
 const localtime = @import("localtime.zig");
@@ -77,15 +76,16 @@ const LastLog = union(enum) {
     none,
 };
 
-/// What `eb --last-log` names. EasyBuild 5 prints through rich, which wraps
-/// the path at 80 columns when stdout is not a terminal; the basic output
-/// style prints it on one line. An EasyBuild without output styles refuses
-/// EASYBUILD_OUTPUT_STYLE, so a failed call is made again without it.
+/// What `eb --last-log` names. EasyBuild 5.3 and later fold that path at
+/// the terminal width, 80 columns on a pipe, unless given
+/// --output-style=basic (EasyBuild 4.5 and later); an older eb refuses the
+/// option and does not fold, so it is asked again without it when that
+/// fails or prints nothing.
 fn lastLog(c: Ctx, tmp_logdir: ?[]const u8) LastLog {
     const path_env = c.getenv("PATH") orelse "";
     const eb = (proc.which(c.gpa, "eb", path_env) catch return .none) orelse return .no_eb;
     defer c.gpa.free(eb);
-    var argv_buf: [3][]const u8 = undefined;
+    var argv_buf: [4][]const u8 = undefined;
     argv_buf[0] = "eb";
     argv_buf[1] = "--last-log";
     var argc: usize = 2;
@@ -96,24 +96,30 @@ fn lastLog(c: Ctx, tmp_logdir: ?[]const u8) LastLog {
         argv_buf[2] = opt.?;
         argc = 3;
     }
-    var child = env.Builder.fromEnv(c.gpa, env.Env.fromEnvp(c.envp)) catch return .none;
-    defer child.deinit();
-    child.set("EASYBUILD_OUTPUT_STYLE", "basic") catch return .none;
-    var envp = child.envp() catch return .none;
-    var r = proc.run(c.gpa, eb, argv_buf[0..argc], envp, .{}) catch return .none;
-    if (r.term.code() != 0) {
-        r.deinit(c.gpa);
-        child.unset("EASYBUILD_OUTPUT_STYLE");
-        envp = child.envp() catch return .none;
-        r = proc.run(c.gpa, eb, argv_buf[0..argc], envp, .{}) catch return .none;
+    argv_buf[argc] = "--output-style=basic";
+    const basic: ?proc.Result = proc.run(c.gpa, eb, argv_buf[0 .. argc + 1], c.envp, .{}) catch |err| switch (err) {
+        // Asking again would wait as long to keep nothing.
+        error.TimedOut => return .none,
+        else => null,
+    };
+    if (basic) |r| {
+        defer r.deinit(c.gpa);
+        if (r.term.code() == 0) if (lastLine(r.stdout)) |line|
+            return .{ .path = c.gpa.dupe(u8, line) catch return .none };
     }
+    const r = proc.run(c.gpa, eb, argv_buf[0..argc], c.envp, .{}) catch return .none;
     defer r.deinit(c.gpa);
     if (r.term.code() != 0) return .{ .failed = r.term.code() };
-    var s: []const u8 = r.stdout;
+    const line = lastLine(r.stdout) orelse return .none;
+    return .{ .path = c.gpa.dupe(u8, line) catch return .none };
+}
+
+/// The last line of `out` without its newline, or null when it is empty.
+fn lastLine(out: []const u8) ?[]const u8 {
+    var s = out;
     if (s.len > 0 and s[s.len - 1] == '\n') s = s[0 .. s.len - 1];
     const line = s[if (std.mem.findScalarLast(u8, s, '\n')) |i| i + 1 else 0..];
-    if (line.len == 0) return .none;
-    return .{ .path = c.gpa.dupe(u8, line) catch return .none };
+    return if (line.len == 0) null else line;
 }
 
 /// Whether `text`, as .licensed-logs holds it, has `path` as a whole line.
@@ -761,4 +767,12 @@ test "addRunOf" {
     try std.testing.expectEqualStrings("20261113_235000", names.items[0]);
     try std.testing.expectEqualStrings("20261110_120000", names.items[1]);
     try std.testing.expectEqualStrings("20261101_120000", names.items[2]);
+}
+
+test "lastLine" {
+    try std.testing.expectEqualStrings("/b.log", lastLine("note\n/b.log\n").?);
+    try std.testing.expectEqualStrings("/b.log", lastLine("/b.log").?);
+    try std.testing.expectEqual(@as(?[]const u8, null), lastLine(""));
+    try std.testing.expectEqual(@as(?[]const u8, null), lastLine("\n"));
+    try std.testing.expectEqual(@as(?[]const u8, null), lastLine("/b.log\n\n"));
 }
