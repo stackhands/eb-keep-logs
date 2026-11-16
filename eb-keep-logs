@@ -44,6 +44,24 @@ _last_log() {
     fi
 }
 
+# The last command output a session log names, unless the lines after it
+# record that command ending well: EasyBuild logs "... completed
+# successfully" or "... FAILED (exit code N)" when a command ends, and
+# nothing when the build died while it ran.
+_failed_command_output() {
+    local hit outcome
+    hit=$(grep -noE '/[^[:space:]]*/run-shell-cmd-output/[^/[:space:]]+/out\.txt' "$1" | tail -n 1)
+    [ -n "${hit}" ] || return 0
+    outcome=$(tail -n +"$((${hit%%:*} + 1))" "$1" | grep -m 1 -oE ' FAILED \(exit code | completed successfully' | head -n 1)
+    [ "${outcome}" = " completed successfully" ] || echo "${hit#*:}"
+}
+
+# Whether a meson testlog's summary shows every test passing: an "Ok:" line,
+# and no "Fail:", "Unexpected Pass:" or "Timeout:" line counting more than 0.
+_meson_passed() {
+    grep -q '^Ok:' "$1" && ! grep -qE '^(Fail|Unexpected Pass|Timeout):[[:space:]]*[1-9]' "$1"
+}
+
 cmd_failed() {
     [ $# -ge 3 ] || die "failed needs STATUS NAME LOGDIR [TMP_LOGDIR]"
     local status="$1" name="$2" logdir="$3" explicit_logdir="${4:-}"
@@ -89,15 +107,16 @@ cmd_failed() {
     fi
 
     # The failing command's own output holds the diagnostic beyond EasyBuild's
-    # printed tail. Only the final command's text streams are kept, and only
-    # from inside EASYBUILD_TMPDIR and owned by the build account.
+    # printed tail. Only the final command's text streams are kept, and from
+    # the session log only when that command did not complete successfully;
+    # only from inside EASYBUILD_TMPDIR and owned by the build account.
     local command_output command_root resolved_output stream
     command_output=""
     if [ -f "${logdir}/${name}.stdout.log" ]; then
         command_output=$(grep -oE '/[^[:space:]]*/run-shell-cmd-output/[^/[:space:]]+/out\.txt' "${logdir}/${name}.stdout.log" | tail -n 1)
     fi
     if [ -z "${command_output}" ] && [ -z "${foreign}" ]; then
-        command_output=$(grep -oE '/[^[:space:]]*/run-shell-cmd-output/[^/[:space:]]+/out\.txt' "${src}" | tail -n 1)
+        command_output=$(_failed_command_output "${src}")
     fi
     command_root="${command_output%/out.txt}"
     if [ -n "${command_output}" ] && [ -z "${EASYBUILD_TMPDIR:-}" ]; then
@@ -129,11 +148,12 @@ cmd_failed() {
 
     [ -z "${foreign}" ] || return 0
     # A meson test step prints only the last 100 lines of a failing test; the
-    # full output is meson-logs/testlog.txt in the build directory.
+    # full output is meson-logs/testlog.txt in the build directory. A testlog
+    # whose tests all passed is not the failure.
     local meson_dir testlog
     meson_dir=$(tr '\n' ' ' < "${src}" | grep -oP 'meson test -C\s+\K[^[:space:]]+' | tail -n 1)
     testlog="${meson_dir}/meson-logs/testlog.txt"
-    if [ -n "${meson_dir}" ] && [ -f "${testlog}" ]; then
+    if [ -n "${meson_dir}" ] && [ -f "${testlog}" ] && ! _meson_passed "${testlog}"; then
         dest="${logdir}/${name}.failed.meson-testlog.txt"
         cp "${testlog}" "${dest}"
         _private "${dest}" "${logdir}"

@@ -253,12 +253,20 @@ fn cmdFailed(c: Ctx, args: []const [:0]const u8) u8 {
     keepCommandOutput(c, logdir, logdir_s, name, src_text);
 
     // A meson test step prints only the last 100 lines of a failing test;
-    // the full output is meson-logs/testlog.txt in the build directory.
+    // the full output is meson-logs/testlog.txt in the build directory. A
+    // testlog whose tests all passed is not the failure.
     if (src_text) |t| if (scan.lastMesonDir(t)) |dir| {
         const testlog = c.gpa.print("{s}/meson-logs/testlog.txt", .{dir}) catch return 0;
         defer c.gpa.free(testlog);
         if (fsx.openRegular(fsx.cwd, testlog, true)) |tl| {
             defer sys.close(tl.fd);
+            const tl_text: ?[]u8 = fsx.readAll(c.gpa, tl.fd, scan_limit) catch |err| blk: {
+                warn("cannot scan {s}: {t}", .{ testlog, err });
+                break :blk null;
+            };
+            defer if (tl_text) |x| c.gpa.free(x);
+            if (tl_text) |x| if (scan.mesonPassed(x)) return 0;
+            rewind(tl.fd);
             const dest = c.gpa.print("{s}.failed.meson-testlog.txt", .{name}) catch return 0;
             defer c.gpa.free(dest);
             if (keep(c, logdir, logdir_s, tl.fd, tl.stat, dest, null))
@@ -269,10 +277,12 @@ fn cmdFailed(c: Ctx, args: []const [:0]const u8) u8 {
 }
 
 /// The failing command's own output holds the diagnostic beyond EasyBuild's
-/// printed tail. Only the final command's text streams are kept, only from
-/// inside EASYBUILD_TMPDIR, not through a symbolic link, and owned by this
-/// user. A stream is compared with EASYBUILD_TMPDIR with both resolved, as
-/// EasyBuild names the stream through EASYBUILD_TMPDIR as it was given.
+/// printed tail. Only the final command's text streams are kept, and from
+/// the session log only when that command did not complete successfully;
+/// only from inside EASYBUILD_TMPDIR, not through a symbolic link, and owned
+/// by this user. A stream is compared with EASYBUILD_TMPDIR with both
+/// resolved, as EasyBuild names the stream through EASYBUILD_TMPDIR as it was
+/// given.
 fn keepCommandOutput(c: Ctx, logdir: fsx.fd_t, logdir_s: []const u8, name: []const u8, src_text: ?[]const u8) void {
     var out_txt: ?[]const u8 = null;
     var stdout_text: ?[]u8 = null;
@@ -288,7 +298,7 @@ fn keepCommandOutput(c: Ctx, logdir: fsx.fd_t, logdir_s: []const u8, name: []con
         if (stdout_text) |t| out_txt = scan.lastCommandOutput(t);
     } else |_| {}
     if (out_txt == null) if (src_text) |t| {
-        out_txt = scan.lastCommandOutput(t);
+        out_txt = scan.failedCommandOutput(t);
     };
     const command_out = out_txt orelse return;
     const tmpdir = c.getenv("EASYBUILD_TMPDIR") orelse "";
