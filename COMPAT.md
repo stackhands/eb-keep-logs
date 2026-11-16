@@ -9,8 +9,9 @@ on the same invocations.
 
 | | |
 |---|---|
-| commands | `failed STATUS NAME LOGDIR [TMP_LOGDIR]`, `rotate ROOT --compress-after DAYS [--delete-after DAYS]`, `-h`, `--help`, `--version` |
-| exit codes | 0 on success and on every `failed` that got past its arguments; 2 for a refused invocation, after `eb-keep-logs: MESSAGE` on stderr; 2 with the usage text on stdout for no arguments |
+| commands | `failed STATUS NAME LOGDIR [TMP_LOGDIR]`, `rotate ROOT --compress-after DAYS [--delete-after DAYS] [--lock-timeout SECONDS]`, `-h`, `--help`, `--version` |
+| exit codes | 0 on success and on every `failed` that got past its arguments; 2 for a refused invocation, after `eb-keep-logs: MESSAGE` on stderr; 2 with the usage text on stdout for no arguments; 75 when another `rotate` holds ROOT's lock past `--lock-timeout`, after `eb-keep-logs: another rotate holds the lock ROOT/.eb-keep-logs-rotate.lock; gave up after N s (--lock-timeout)` on stderr |
+| one rotate at a time | `rotate` holds an exclusive flock(2) on `ROOT/.eb-keep-logs-rotate.lock`, created when missing, from before it reads ROOT until it exits; it waits up to `--lock-timeout` seconds for it, 600 without the option or with an empty value, 0 not at all, 999999999 at most; it opens the file for reading when it may not write it; a lock file that cannot be opened, or a symbolic link or non-regular file at its name, is refused, exit 2; on a file system that cannot lock, `rotate` says so on stderr and rotates without the lock |
 | environment | `PATH` (finds `eb`), `EASYBUILD_TMPDIR`, `EB_KEEP_LOGS_NOW`, `EB_PIPELINE_LOG_DIR`, `TZ`, `TZDIR` |
 | `eb` | `eb --last-log [--tmp-logdir=TMP_LOGDIR] --output-style=basic`, and the same without `--output-style` when that fails or prints nothing; the last line printed is the log |
 | stdout | `Failed build log: LOGDIR/NAME.failed.ebout.log`, `Failed command output: LOGDIR/NAME.failed.command-{out,err}.txt`, `Failed meson test log: LOGDIR/NAME.failed.meson-testlog.txt`, `Failed command output not kept: EASYBUILD_TMPDIR is not set.`, `Failed command output not kept: PATH is not under EASYBUILD_TMPDIR.`, `Failed command output not kept: PATH belongs to another user.`, `No EasyBuild log to keep for NAME.`, `No EasyBuild log to keep for NAME: eb is not on PATH.`, `No EasyBuild log to keep for NAME: eb --last-log exited N.`, `No EasyBuild log to keep for NAME: PATH is another build's log.`, `eb-keep-logs rotate: N files compressed, M runs deleted under ROOT`, with `1 file` and `1 run` for a count of one; LOGDIR in these lines without its trailing slashes |
@@ -26,6 +27,9 @@ on the same invocations.
 | `--version` | `eb-keep-logs 0.1.0` | `eb-keep-logs 0.2.1 (TARGET, MODE, zig VERSION, COMMIT)`; the first two words are unchanged |
 | `--compress-after` or `--delete-after` with no value after it | never returns | refused, exit 2 |
 | `EB_KEEP_LOGS_NOW` not empty and not an integer | evaluated as shell arithmetic | refused, exit 2 |
+| `rotate`'s lock file cannot be opened, or is a symbolic link or not a regular file | `eb-keep-logs: cannot lock PATH`, exit 2, from a look at the name just before it is opened | `eb-keep-logs: cannot lock PATH: ERROR`, exit 2, from the open itself |
+| the file system cannot lock `rotate`'s lock file | flock(1)'s error, then `eb-keep-logs: cannot lock PATH; rotating without the lock`; also when flock(1) is missing | `eb-keep-logs: cannot lock PATH: ERROR; rotating without the lock` |
+| a `rotate` waiting for the lock | takes it as soon as it is let go, as flock(1) blocks | tries for it every 20 ms |
 | a copy into LOGDIR fails | error from cp, then the file is still listed and reported | error on stderr; the file is neither listed nor reported |
 | a copy into an existing LOGDIR file fails part way (a full disk) | cp truncates the file first, so the previous bytes are gone | the previous file is left unchanged; nothing is listed or reported |
 | a symbolic link or non-regular file at a destination name in LOGDIR | cp writes through it | refused, reported on stderr |

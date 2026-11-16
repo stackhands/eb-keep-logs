@@ -11,7 +11,7 @@ This page describes the Zig build; the shell script =eb-keep-logs= in the reposi
 
 #+begin_example
 eb-keep-logs failed STATUS NAME LOGDIR [TMP_LOGDIR]
-eb-keep-logs rotate ROOT --compress-after DAYS [--delete-after DAYS]
+eb-keep-logs rotate ROOT --compress-after DAYS [--delete-after DAYS] [--lock-timeout SECONDS]
 eb-keep-logs --help | --version
 #+end_example
 
@@ -31,6 +31,7 @@ eb-keep-logs --help | --version
 |--------------------------------------------------+----------+----------------------------------------------------------------------------------------------------------------------------------------------|
 | =--compress-after DAYS=, =--compress-after=DAYS= | =rotate= | Required. Compress the =*.log= and =*.txt= files, at any depth, of runs at least =DAYS= old. =DAYS= is decimal digits.                       |
 | =--delete-after DAYS=, =--delete-after=DAYS=     | =rotate= | Remove whole runs at least =DAYS= old. =DAYS= must be larger than =--compress-after=. Without it, or with an empty value, no run is removed. |
+| =--lock-timeout SECONDS=, =--lock-timeout=SECONDS= | =rotate= | How long to wait for the lock another =rotate= of =ROOT= holds, in seconds, decimal digits; =0= does not wait. Without it, or with an empty value, 600. A value larger than 999999999, which is over 31 years, waits 999999999 seconds. |
 | =-h=, =--help=                                   |          | Print the usage on stdout and exit 0.                                                                                                        |
 | =--version=                                      |          | Print the version line on stdout and exit 0.                                                                                                 |
 
@@ -55,8 +56,9 @@ eb-keep-logs --help | --version
 
 | Status | Meaning                                                                                                                                                                          |
 |--------+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-|      0 | =--help= or =--version=, or a =failed= or =rotate= that accepted its arguments, whatever it could keep, compress or remove: what it could not do is reported, and is no failure. |
+|      0 | =--help= or =--version=, a =failed= that accepted its arguments, or a =rotate= that accepted its arguments and did not give up waiting for its lock, whatever it could keep, compress or remove: what it could not do is reported, and is no failure. |
 |      2 | The invocation was refused, with =eb-keep-logs: MESSAGE= on stderr; or no command was given, and the usage is on stdout.                                                         |
+|     75 | Another =rotate= held =ROOT='s lock for longer than =--lock-timeout=, and this =rotate= changed nothing; try again later.                                                          |
 
 | =MESSAGE=                                                       | Cause                                                                                         |
 |-----------------------------------------------------------------+-----------------------------------------------------------------------------------------------|
@@ -70,11 +72,18 @@ eb-keep-logs --help | --version
 | =ROOT ROOT is not a directory=                                  | =ROOT= does not name a directory that can be opened.                                          |
 | =OPTION needs a number of days=                                 | =--compress-after= is missing, or a value is missing, empty, not decimal digits or too large. |
 | =--delete-after must be later than --compress-after=            | =--delete-after= is not larger than =--compress-after=.                                       |
+| =--lock-timeout needs a number of seconds=                      | The value of =--lock-timeout= is missing, or not decimal digits.                              |
 | =EB_KEEP_LOGS_NOW must be seconds since the epoch, not 'VALUE'= | =EB_KEEP_LOGS_NOW= is neither empty nor an integer.                                           |
+| =cannot lock ROOT/.eb-keep-logs-rotate.lock: ERROR=             | The lock file could not be opened, or is a symbolic link or not a regular file.               |
 | =cannot read ROOT ROOT=, =cannot read ROOT ROOT: ERROR=         | =ROOT= could not be listed.                                                                   |
 | =cannot read the arguments=                                     | The arguments could not be read into memory.                                                  |
 
-=rotate= checks =ROOT= before its options' values, and =failed= checks =STATUS= and then =LOGDIR=.
+=rotate= checks =ROOT= before its options' values, then =EB_KEEP_LOGS_NOW=, and then takes the lock; =failed= checks =STATUS= and then =LOGDIR=.
+With status 75, =rotate= prints, with =ROOT= without its trailing slashes and =N= the seconds it waited:
+
+#+begin_example
+eb-keep-logs: another rotate holds the lock ROOT/.eb-keep-logs-rotate.lock; gave up after N s (--lock-timeout)
+#+end_example
 
 ** Files
 
@@ -124,6 +133,7 @@ What =failed= cannot do it reports on stderr as =eb-keep-logs: MESSAGE=, and goe
 
 | File                                | Use                                                                                                                                                                                                                                                     |
 |-------------------------------------+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| =ROOT/.eb-keep-logs-rotate.lock=    | Created empty when missing, and left in place. =rotate= holds an exclusive flock(2) lock on it from before it lists =ROOT= until it exits, and opens it for reading when it may not write it. eb-pipeline's =ROOT/.eb-pipeline-rotate.lock= is another lock, which =rotate= does not take. |
 | =ROOT/RUN/.../FILE.log=, =FILE.txt= | In a run old enough, replaced by =FILE.gz= with the file's mode, as =gzip -9= does; a symbolic link is not followed, and a file with other hard links or an existing =FILE.gz= is left as it is, with a message on stderr.                              |
 | =ROOT/RUN/.../.licensed-logs=       | In a run in which files were compressed, a line that names one of them, by its absolute path with symbolic links resolved, is changed to name its =.gz= file. A list that changes keeps its owner when permitted, its mode and its access control list. |
 | =ROOT/RUN=                          | Removed with everything in it, when old enough for =--delete-after=, without being compressed first. A symbolic link in it is removed, not followed. Removal stops at the first error.                                                                  |
@@ -140,6 +150,7 @@ What =rotate= cannot do it reports on stderr as =eb-keep-logs: MESSAGE=, and goe
 
 | =MESSAGE=                               | Cause                                                                                                                               |
 |-----------------------------------------+-------------------------------------------------------------------------------------------------------------------------------------|
+| =cannot lock ROOT/.eb-keep-logs-rotate.lock: ERROR; rotating without the lock= | The file system cannot take the lock, or not for this user: =Unsupported= where it takes no locks, =InvalidArgument= on NFS for a lock file open only for reading, =Unexpected= when no lock is available (=ENOLCK=). =rotate= goes on without it. |
 | =cannot compress PATH: ERROR=           | =PATH= is left as it is: it has other hard links (=TooManyLinks=), =PATH.gz= exists (=Exists=), or it could not be read or written. |
 | =cannot open PATH: ERROR=               | A run, or a directory in a run, could not be opened; nothing in it is compressed.                                                   |
 | =cannot read PATH: ERROR=               | Listing a run, or a directory in it, failed part way; nothing in it is compressed.                                                  |
@@ -161,6 +172,6 @@ eb-keep-logs 0.2.1 (x86_64-linux-musl, safe, zig 0.17.1, 5ceaead)
 
 - [[file:../tutorials/keep-a-failed-build-log.org][Keep a failed build's logs]]
 - [[file:../howto/call-from-a-pipeline.org][Call eb-keep-logs from a build pipeline]], [[file:../howto/rotate-a-log-tree.org][Rotate a log tree]] and [[file:../howto/mark-licensed-logs.org][Mark logs that may carry a licence number]]
-- [[file:../explanation/why-eb-last-log.org][Finding a failed build's log]] and [[file:../explanation/local-time.org][Run ages and local time]]
+- [[file:../explanation/why-eb-last-log.org][Finding a failed build's log]], [[file:../explanation/local-time.org][Run ages and local time]] and [[file:../explanation/rotate-in-use.org][Rotating a tree in use]]
 - [[file:compatibility.org][Compatibility]], the differences from the shell script.
 - [[file:api/zig/eb-keep-logs.md][The Zig API]], from the doc comments of the source.

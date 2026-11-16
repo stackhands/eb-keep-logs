@@ -11,10 +11,13 @@
 #       EasyBuild's default place is used, unless it is another build's.
 #       NAME.stdout.log and a TMP_LOGDIR below LOGDIR are closed to others too.
 #   eb-keep-logs rotate ROOT --compress-after DAYS [--delete-after DAYS]
+#                            [--lock-timeout SECONDS]
 #       In the run directories directly under ROOT (named YYYYMMDD_HHMMSS),
 #       gzip the logs of runs older than DAYS; with --delete-after, remove
 #       whole runs older than that. Permissions and .licensed-logs follow.
 #       EB_KEEP_LOGS_NOW, in seconds since the epoch, sets the current time.
+#       One rotate at a time holds ROOT/.eb-keep-logs-rotate.lock; another
+#       waits up to SECONDS for it (600; 0 does not wait), then exits 75.
 #   eb-keep-logs --help | --version
 #
 # A failed build's log is in EasyBuild's tmpdir on the build node, which goes
@@ -25,7 +28,7 @@ set -uo pipefail
 
 VERSION=0.1.0
 
-usage() { sed -n '2,20p' "$0" | sed 's/^# \{0,1\}//'; }
+usage() { sed -n '2,23p' "$0" | sed 's/^# \{0,1\}//'; }
 
 die() { echo "eb-keep-logs: $*" >&2; exit 2; }
 
@@ -243,14 +246,37 @@ _run_of() {
     esac
 }
 
+# Hold an exclusive flock on the lock file LOCK until this rotate exits,
+# waiting up to SECONDS for another holder; exit 75 when it does not let go.
+# Opened for reading when it cannot be opened for writing, by a user who may
+# not write ROOT. On a file system that cannot lock, rotate without it.
+_lock_rotate() {
+    local lock="$1" seconds="$2" fd rc=0
+    if [ -L "${lock}" ] || { [ -e "${lock}" ] && [ ! -f "${lock}" ]; }; then
+        die "cannot lock ${lock}"
+    fi
+    { exec {fd}>>"${lock}"; } 2>/dev/null || { exec {fd}<"${lock}"; } 2>/dev/null || die "cannot lock ${lock}"
+    flock -w "${seconds}" -E 75 "${fd}" || rc=$?
+    case "${rc}" in
+        0) ;;
+        75) echo "eb-keep-logs: another rotate holds the lock ${lock}; gave up after ${seconds} s (--lock-timeout)" >&2
+            exit 75 ;;
+        *) echo "eb-keep-logs: cannot lock ${lock}; rotating without the lock" >&2 ;;
+    esac
+}
+
 cmd_rotate() {
-    local root="" compress_after="" delete_after=""
+    local root="" compress_after="" delete_after="" lock_timeout=""
     while [ $# -gt 0 ]; do
         case "$1" in
             --compress-after) compress_after="${2:-}"; shift 2 ;;
             --compress-after=*) compress_after="${1#*=}"; shift ;;
             --delete-after) delete_after="${2:-}"; shift 2 ;;
             --delete-after=*) delete_after="${1#*=}"; shift ;;
+            --lock-timeout)
+                [ $# -ge 2 ] || die "--lock-timeout needs a number of seconds"
+                lock_timeout="$2"; shift 2 ;;
+            --lock-timeout=*) lock_timeout="${1#*=}"; shift ;;
             -*) die "unknown option $1" ;;
             *) [ -z "${root}" ] || die "rotate takes one ROOT"; root="$1"; shift ;;
         esac
@@ -262,6 +288,16 @@ cmd_rotate() {
         [[ "${delete_after}" =~ ^[0-9]+$ ]] || die "--delete-after needs a number of days"
         [ "${delete_after}" -gt "${compress_after}" ] || die "--delete-after must be later than --compress-after"
     fi
+    if [ -n "${lock_timeout}" ]; then
+        [[ "${lock_timeout}" =~ ^[0-9]+$ ]] || die "--lock-timeout needs a number of seconds"
+        lock_timeout="${lock_timeout#"${lock_timeout%%[!0]*}"}"
+        lock_timeout="${lock_timeout:-0}"
+        # flock(1) cannot set a timer for 10^19 seconds; this is 31 years.
+        [ "${#lock_timeout}" -le 9 ] || lock_timeout=999999999
+    else
+        lock_timeout=600
+    fi
+    _lock_rotate "$(_joinable "${root}")/.eb-keep-logs-rotate.lock" "${lock_timeout}"
     local run age file list path compressed=0 deleted=0 own
     own="$(_own_runs "${root}")/"
     for run in "$(_joinable "${root}")"/*/; do

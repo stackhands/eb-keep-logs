@@ -31,10 +31,13 @@ const usage_text =
     \\      EasyBuild's default place is used, unless it is another build's.
     \\      NAME.stdout.log and a TMP_LOGDIR below LOGDIR are closed to others too.
     \\  eb-keep-logs rotate ROOT --compress-after DAYS [--delete-after DAYS]
+    \\                           [--lock-timeout SECONDS]
     \\      In the run directories directly under ROOT (named YYYYMMDD_HHMMSS),
     \\      gzip the logs of runs older than DAYS; with --delete-after, remove
     \\      whole runs older than that. Permissions and .licensed-logs follow.
     \\      EB_KEEP_LOGS_NOW, in seconds since the epoch, sets the current time.
+    \\      One rotate at a time holds ROOT/.eb-keep-logs-rotate.lock; another
+    \\      waits up to SECONDS for it (600; 0 does not wait), then exits 75.
     \\  eb-keep-logs --help | --version
     \\
 ;
@@ -426,6 +429,66 @@ fn parseDays(opt: []const u8, v: ?[]const u8) u64 {
     return std.fmt.parseInt(u64, s, 10) catch die("{s} needs a number of days", .{opt});
 }
 
+/// The lock file every rotate of a tree holds, directly in its ROOT.
+const rotate_lock = ".eb-keep-logs-rotate.lock";
+/// How long rotate waits for the lock without --lock-timeout, in seconds.
+const default_lock_timeout: u64 = 600;
+/// The longest wait --lock-timeout sets, over 31 years: the shell script's
+/// flock(1) cannot set a timer for 10^19 seconds.
+const max_lock_timeout: u64 = 999_999_999;
+/// The exit status when another rotate holds the lock past --lock-timeout,
+/// EX_TEMPFAIL: run it again later.
+const lock_busy_exit: u8 = 75;
+
+fn parseSeconds(v: []const u8) u64 {
+    if (!allDigits(v)) die("--lock-timeout needs a number of seconds", .{});
+    return @min(std.fmt.parseInt(u64, v, 10) catch max_lock_timeout, max_lock_timeout);
+}
+
+fn monotonicNs() i128 {
+    var ts: linux.timespec = undefined;
+    _ = linux.clock_gettime(.MONOTONIC, &ts);
+    return @as(i128, ts.sec) * std.time.ns_per_s + ts.nsec;
+}
+
+/// Open `root/.eb-keep-logs-rotate.lock`, created when missing; for reading
+/// when it cannot be opened for writing, by a user who may not write ROOT.
+/// A symbolic link or a file that is not a regular one is refused.
+fn openLock(root: fsx.fd_t) sys.Error!fsx.fd_t {
+    const fd = sys.openat(root, rotate_lock, .{
+        .ACCMODE = .WRONLY,
+        .APPEND = true,
+        .CREAT = true,
+        .NOFOLLOW = true,
+        .NONBLOCK = true,
+    }, 0o666) catch |err| switch (err) {
+        error.AccessDenied, error.ReadOnly => sys.openat(root, rotate_lock, .{ .NOFOLLOW = true, .NONBLOCK = true }, 0) catch return err,
+        else => return err,
+    };
+    errdefer sys.close(fd);
+    if (!(try fsx.fstat(fd)).isReg()) return error.InvalidArgument;
+    return fd;
+}
+
+/// Take an exclusive flock(2) on `fd`, waiting up to `timeout_s` seconds for
+/// another holder to let go; 0 tries once. The lock lasts until `fd` is
+/// closed, or the process exits. Not the pinned library's
+/// `state.lockExclusive`, which gives every failure but EAGAIN as Unexpected.
+fn waitLock(fd: fsx.fd_t, timeout_s: u64) (sys.Error || error{TimedOut})!void {
+    const deadline = monotonicNs() + @as(i128, timeout_s) * std.time.ns_per_s;
+    while (true) {
+        const rc = linux.flock(fd, std.posix.LOCK.EX | std.posix.LOCK.NB);
+        if (linux.errno(rc) != .AGAIN) {
+            if (try sys.result(rc) != null) return;
+            continue;
+        }
+        const left = deadline - monotonicNs();
+        if (left <= 0) return error.TimedOut;
+        var ts: linux.timespec = .{ .sec = 0, .nsec = @intCast(@min(left, 20 * std.time.ns_per_ms)) };
+        _ = linux.nanosleep(&ts, null);
+    }
+}
+
 /// Days since a run directory's name, YYYYMMDD_HHMMSS, at its local
 /// midnight; null when the name is not a run directory. The name, not the
 /// mtime: compressing the run's logs moves the mtime of the directory they
@@ -546,12 +609,19 @@ fn cmdRotate(c: Ctx, args: []const [:0]const u8) u8 {
     var root_s: ?[]const u8 = null;
     var compress_v: ?[]const u8 = null;
     var delete_v: ?[]const u8 = null;
+    var lock_v: []const u8 = "";
     var have_compress = false;
     var have_delete = false;
     var i: usize = 0;
     while (i < args.len) : (i += 1) {
         const a = args[i];
-        if (std.mem.eql(u8, a, "--compress-after") or std.mem.eql(u8, a, "--delete-after")) {
+        if (std.mem.eql(u8, a, "--lock-timeout")) {
+            if (i + 1 >= args.len) die("--lock-timeout needs a number of seconds", .{});
+            i += 1;
+            lock_v = args[i];
+        } else if (std.mem.startsWith(u8, a, "--lock-timeout=")) {
+            lock_v = a["--lock-timeout=".len..];
+        } else if (std.mem.eql(u8, a, "--compress-after") or std.mem.eql(u8, a, "--delete-after")) {
             const v: ?[]const u8 = if (i + 1 < args.len) args[i + 1] else null;
             if (v == null) die("{s} needs a number of days", .{a});
             i += 1;
@@ -585,11 +655,25 @@ fn cmdRotate(c: Ctx, args: []const [:0]const u8) u8 {
         delete_after = parseDays("--delete-after", delete_v);
         if (delete_after.? <= compress_after) die("--delete-after must be later than --compress-after", .{});
     }
+    const lock_timeout = if (lock_v.len > 0) parseSeconds(lock_v) else default_lock_timeout;
 
     const now_s = c.getenv("EB_KEEP_LOGS_NOW") orelse "";
-    const now: i64 = if (now_s.len > 0)
+    const fixed_now: ?i64 = if (now_s.len > 0)
         std.fmt.parseInt(i64, now_s, 10) catch die("EB_KEEP_LOGS_NOW must be seconds since the epoch, not '{s}'", .{now_s})
-    else blk: {
+    else
+        null;
+    const lock = openLock(root) catch |err| die("cannot lock {s}/{s}: {t}", .{ joinable(root_p), rotate_lock, err });
+    defer sys.close(lock);
+    waitLock(lock, lock_timeout) catch |err| switch (err) {
+        error.TimedOut => {
+            cli.err(tool ++ ": another rotate holds the lock {s}/{s}; gave up after {d} s (--lock-timeout)\n", .{ joinable(root_p), rotate_lock, lock_timeout });
+            return lock_busy_exit;
+        },
+        // The file system cannot lock: Lustre without -o flock, NFS without
+        // a lock manager, or NFS for a file open only for reading.
+        else => warn("cannot lock {s}/{s}: {t}; rotating without the lock", .{ joinable(root_p), rotate_lock, err }),
+    };
+    const now: i64 = fixed_now orelse blk: {
         var ts: linux.timespec = undefined;
         _ = linux.clock_gettime(.REALTIME, &ts);
         break :blk ts.sec;
@@ -721,6 +805,50 @@ test "a failed copy does not replace a log already kept" {
     defer gpa.free(text);
     try std.testing.expectEqualStrings("OLDDATA\n", text);
     try std.testing.expectEqual(@as(u32, 0o640), got.stat.perm());
+}
+
+/// A directory of the test's own under the .zig-cache where `zig build` was
+/// started, made when missing; the caller removes it and frees the path.
+fn testDir(gpa: Allocator, name: []const u8) ![]u8 {
+    var cwd_buf: [sys.path_max]u8 = undefined;
+    const here = try fsx.realpath(fsx.cwd, ".", &cwd_buf);
+    const base = try std.fmt.allocPrint(gpa, "{s}/.zig-cache/eb-keep-logs-{s}-{d}", .{ here, name, linux.getpid() });
+    errdefer gpa.free(base);
+    try common.atomic.makedirs(base);
+    return base;
+}
+
+test "the rotate lock: one holder at a time" {
+    const gpa = std.testing.allocator;
+    const base = try testDir(gpa, "lock");
+    defer gpa.free(base);
+    defer fsx.deleteTree(gpa, fsx.cwd, base) catch {};
+    const dir = try fsx.openDir(fsx.cwd, base, false);
+    defer sys.close(dir);
+
+    const held = try openLock(dir);
+    try waitLock(held, 0);
+    const other = try openLock(dir);
+    defer sys.close(other);
+    try std.testing.expectError(error.TimedOut, waitLock(other, 0));
+    sys.close(held);
+    try waitLock(other, 0);
+    try std.testing.expect((try fsx.statAt(dir, rotate_lock, false)).isReg());
+
+    try sys.unlinkat(dir, rotate_lock, 0);
+    try std.testing.expectEqual(linux.E.SUCCESS, linux.errno(linux.symlinkat("elsewhere", dir, rotate_lock)));
+    try std.testing.expectError(error.SymLink, openLock(dir));
+    try sys.unlinkat(dir, rotate_lock, 0);
+    _ = try sys.call(linux.mkdirat, .{ dir, rotate_lock, 0o755 });
+    try std.testing.expectError(error.IsDir, openLock(dir));
+}
+
+test "parseSeconds" {
+    try std.testing.expectEqual(@as(u64, 0), parseSeconds("0"));
+    try std.testing.expectEqual(@as(u64, 7), parseSeconds("007"));
+    try std.testing.expectEqual(max_lock_timeout, parseSeconds("999999999"));
+    try std.testing.expectEqual(max_lock_timeout, parseSeconds("1000000000"));
+    try std.testing.expectEqual(max_lock_timeout, parseSeconds("123456789012345678901234567890"));
 }
 
 test "listed" {

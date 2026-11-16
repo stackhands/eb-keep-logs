@@ -17,7 +17,7 @@ export PATH="${work}/bin:${PATH}"
 
 diffs=0
 # Labels whose difference COMPAT.md documents.
-deliberate=("no arguments")
+deliberate=("no arguments" "rotate, lock is a symbolic link")
 # The environment both runs get, as env(1) takes it.
 run_env=(PATH="${PATH}")
 # compare LABEL ARGS...: run both with the same arguments.
@@ -115,6 +115,17 @@ compare "rotate, delete not later" rotate "${work}/logs" --compress-after 5 --de
 compare "rotate, empty delete" rotate "${work}/logs" --compress-after 5 --delete-after ""
 compare "rotate, nothing to do" rotate "${work}/logs" --compress-after 5 --delete-after 9
 EB_KEEP_LOGS_NOW='' compare "rotate, empty EB_KEEP_LOGS_NOW" rotate "${work}/logs" --compress-after 5
+compare "rotate, bad lock timeout" rotate "${work}/logs" --compress-after 5 --lock-timeout 1.5
+compare "rotate, lock timeout without a value" rotate "${work}/logs" --compress-after 5 --lock-timeout
+compare "rotate, empty lock timeout" rotate "${work}/logs" --compress-after 5 --lock-timeout=
+exec {held}>>"${work}/logs/.eb-keep-logs-rotate.lock"
+flock -n "${held}"
+compare "rotate, lock held" rotate "${work}/logs" --compress-after 5 --lock-timeout 0
+compare "rotate, lock held, zeros" rotate "${work}/logs/" --compress-after 5 --lock-timeout=00
+exec {held}>&-
+mkdir -p "${work}/symlock"
+ln -s "${work}/nowhere" "${work}/symlock/.eb-keep-logs-rotate.lock"
+compare "rotate, lock is a symbolic link" rotate "${work}/symlock" --compress-after 5
 
 echo "${diffs} differences"
 [ "${diffs}" -eq 0 ]
