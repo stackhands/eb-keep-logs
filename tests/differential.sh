@@ -98,6 +98,9 @@ printf 'Ok:                0   \nFail:              1   \n' > "${work}/obj/meson
 printf '#!/bin/bash\necho %s\n' "${work}/easybuild-Tests.log" > "${work}/bin/eb"
 compare "failed, failing meson test" failed 1 Tests "${work}/logs"
 unset EASYBUILD_TMPDIR
+echo log > "${work}/easybuild-Slash.log"
+printf '#!/bin/bash\necho %s\n' "${work}/easybuild-Slash.log" > "${work}/bin/eb"
+compare "failed, LOGDIR with trailing slashes" failed 3 Slash "${work}/logs//"
 printf '#!/bin/bash\nexit 0\n' > "${work}/bin/eb"
 compare "rotate, no root" rotate --compress-after 3
 compare "rotate, two roots" rotate a b
