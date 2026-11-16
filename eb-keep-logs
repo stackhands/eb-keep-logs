@@ -207,7 +207,9 @@ cmd_failed() {
 }
 
 # Days since a run directory's name, YYYYMMDD_HHMMSS; empty when the name is
-# not a run directory. The name, not the mtime: a later chmod moves the mtime.
+# not a run directory. The name, not the mtime: compressing the run's logs
+# moves the mtime of the directory they are in, where a chmod changes only
+# the ctime.
 _run_age_days() {
     local base date now start
     base=$(basename "$1")

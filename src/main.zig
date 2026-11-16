@@ -428,7 +428,8 @@ fn parseDays(opt: []const u8, v: ?[]const u8) u64 {
 
 /// Days since a run directory's name, YYYYMMDD_HHMMSS, at its local
 /// midnight; null when the name is not a run directory. The name, not the
-/// mtime: a later chmod moves the mtime.
+/// mtime: compressing the run's logs moves the mtime of the directory they
+/// are in, where a chmod changes only the ctime.
 fn runAgeDays(zone: *const localtime.Zone, name: []const u8, now: i64) ?i64 {
     if (name.len != 15 or name[8] != '_') return null;
     if (!allDigits(name[0..8]) or !allDigits(name[9..15])) return null;

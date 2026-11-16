@@ -380,5 +380,23 @@ zoned "TZ naming a zone file" TZ=Asia/Tokyo
 zoned "TZDIR empty" TZDIR= TZ=Asia/Tokyo
 zoned "TZ ':' then a rule string" TZ=':AEST-10AEDT,M10.1.0,M4.1.0/3'
 
+# rotate: a run's age is its name's, not its directory's mtime. A chmod
+# leaves the mtime and compressing the logs in the run moves it.
+mt_root="${work}/mtime"
+mkdir -p "${mt_root}/20261001_120000" "${mt_root}/20261110_120000"
+echo old > "${mt_root}/20261001_120000/K.stdout.log"
+echo young > "${mt_root}/20261110_120000/L.stdout.log"
+touch -d '2026-10-01 12:00' "${mt_root}/20261001_120000"
+touch -d '2020-01-01 00:00' "${mt_root}/20261110_120000"
+set_mtime=$(date -d '2026-10-01 12:00' +%s)
+chmod o-rwx "${mt_root}/20261001_120000"
+check "chmod leaves a run's mtime" "$(stat -c %Y "${mt_root}/20261001_120000")" "${set_mtime}"
+"${tool}" rotate "${mt_root}" --compress-after 30 >/dev/null
+check "compressing a run's logs moves its mtime" \
+    "$([ "$(stat -c %Y "${mt_root}/20261001_120000")" != "${set_mtime}" ] && echo moved)" "moved"
+check "an old mtime on a young run: not compressed" "$(lsrun "${mt_root}/20261110_120000")" "L.stdout.log "
+"${tool}" rotate "${mt_root}" --compress-after 30 --delete-after 40 >/dev/null
+check "a new mtime on an old run: deleted" "$(lsrun "${mt_root}")" "20261110_120000 "
+
 if [ "${fails}" -ne 0 ]; then echo "${fails} failed"; exit 1; fi
 echo "all passed"
