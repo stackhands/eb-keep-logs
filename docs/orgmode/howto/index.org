@@ -15,4 +15,5 @@ The title names the task.
    find-why-a-build-failed
    rotate-a-log-tree
    mark-licensed-logs
+   emit-syslog-events
 #+end_export

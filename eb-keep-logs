@@ -17,7 +17,7 @@ usage() {
 eb-keep-logs: keep the logs of EasyBuild builds that a build pipeline would
 otherwise lose, and keep the pipeline's log tree bounded.
 
-  eb-keep-logs failed STATUS NAME LOGDIR [TMP_LOGDIR]
+  eb-keep-logs failed [--syslog TARGET] STATUS NAME LOGDIR [TMP_LOGDIR]
       After `eb` returned STATUS for easyconfig NAME: when STATUS is not 0,
       copy the EasyBuild session log `eb --last-log` names, the failing
       command's output and a meson testlog next to LOGDIR/NAME.stdout.log,
@@ -25,8 +25,11 @@ otherwise lose, and keep the pipeline's log tree bounded.
       the --tmp-logdir eb ran with; without it, the newest log in
       EasyBuild's default place is used, unless it is another build's.
       NAME.stdout.log and a TMP_LOGDIR below LOGDIR are closed to others too.
+      --syslog TARGET, --syslog=TARGET
+          Emit an RFC 5424 or native systemd-journald event when logs are
+          kept or none are found. Default: EB_KEEP_LOGS_SYSLOG, else none.
   eb-keep-logs rotate ROOT --compress-after DAYS [--delete-after DAYS]
-                           [--lock-timeout SECONDS]
+                           [--lock-timeout SECONDS] [--syslog TARGET]
       In the run directories directly under ROOT (named YYYYMMDD_HHMMSS),
       gzip the *.log and *.txt files of old runs and remove older runs
       whole, leaving alone a run that is still written into. A run's age is
@@ -44,6 +47,10 @@ otherwise lose, and keep the pipeline's log tree bounded.
           While another rotate holds the lock, wait up to SECONDS for it,
           then give up and exit 75. Default: 600; 0 does not wait. An empty
           value is the default.
+      --syslog TARGET, --syslog=TARGET
+          Emit an RFC 5424 or native systemd-journald event with the
+          compressed and deleted counts. Default: EB_KEEP_LOGS_SYSLOG,
+          else none.
   eb-keep-logs why [RUN | --latest] [--target TARGET] [--root ROOT] [--json]
       Say why the builds of a run failed: for each failed easyconfig, its
       package and easyconfig, the EasyBuild step it failed in, EasyBuild's
@@ -92,6 +99,11 @@ Environment:
   EB_KEEP_LOGS_NOW     The time rotate takes as now, in seconds since the
                        epoch; unset or empty, the current time.
   EB_PIPELINE_LOG_DIR  rotate leaves alone the run that holds this path.
+  EB_KEEP_LOGS_SYSLOG  Default --syslog target (journald, syslog, unix:///...,
+                       journal+unix:///..., udp://host:port, tcp://host:port).
+  EB_KEEP_LOGS_SYSLOG_PEN
+                       IANA Private Enterprise Number for RFC 5424 SD-ID
+                       ebKeepLogs@<PEN>. Default: 32473 (RFC 5398 placeholder).
   TZ, TZDIR            The time zone of the local midnights, and the
                        directory of zone files.
 
@@ -168,12 +180,215 @@ _last_log() {
     fi
 }
 
+_resolve_syslog_pen() {
+    local raw="${EB_KEEP_LOGS_SYSLOG_PEN:-}"
+    SYSLOG_PEN="32473"
+    [ -n "${raw}" ] || return 0
+    local s="${raw#"${raw%%[![:space:]]*}"}"
+    s="${s%"${s##*[![:space:]]}"}"
+    [[ -n "${s}" && "${#s}" -le 20 && "${s}" =~ ^[0-9]+$ ]] ||
+        die "EB_KEEP_LOGS_SYSLOG_PEN must be a positive integer, not '${raw}'"
+    local trimmed="${s#"${s%%[!0]*}"}"
+    [ -n "${trimmed}" ] ||
+        die "EB_KEEP_LOGS_SYSLOG_PEN must be a positive integer, not '${raw}'"
+    if [ "${#trimmed}" -eq 20 ]; then
+        local hi="${trimmed:0:10}" lo="${trimmed:10:10}"
+        lo="1${lo}"
+        if [ "${hi}" -gt 1844674407 ] || { [ "${hi}" -eq 1844674407 ] && [ "${lo}" -gt 13709551615 ]; }; then
+            die "EB_KEEP_LOGS_SYSLOG_PEN must be a positive integer, not '${raw}'"
+        fi
+    fi
+    SYSLOG_PEN="${trimmed}"
+}
+
+_resolve_syslog() {
+    local raw="${1}"
+    SYSLOG_TARGET=""
+    [ -n "${raw}" ] || return 0
+    case "${raw}" in
+        *$'\n'*|*$'\r'*) die "invalid syslog target '${raw}'" ;;
+        syslog|journald|journal|/*|unix:///*|journal+unix:///*) ;;
+        udp://*:*|tcp://*:*)
+            local hp port host
+            hp="${raw#*://}"
+            port="${hp##*:}"
+            host="${hp%:*}"
+            [[ -n "${host}" && "${port}" =~ ^[0-9]+$ && "${port}" -ge 1 && "${port}" -le 65535 ]] ||
+                die "invalid syslog target '${raw}'"
+            ;;
+        *) die "invalid syslog target '${raw}'" ;;
+    esac
+    SYSLOG_TARGET="${raw}"
+}
+
+_emit_syslog() {
+    local target="$1" sev="$2" msgid="$3" msg="$4"
+    shift 4
+    [ -n "${target}" ] || return 0
+    local py=""
+    if command -v python3 >/dev/null 2>&1; then
+        py=$(command -v python3)
+    elif [ -x /usr/bin/python3 ]; then
+        py=/usr/bin/python3
+    fi
+    if [ -n "${py}" ]; then
+        if ! "${py}" - "$target" "${SYSLOG_PEN:-32473}" "$sev" "$msgid" "$msg" "$$" "$@" <<'PY'
+import datetime, os, socket, sys
+
+target, pen, sev_s, msgid, msg, pid = sys.argv[1:7]
+pairs = [kv.split("=", 1) for kv in sys.argv[7:] if "=" in kv]
+
+def one_line(s, limit=500):
+    return "".join(" " if ord(c) < 32 or ord(c) == 127 else c for c in s)[:limit]
+
+def sd_esc(v):
+    return one_line(v, 256).replace("\\", "\\\\").replace('"', '\\"').replace("]", "\\]")
+
+def send_unix(path, payload, stream_nl):
+    try:
+        with socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM) as s:
+            s.settimeout(0.5)
+            s.connect(path)
+            s.sendall(payload)
+            return True
+    except OSError:
+        if not stream_nl:
+            return False
+    try:
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as s:
+            s.settimeout(0.5)
+            s.connect(path)
+            s.sendall(payload + b"\n")
+            return True
+    except OSError:
+        return False
+
+if target in ("journald", "journal"):
+    scheme, hp, port = "journal", "/run/systemd/journal/socket", 0
+elif target == "syslog":
+    scheme, hp, port = "unix", "/dev/log", 0
+elif target.startswith("/"):
+    scheme, hp, port = "unix", target, 0
+elif target.startswith("unix://"):
+    scheme, hp, port = "unix", target[7:], 0
+elif target.startswith("journal+unix://"):
+    scheme, hp, port = "journal", target[15:], 0
+elif target.startswith("udp://"):
+    h, p = target[6:].rsplit(":", 1)
+    if h.startswith("[") and h.endswith("]"):
+        h = h[1:-1]
+    scheme, hp, port = "udp", h, int(p)
+else:
+    h, p = target[6:].rsplit(":", 1)
+    if h.startswith("[") and h.endswith("]"):
+        h = h[1:-1]
+    scheme, hp, port = "tcp", h, int(p)
+
+if scheme == "journal":
+    entries = [
+        ("MESSAGE", one_line(msg)),
+        ("PRIORITY", sev_s),
+        ("SYSLOG_IDENTIFIER", "eb-keep-logs"),
+        ("SYSLOG_FACILITY", "1"),
+        ("MSGID", msgid),
+    ]
+    for k, v in pairs:
+        if k.startswith("J:") and v:
+            entries.append((k[2:], one_line(v)))
+    payload = b"".join(
+        f"{k}={v}\n".encode("utf-8", "replace")
+        for k, v in entries
+    )
+    ok = send_unix(hp, payload, False)
+else:
+    pri = 8 + int(sev_s)
+    ts = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
+    host = "".join(c for c in socket.gethostname() if 33 <= ord(c) <= 126)[:255] or "-"
+    sd = " ".join(f'{k[2:]}="{sd_esc(v)}"' for k, v in pairs if k.startswith("P:"))
+    line = f"<{pri}>1 {ts} {host} eb-keep-logs {pid} {msgid} [ebKeepLogs@{pen} {sd}] {one_line(msg)}"
+    payload = line.encode("utf-8", "replace")
+    if scheme == "unix":
+        ok = send_unix(hp, payload, True)
+    elif scheme == "udp":
+        ok = False
+        for fam, _, _, _, sa in socket.getaddrinfo(hp, port, 0, socket.SOCK_DGRAM):
+            try:
+                with socket.socket(fam, socket.SOCK_DGRAM) as s:
+                    s.settimeout(0.5)
+                    s.sendto(payload, sa)
+                ok = True
+                break
+            except OSError:
+                continue
+    else:
+        frame = f"{len(payload)} ".encode("ascii") + payload
+        try:
+            with socket.create_connection((hp, port), timeout=0.5) as s:
+                s.sendall(frame)
+            ok = True
+        except OSError:
+            ok = False
+sys.exit(0 if ok else 1)
+PY
+        then
+            echo "eb-keep-logs: cannot emit syslog event" >&2
+        fi
+    fi
+}
+
+_emit_failed_syslog() {
+    local target="$1" status="$2" name="$3" logdir_s="$4" ebout="$5" cmd_kept="$6" meson="$7" reason="$8"
+    [ -n "${target}" ] || return 0
+    local kept=$((ebout + cmd_kept + meson))
+    local licensed="${kept}"
+    local cmdout=0; [ "${cmd_kept}" -gt 0 ] && cmdout=1
+    local msgid="EB_KEEP_NONE"
+    [ "${kept}" -gt 0 ] && msgid="EB_KEEP_FAILED"
+    local msg
+    if [ "${kept}" -gt 0 ]; then
+        msg="eb-keep-logs failed: kept $(_count "${kept}" file) for ${name} (status ${status})"
+    else
+        msg="eb-keep-logs failed: no EasyBuild log kept for ${name} (${reason})"
+    fi
+    local extra=()
+    [ -n "${SLURM_JOB_ID:-}" ] && extra+=("P:job=${SLURM_JOB_ID}" "J:SLURM_JOB_ID=${SLURM_JOB_ID}")
+    [ -n "${SLURM_STEP_ID:-}" ] && extra+=("P:step=${SLURM_STEP_ID}" "J:SLURM_STEP_ID=${SLURM_STEP_ID}")
+    _emit_syslog "${target}" 4 "${msgid}" "${msg}" \
+        "P:cmd=failed" "P:status=${status}" "P:name=${name}" "P:logdir=${logdir_s}" \
+        "P:kept=${kept}" "P:licensed=${licensed}" "P:ebout=${ebout}" \
+        "P:cmdout=${cmdout}" "P:meson=${meson}" "P:reason=${reason}" \
+        "J:EB_KEEP_CMD=failed" "J:EB_KEEP_STATUS=${status}" "J:EB_KEEP_NAME=${name}" \
+        "J:EB_KEEP_LOGDIR=${logdir_s}" "J:EB_KEEP_KEPT=${kept}" "J:EB_KEEP_LICENSED=${licensed}" \
+        "J:EB_KEEP_EBOUT=${ebout}" "J:EB_KEEP_CMDOUT=${cmdout}" "J:EB_KEEP_MESON=${meson}" \
+        "J:EB_KEEP_REASON=${reason}" "${extra[@]}"
+}
+
 cmd_failed() {
-    [ $# -ge 3 ] || die "failed needs STATUS NAME LOGDIR [TMP_LOGDIR]"
-    local status="$1" name="$2" logdir="$3" explicit_logdir="${4:-}"
+    local pos=() syslog_opt="" have_syslog=0
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --syslog)
+                [ $# -ge 2 ] || die "--syslog needs a target"
+                syslog_opt="$2"; have_syslog=1; shift 2 ;;
+            --syslog=*)
+                syslog_opt="${1#*=}"; have_syslog=1; shift ;;
+            *) pos+=("$1"); shift ;;
+        esac
+    done
+    [ ${#pos[@]} -ge 3 ] || die "failed needs STATUS NAME LOGDIR [TMP_LOGDIR]"
+    local status="${pos[0]}" name="${pos[1]}" logdir="${pos[2]}" explicit_logdir="${pos[3]:-}"
     local src dest
     [[ "${status}" =~ ^[0-9]+$ ]] || die "STATUS must be a number, not '${status}'"
     [ -d "${logdir}" ] || die "LOGDIR ${logdir} is not a directory"
+    local syslog_target=""
+    _resolve_syslog_pen
+    if [ "${have_syslog}" -eq 1 ]; then
+        _resolve_syslog "${syslog_opt}"
+        syslog_target="${SYSLOG_TARGET}"
+    elif [ -n "${EB_KEEP_LOGS_SYSLOG:-}" ]; then
+        _resolve_syslog "${EB_KEEP_LOGS_SYSLOG}"
+        syslog_target="${SYSLOG_TARGET}"
+    fi
     logdir=$(_joinable "${logdir}")
     if [ "${status}" -eq 0 ]; then
         return 0
@@ -198,6 +413,7 @@ cmd_failed() {
     fi
     if ! command -v eb >/dev/null 2>&1; then
         echo "No EasyBuild log to keep for ${name}: eb is not on PATH."
+        _emit_failed_syslog "${syslog_target}" "${status}" "${name}" "${logdir}" 0 0 0 "no-eb"
         return 0
     fi
     local rc=0
@@ -208,16 +424,18 @@ cmd_failed() {
     fi
     if [ "${rc}" -ne 0 ]; then
         echo "No EasyBuild log to keep for ${name}: eb --last-log exited ${rc}."
+        _emit_failed_syslog "${syslog_target}" "${status}" "${name}" "${logdir}" 0 0 0 "last-log-failed"
         return 0
     fi
     if [ -z "${src}" ] || [ ! -f "${src}" ]; then
         echo "No EasyBuild log to keep for ${name}."
+        _emit_failed_syslog "${syslog_target}" "${status}" "${name}" "${logdir}" 0 0 0 "no-log"
         return 0
     fi
     # Without TMP_LOGDIR, `eb --last-log` names the newest log in EasyBuild's
     # default place, which can be a later build's. Nothing is taken from that
     # log; the build's own stdout log still names its failing command.
-    local foreign=""
+    local foreign="" ebout_kept=0 cmd_kept=0 meson_kept=0
     if [ -z "${explicit_logdir}" ] && grep -q 'processing EasyBuild easyconfig ' "${src}" &&
         ! grep -qF -- "${name}.eb" "${src}"; then
         echo "No EasyBuild log to keep for ${name}: ${src} is another build's log."
@@ -227,6 +445,7 @@ cmd_failed() {
         cp "${src}" "${dest}"
         _private "${dest}" "${logdir}"
         echo "Failed build log: ${dest}"
+        ebout_kept=1
     fi
 
     # The failing command's own output holds the diagnostic beyond EasyBuild's
@@ -266,10 +485,16 @@ cmd_failed() {
             chmod 600 "${dest}"
             _list "${dest}" "${logdir}"
             echo "Failed command output: ${dest}"
+            cmd_kept=$((cmd_kept + 1))
         done
     fi
 
-    [ -z "${foreign}" ] || return 0
+    if [ -n "${foreign}" ]; then
+        local reason="other-build"
+        [ "${cmd_kept}" -gt 0 ] && reason="kept"
+        _emit_failed_syslog "${syslog_target}" "${status}" "${name}" "${logdir}" 0 "${cmd_kept}" 0 "${reason}"
+        return 0
+    fi
     # A meson test step prints only the last 100 lines of a failing test; the
     # full output is meson-logs/testlog.txt in the build directory. A testlog
     # whose tests all passed is not the failure.
@@ -281,7 +506,11 @@ cmd_failed() {
         cp "${testlog}" "${dest}"
         _private "${dest}" "${logdir}"
         echo "Failed meson test log: ${dest}"
+        meson_kept=1
     fi
+    local reason="no-log"
+    [ $((ebout_kept + cmd_kept + meson_kept)) -gt 0 ] && reason="kept"
+    _emit_failed_syslog "${syslog_target}" "${status}" "${name}" "${logdir}" "${ebout_kept}" "${cmd_kept}" "${meson_kept}" "${reason}"
     return 0
 }
 
@@ -357,7 +586,7 @@ _lock_rotate() {
 }
 
 cmd_rotate() {
-    local root="" compress_after="" delete_after="" lock_timeout=""
+    local root="" compress_after="" delete_after="" lock_timeout="" syslog_opt="" have_syslog=0
     while [ $# -gt 0 ]; do
         case "$1" in
             --compress-after) compress_after="${2:-}"; shift 2 ;;
@@ -368,6 +597,10 @@ cmd_rotate() {
                 [ $# -ge 2 ] || die "--lock-timeout needs a number of seconds"
                 lock_timeout="$2"; shift 2 ;;
             --lock-timeout=*) lock_timeout="${1#*=}"; shift ;;
+            --syslog)
+                [ $# -ge 2 ] || die "--syslog needs a target"
+                syslog_opt="$2"; have_syslog=1; shift 2 ;;
+            --syslog=*) syslog_opt="${1#*=}"; have_syslog=1; shift ;;
             -*) die "unknown option $1" ;;
             *) [ -z "${root}" ] || die "rotate takes one ROOT"; root="$1"; shift ;;
         esac
@@ -387,6 +620,15 @@ cmd_rotate() {
         [ "${#lock_timeout}" -le 9 ] || lock_timeout=999999999
     else
         lock_timeout=600
+    fi
+    local syslog_target=""
+    _resolve_syslog_pen
+    if [ "${have_syslog}" -eq 1 ]; then
+        _resolve_syslog "${syslog_opt}"
+        syslog_target="${SYSLOG_TARGET}"
+    elif [ -n "${EB_KEEP_LOGS_SYSLOG:-}" ]; then
+        _resolve_syslog "${EB_KEEP_LOGS_SYSLOG}"
+        syslog_target="${SYSLOG_TARGET}"
     fi
     _lock_rotate "$(_joinable "${root}")/.eb-keep-logs-rotate.lock" "${lock_timeout}"
     local run age file list tmp path compressed=0 deleted=0 live
@@ -420,7 +662,12 @@ cmd_rotate() {
             done < <(find "${run}" -name .licensed-logs -type f -print0)
         done < <(find "${run}" -type f \( -name '*.log' -o -name '*.txt' \) -print0)
     done
-    echo "eb-keep-logs rotate: $(_count "${compressed}" file) compressed, $(_count "${deleted}" run) deleted under ${root}"
+    local summary
+    summary="eb-keep-logs rotate: $(_count "${compressed}" file) compressed, $(_count "${deleted}" run) deleted under ${root}"
+    echo "${summary}"
+    _emit_syslog "${syslog_target}" 6 "EB_ROTATE_DONE" "${summary}" \
+        "P:cmd=rotate" "P:root=${root}" "P:compressed=${compressed}" "P:deleted=${deleted}" \
+        "J:EB_KEEP_CMD=rotate" "J:EB_ROTATE_ROOT=${root}" "J:EB_ROTATE_COMPRESSED=${compressed}" "J:EB_ROTATE_DELETED=${deleted}"
 }
 
 case "${1:-}" in

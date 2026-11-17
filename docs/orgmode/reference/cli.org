@@ -10,8 +10,8 @@ This page describes the Zig build; the shell script =eb-keep-logs= in the reposi
 ** Synopsis
 
 #+begin_example
-eb-keep-logs failed STATUS NAME LOGDIR [TMP_LOGDIR]
-eb-keep-logs rotate ROOT --compress-after DAYS [--delete-after DAYS] [--lock-timeout SECONDS]
+eb-keep-logs failed [--syslog TARGET] STATUS NAME LOGDIR [TMP_LOGDIR]
+eb-keep-logs rotate ROOT --compress-after DAYS [--delete-after DAYS] [--lock-timeout SECONDS] [--syslog TARGET]
 eb-keep-logs why [RUN | --latest] [--target TARGET] [--root ROOT] [--json]
 eb-keep-logs history PACKAGE [--target TARGET] [--root ROOT] [--json]
 eb-keep-logs -h | --help
@@ -37,6 +37,7 @@ eb-keep-logs --version
 | =--compress-after DAYS=, =--compress-after=DAYS= | =rotate= | Required. Compress the =*.log= and =*.txt= files, at any depth, of runs at least =DAYS= old. =DAYS= is decimal digits.                       |
 | =--delete-after DAYS=, =--delete-after=DAYS=     | =rotate= | Remove whole runs at least =DAYS= old. =DAYS= must be larger than =--compress-after=. Without it, or with an empty value, no run is removed. |
 | =--lock-timeout SECONDS=, =--lock-timeout=SECONDS= | =rotate= | How long to wait for the lock another =rotate= of =ROOT= holds, in seconds, decimal digits; =0= does not wait. Without it, or with an empty value, 600. A value larger than 999999999, which is over 31 years, waits 999999999 seconds. |
+| =--syslog TARGET=, =--syslog=TARGET=             | =failed=, =rotate= | Emit an RFC 5424 or native =systemd-journald= event to =TARGET= (=journald=, =syslog=, =unix:///path=, =journal+unix:///path=, =udp://host:port=, or =tcp://host:port=); overrides =EB_KEEP_LOGS_SYSLOG=. An empty value disables emission. |
 | =--latest=                                       | =why=    | Read the newest run under =--root=, by its name; with =--target=, the newest that has that target. The default without =RUN=.               |
 | =--target TARGET=, =--target=TARGET=             | =why=, =history= | Read only the builds in the run's directory =TARGET=; for =history=, in each run's, a run without one passed over. Without it, those in the run's own directory and then in each directory in it, by name. |
 | =--root ROOT=, =--root=ROOT=                     | =why=, =history= | The directory that holds the runs, directories named =YYYYMMDD_HHMMSS=, not symbolic links. Without it, the current directory.               |
@@ -59,6 +60,8 @@ eb-keep-logs --version
 | =EASYBUILD_TMPDIR=    | =failed= | A failed command's output is copied only from below this directory, both paths resolved. Unset or empty, it is not copied.                                                                                                                                                                                                                                                                                           |
 | =EB_KEEP_LOGS_NOW=    | =rotate= | The time =rotate= takes as now, in seconds since the epoch: an integer. Unset or empty, it is the current time.                                                                                                                                                                                                                                                                                                      |
 | =EB_PIPELINE_LOG_DIR= | =rotate= | The run that holds this path is left alone: it is the run eb-pipeline writes into. Unset, empty, or a path that does not exist, it changes nothing.                                                                                                                                                                                                                                                                  |
+| =EB_KEEP_LOGS_SYSLOG= | =failed=, =rotate= | Default =--syslog= target (=journald=, =syslog=, =unix:///path=, =journal+unix:///path=, =udp://host:port=, or =tcp://host:port=). Unset or empty, no syslog event is emitted.                                                                                                                                                                                                                                      |
+| =EB_KEEP_LOGS_SYSLOG_PEN= | =failed=, =rotate= | Positive decimal IANA Private Enterprise Number used as the suffix of the RFC 5424 =SD-ID= (=ebKeepLogs@<PEN>=). Unset or empty, defaults to =32473=, the IANA documentation PEN (RFC 5398 and RFC 5424 section 6.3.2) reserved as a placeholder until a site or project PEN is assigned.                                                                                                               |
 | =TZ=                  | =rotate= | The time zone of the local midnight: unset, =/etc/localtime=; empty, UTC; otherwise, with a leading =:= dropped, a zone file, by name under =TZDIR= or by absolute path, or else a POSIX rule string such as =CET-1CEST,M3.5.0,M10.5.0/3=, as the shell script's =date= reads it, a malformed one as far as glibc reads it. A zone that cannot be read is UTC; [[file:compatibility.org][Compatibility]] lists the zones =date= reads otherwise. |
 | =TZDIR=               | =rotate= | The directory of zone files, =/usr/share/zoneinfo= when unset or empty.                                                                                                                                                                                                                                                                                                                                              |
 
@@ -302,7 +305,7 @@ The usage =-h=, =--help= and no arguments print on stdout, the same from the she
 eb-keep-logs: keep the logs of EasyBuild builds that a build pipeline would
 otherwise lose, and keep the pipeline's log tree bounded.
 
-  eb-keep-logs failed STATUS NAME LOGDIR [TMP_LOGDIR]
+  eb-keep-logs failed [--syslog TARGET] STATUS NAME LOGDIR [TMP_LOGDIR]
       After `eb` returned STATUS for easyconfig NAME: when STATUS is not 0,
       copy the EasyBuild session log `eb --last-log` names, the failing
       command's output and a meson testlog next to LOGDIR/NAME.stdout.log,
@@ -310,8 +313,11 @@ otherwise lose, and keep the pipeline's log tree bounded.
       the --tmp-logdir eb ran with; without it, the newest log in
       EasyBuild's default place is used, unless it is another build's.
       NAME.stdout.log and a TMP_LOGDIR below LOGDIR are closed to others too.
+      --syslog TARGET, --syslog=TARGET
+          Emit an RFC 5424 or native systemd-journald event when logs are
+          kept or none are found. Default: EB_KEEP_LOGS_SYSLOG, else none.
   eb-keep-logs rotate ROOT --compress-after DAYS [--delete-after DAYS]
-                           [--lock-timeout SECONDS]
+                           [--lock-timeout SECONDS] [--syslog TARGET]
       In the run directories directly under ROOT (named YYYYMMDD_HHMMSS),
       gzip the *.log and *.txt files of old runs and remove older runs
       whole, leaving alone a run that is still written into. A run's age is
@@ -329,6 +335,10 @@ otherwise lose, and keep the pipeline's log tree bounded.
           While another rotate holds the lock, wait up to SECONDS for it,
           then give up and exit 75. Default: 600; 0 does not wait. An empty
           value is the default.
+      --syslog TARGET, --syslog=TARGET
+          Emit an RFC 5424 or native systemd-journald event with the
+          compressed and deleted counts. Default: EB_KEEP_LOGS_SYSLOG,
+          else none.
   eb-keep-logs why [RUN | --latest] [--target TARGET] [--root ROOT] [--json]
       Say why the builds of a run failed: for each failed easyconfig, its
       package and easyconfig, the EasyBuild step it failed in, EasyBuild's
@@ -377,6 +387,11 @@ Environment:
   EB_KEEP_LOGS_NOW     The time rotate takes as now, in seconds since the
                        epoch; unset or empty, the current time.
   EB_PIPELINE_LOG_DIR  rotate leaves alone the run that holds this path.
+  EB_KEEP_LOGS_SYSLOG  Default --syslog target (journald, syslog, unix:///...,
+                       journal+unix:///..., udp://host:port, tcp://host:port).
+  EB_KEEP_LOGS_SYSLOG_PEN
+                       IANA Private Enterprise Number for RFC 5424 SD-ID
+                       ebKeepLogs@<PEN>. Default: 32473 (RFC 5398 placeholder).
   TZ, TZDIR            The time zone of the local midnights, and the
                        directory of zone files.
 

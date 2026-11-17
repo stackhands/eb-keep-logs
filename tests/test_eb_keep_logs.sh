@@ -648,5 +648,9 @@ for round in 1 2 3 4 5; do
 done
 check "two rotations without the lock: every list whole" "${race_torn}" ""
 
+if command -v python3 >/dev/null 2>&1; then
+    TOOL_BIN="${tool}" python3 -m unittest "${repo_root}/tests/test_syslog.py" >/dev/null || fails=$((fails + 1))
+fi
+
 if [ "${fails}" -ne 0 ]; then echo "${fails} failed"; exit 1; fi
 echo "all passed"
