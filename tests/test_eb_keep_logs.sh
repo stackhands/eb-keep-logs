@@ -10,13 +10,16 @@ tool="${TOOL_BIN:-${repo_root}/eb-keep-logs}"
 unset EB_PIPELINE_LOG_DIR
 
 fails=0
+# Failures go to stderr: zig build test shows a script's stderr, not stdout.
 check() {
     if [ "$2" = "$3" ]; then
         echo "ok   $1"
     else
-        echo "FAIL $1"
-        echo "     expected: $3"
-        echo "     got:      $2"
+        {
+            echo "FAIL $1"
+            echo "     expected: $3"
+            echo "     got:      $2"
+        } >&2
         fails=$((fails + 1))
     fi
 }
@@ -349,6 +352,72 @@ EB_PIPELINE_LOG_DIR=${log_dir} EB_KEEP_LOGS_NOW=${next_day} "${tool}" rotate "${
 check "own run through a pipe: not compressed" "$(lsrun "${log_dir}")" "F.stdout.log rotate.log "
 EB_KEEP_LOGS_NOW=${next_day} "${tool}" rotate "${piped}" --compress-after 1 > /dev/null 2>&1
 check "a finished run is compressed" "$(lsrun "${log_dir}")" "F.stdout.log.gz rotate.log.gz "
+
+# rotate: an empty EB_KEEP_LOGS_NOW is the current time, as an unset one is
+now_root="${work}/now"
+old_run="$(TZ=UTC date -d '40 days ago' +%Y%m%d)_000000"
+young_run="$(TZ=UTC date -d '20 days ago' +%Y%m%d)_000000"
+mkdir -p "${now_root}/${old_run}" "${now_root}/${young_run}"
+echo old > "${now_root}/${old_run}/H.stdout.log"
+echo young > "${now_root}/${young_run}/I.stdout.log"
+check "empty EB_KEEP_LOGS_NOW: the current time" \
+    "$(TZ=UTC EB_KEEP_LOGS_NOW='' "${tool}" rotate "${now_root}" --compress-after 30 2>&1)" \
+    "eb-keep-logs rotate: 1 file compressed, 0 runs deleted under ${now_root}"
+check "empty EB_KEEP_LOGS_NOW: the run 40 days old compressed" "$(lsrun "${now_root}/${old_run}")" "H.stdout.log.gz "
+
+# rotate: with ENV, a run's local midnight is the one GNU date gives, and the
+# tool runs with GNU date as date. Thirty days after it the run is 30 days
+# old, and 29 a second before. Ubuntu's date is uutils' from 25.10, GNU's
+# being gnudate; uutils' reads as UTC some TZ rule strings that glibc reads.
+gnu_date=
+for d in date gnudate; do
+    if "${d}" --version 2>/dev/null | grep -q '(GNU coreutils)'; then
+        gnu_date=$(command -v "${d}")
+        mkdir -p "${work}/gnu"
+        ln -s "${gnu_date}" "${work}/gnu/date"
+        break
+    fi
+done
+zoned() {
+    local label=$1 midnight
+    shift
+    if [ -z "${gnu_date}" ]; then
+        echo "skip ${label}: no GNU date to compare with" >&2
+        return
+    fi
+    rm -rf "${work}/zoned"
+    mkdir -p "${work}/zoned/20261101_000000"
+    echo log > "${work}/zoned/20261101_000000/J.stdout.log"
+    midnight=$(env "$@" "${gnu_date}" -d 20261101 +%s)
+    set -- PATH="${work}/gnu:${PATH}" "$@"
+    env "$@" EB_KEEP_LOGS_NOW=$((midnight + 30 * 86400 - 1)) "${tool}" rotate "${work}/zoned" --compress-after 30 >/dev/null
+    check "${label}: 29 days old a second before date's midnight" "$(lsrun "${work}/zoned/20261101_000000")" "J.stdout.log "
+    env "$@" EB_KEEP_LOGS_NOW=$((midnight + 30 * 86400)) "${tool}" rotate "${work}/zoned" --compress-after 30 >/dev/null
+    check "${label}: 30 days old at date's midnight" "$(lsrun "${work}/zoned/20261101_000000")" "J.stdout.log.gz "
+}
+zoned "TZ naming a zone file" TZ=Asia/Tokyo
+zoned "TZDIR empty" TZDIR= TZ=Asia/Tokyo
+zoned "TZ ':' then a rule string" TZ=':AEST-10AEDT,M10.1.0,M4.1.0/3'
+zoned "TZ rule string with text after it" TZ='CET-1CEST,M3.5.0,M10.5.0/3x'
+zoned "TZ rule string without an end rule" TZ='CET-1CEST,M3.5.0'
+
+# rotate: a run's age is its name's, not its directory's mtime. A chmod
+# leaves the mtime and compressing the logs in the run moves it.
+mt_root="${work}/mtime"
+mkdir -p "${mt_root}/20261001_120000" "${mt_root}/20261110_120000"
+echo old > "${mt_root}/20261001_120000/K.stdout.log"
+echo young > "${mt_root}/20261110_120000/L.stdout.log"
+touch -d '2026-10-01 12:00' "${mt_root}/20261001_120000"
+touch -d '2020-01-01 00:00' "${mt_root}/20261110_120000"
+set_mtime=$(date -d '2026-10-01 12:00' +%s)
+chmod o-rwx "${mt_root}/20261001_120000"
+check "chmod leaves a run's mtime" "$(stat -c %Y "${mt_root}/20261001_120000")" "${set_mtime}"
+"${tool}" rotate "${mt_root}" --compress-after 30 >/dev/null
+check "compressing a run's logs moves its mtime" \
+    "$([ "$(stat -c %Y "${mt_root}/20261001_120000")" != "${set_mtime}" ] && echo moved)" "moved"
+check "an old mtime on a young run: not compressed" "$(lsrun "${mt_root}/20261110_120000")" "L.stdout.log "
+"${tool}" rotate "${mt_root}" --compress-after 30 --delete-after 40 >/dev/null
+check "a new mtime on an old run: deleted" "$(lsrun "${mt_root}")" "20261110_120000 "
 
 if [ "${fails}" -ne 0 ]; then echo "${fails} failed"; exit 1; fi
 echo "all passed"

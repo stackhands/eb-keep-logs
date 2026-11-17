@@ -1,0 +1,1 @@
+The comments on `runAgeDays` in `src/main.zig` and on `_run_age_days` in the shell script give the right reason a run's age comes from its name, not its directory's mtime: compressing the run's logs moves the mtime, where a chmod changes only the ctime.
