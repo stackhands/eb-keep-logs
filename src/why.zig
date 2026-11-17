@@ -753,11 +753,41 @@ fn emit(gpa: Allocator, r: anytype, as_json: bool, comptime writeText: fn (*std.
     cli.put(1, out.written());
 }
 
+const why_help =
+    \\eb-keep-logs why [RUN | --latest] [--target TARGET] [--root ROOT] [--json]
+    \\
+    \\Say why the builds of one run failed, from the logs it kept.
+    \\With no RUN, the newest run under --root is read. --root defaults to
+    \\the current directory. A run is a directory named YYYYMMDD_HHMMSS.
+    \\--target reads only that directory of the run. --json prints one document.
+    \\
+;
+
+const history_help =
+    \\eb-keep-logs history PACKAGE [--target TARGET] [--root ROOT] [--json]
+    \\
+    \\PACKAGE is the easyconfig's name without .eb, or NAME/VERSION.
+    \\--root defaults to the current directory. A run is a directory named YYYYMMDD_HHMMSS.
+    \\--target reads only that directory of each run. --json prints one document.
+    \\
+;
+
+fn wantsHelp(args: []const [:0]const u8) bool {
+    for (args) |a| {
+        if (std.mem.eql(u8, a, "-h") or std.mem.eql(u8, a, "--help")) return true;
+    }
+    return false;
+}
+
 /// `why [RUN | --latest] [--target TARGET] [--root ROOT] [--json]`: print
 /// why the builds of a run failed, from the logs it kept. Returns 0 once
 /// its arguments are accepted, whatever it could read; a refused
-/// invocation exits 2.
+/// invocation exits 2. `-h` and `--help` print what to pass and return 0.
 pub fn cmdWhy(gpa: Allocator, args: []const [:0]const u8) u8 {
+    if (wantsHelp(args)) {
+        cli.put(1, why_help);
+        return 0;
+    }
     var run_arg: ?[]const u8 = null;
     var latest = false;
     var target: ?[]const u8 = null;
@@ -905,6 +935,10 @@ fn writeHistory(w: *std.Io.Writer, r: HistoryReport) std.Io.Writer.Error!void {
 /// once its arguments are accepted, whatever it could read; a refused
 /// invocation exits 2.
 pub fn cmdHistory(gpa: Allocator, args: []const [:0]const u8) u8 {
+    if (wantsHelp(args)) {
+        cli.put(1, history_help);
+        return 0;
+    }
     var package_arg: ?[]const u8 = null;
     var target: ?[]const u8 = null;
     var root_arg: ?[]const u8 = null;

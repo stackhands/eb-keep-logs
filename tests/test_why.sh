@@ -210,6 +210,18 @@ refused "history, empty PACKAGE" "PACKAGE must not be empty" history ""
 refused "history, --latest" "unknown option --latest" history hello --latest
 refused "history, --target without a value" "--target needs a target" history hello --target
 refused "history, missing ROOT" "ROOT ${work}/nope is not a directory" history hello --root="${work}/nope"
+# -h and --help of why and history print what to pass and exit 0.
+help_ok() {
+    local label=$1; shift
+    "${tool}" "$@" > "${work}/help" 2> "${work}/err"
+    check "help, ${label}: exit 0" "$?" "0"
+    check "help, ${label}: stderr empty" "$(cat "${work}/err")" ""
+    check "help, ${label}: names a run directory" "$(grep -c 'YYYYMMDD_HHMMSS' "${work}/help")" "1"
+}
+help_ok "why --help" why --help
+help_ok "why -h" why -h
+help_ok "history --help" history --help
+help_ok "history -h" history -h
 
 if [ "${fails}" -ne 0 ]; then echo "${fails} failed"; exit 1; fi
 echo "all passed"
