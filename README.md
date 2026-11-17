@@ -102,12 +102,14 @@ EB_KEEP_LOGS_NOW=$(date -d 2027-09-20 +%s) eb-keep-logs rotate /tmp/logs-preview
 ```bash
 eb-keep-logs why --latest --root /srv/build-logs
 eb-keep-logs why 20261117_040615 --root /srv/build-logs --target zen4 --json
+eb-keep-logs history hello --root /srv/build-logs
 ```
 
 `why` reads the logs a run kept, as `failed` kept them or `rotate` compressed them, and prints for each failed easyconfig its package and easyconfig, the EasyBuild step it failed in, EasyBuild's message, and the line of its log that shows the error, the first compiler or linker error or else EasyBuild's own error line, with the path, the line number and three lines either side.
 For a failure class, feed the kept log to eb-stack.
-`--json` prints the same as one line of JSON with `schema_version` 1, for a pipeline's run summary.
-It is in the Zig build only.
+`history` lists each kept build of a package, run by run, with its outcome and how long EasyBuild took.
+`--json` prints either as one line of JSON with `schema_version` 1, for a pipeline's run summary.
+Both are in the Zig build only.
 
 ## Tests
 

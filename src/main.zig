@@ -73,6 +73,21 @@ const usage_text =
     \\          directory.
     \\      --json
     \\          Print one line of JSON instead, with schema_version 1.
+    \\  eb-keep-logs history PACKAGE [--target TARGET] [--root ROOT] [--json]
+    \\      Say how each kept build of PACKAGE went, oldest run first: success,
+    \\      failed or unknown, and how long EasyBuild took, from its output.
+    \\      PACKAGE is an easyconfig's name or its start up to a dash, as hello
+    \\      or hello-2.12.1 for hello-2.12.1-GCCcore-14.2.0, or a module name, as
+    \\      hello/2.12.1; hello also takes hello-world-1.0. Zig build only.
+    \\      PACKAGE and the options come in any order.
+    \\      --target TARGET, --target=TARGET
+    \\          Only the builds in each run's directory TARGET. Default: those in
+    \\          each run's own directory and in every directory in it.
+    \\      --root ROOT, --root=ROOT
+    \\          The directory that holds the runs. Default: the current
+    \\          directory.
+    \\      --json
+    \\          Print one line of JSON instead, with schema_version 1.
     \\  eb-keep-logs -h | --help
     \\      Print this help on stdout and exit 0.
     \\  eb-keep-logs --version
@@ -89,9 +104,9 @@ const usage_text =
     \\                       directory of zone files.
     \\
     \\Exit status:
-    \\  0   -h, --help or --version, or a failed, rotate or why that accepted
-    \\      its arguments, whatever it could keep, compress, remove or read:
-    \\      what it could not do is reported on stderr.
+    \\  0   -h, --help or --version, or a failed, rotate, why or history that
+    \\      accepted its arguments, whatever it could keep, compress, remove or
+    \\      read: what it could not do is reported on stderr.
     \\  2   The invocation was refused, with eb-keep-logs: MESSAGE on stderr; or
     \\      no command was given, and this help is on stdout.
     \\  75  rotate waited --lock-timeout seconds for the lock another rotate
@@ -833,10 +848,10 @@ fn cmdRotate(c: Ctx, args: []const [:0]const u8) u8 {
     return 0;
 }
 
-/// The command line. `failed`, `rotate` and `why` run those commands;
-/// `--help` or `-h` prints the usage and `--version` the version line, both
-/// returning 0. No command prints the usage and returns 2, and an unknown
-/// one is refused with 2.
+/// The command line. `failed`, `rotate`, `why` and `history` run those
+/// commands; `--help` or `-h` prints the usage and `--version` the version
+/// line, both returning 0. No command prints the usage and returns 2, and
+/// an unknown one is refused with 2.
 pub fn main(init: std.process.Init) u8 {
     const gpa = init.gpa;
     const args = init.minimal.args.toSlice(init.arena.allocator()) catch die("cannot read the arguments", .{});
@@ -858,11 +873,12 @@ pub fn main(init: std.process.Init) u8 {
     if (std.mem.eql(u8, cmd, "failed")) return cmdFailed(c, args[2..]);
     if (std.mem.eql(u8, cmd, "rotate")) return cmdRotate(c, args[2..]);
     if (std.mem.eql(u8, cmd, "why")) return why.cmdWhy(gpa, args[2..]);
+    if (std.mem.eql(u8, cmd, "history")) return why.cmdHistory(gpa, args[2..]);
     if (cmd.len == 0) {
         cli.put(1, usage_text);
         return cli.usage_exit;
     }
-    die("unknown command '{s}' (failed, rotate, why, --help)", .{cmd});
+    die("unknown command '{s}' (failed, rotate, why, history, --help)", .{cmd});
 }
 
 test {

@@ -22,6 +22,7 @@ diffs=0
 declare -A deliberate=(
     ["rotate, lock is a symbolic link"]="\`rotate\`'s lock file cannot be opened, or is a symbolic link or not a regular file"
     ["why"]="\`why\`"
+    ["history"]="\`history\`"
 )
 compat_deliberate=$(sed -n '/^## Deliberate differences$/,/^## /p' "${repo_root}/COMPAT.md")
 # The environment both runs get, as env(1) takes it.
@@ -142,6 +143,7 @@ until [ -e "${work}/held" ]; do sleep 0.05; done
 compare "rotate, a run still written into" rotate "${work}/live" --compress-after 5 --delete-after 9
 kill "${holder}"; wait "${holder}" 2>/dev/null
 compare "why" why --latest --root "${repo_root}/tests/fixtures/build-logs"
+compare "history" history hello --root "${repo_root}/tests/fixtures/build-logs"
 
 echo "${diffs} differences"
 [ "${diffs}" -eq 0 ]

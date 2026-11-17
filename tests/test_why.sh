@@ -1,6 +1,7 @@
 #!/bin/bash
-# Tests for eb-keep-logs why, on the kept logs of real EasyBuild 5.4.2
-# failures in tests/fixtures/build-logs. why is in the Zig build only:
+# Tests for eb-keep-logs why and history, on the kept logs of real
+# EasyBuild 5.4.2 failures in tests/fixtures/build-logs. Both are in the
+# Zig build only:
 #   TOOL_BIN=zig-out/bin/eb-keep-logs bash tests/test_why.sh
 set -u
 
@@ -109,10 +110,13 @@ check "--json counts every outcome" \
 mkdir -p "${work}/rotated"
 cp -R "${logs}/20261117_041222" "${work}/rotated/"
 plain=$("${tool}" why --json --root "${work}/rotated" 20261117_041222)
+plain_history=$("${tool}" history --json --root "${work}/rotated" hello)
 EB_KEEP_LOGS_NOW=4102444800 "${tool}" rotate "${work}/rotated" --compress-after 1 > /dev/null
 check "rotate compressed every log" "$(find "${work}/rotated" -type f -name '*.log' | wc -l | tr -d ' ')" "0"
 check "compressed: the same report" \
     "$("${tool}" why --json --root "${work}/rotated" 20261117_041222 | sed 's/\.log\.gz"/.log"/g')" "${plain}"
+check "compressed: the same history" \
+    "$("${tool}" history --json --root "${work}/rotated" hello | sed 's/\.log\.gz"/.log"/g')" "${plain_history}"
 
 # A build that kept only its terminal output is read from that; 80-column
 # wrapping is undone.
@@ -154,25 +158,58 @@ check "no outcome recorded: unknown" \
     "$("${tool}" why --json --root "${work}/broken" 20261117_050000 2> /dev/null | grep -o '"counts":{[^}]*}')" \
     '"counts":{"success":0,"failed":1,"unknown":1}'
 
-# refused LABEL MESSAGE ARGS...: why ARGS exits 2 with MESSAGE on stderr.
+# history: every kept build of a package, oldest run first.
+check "history: the whole text report" "$("${tool}" history hello --root "${logs}")" \
+    "$(cat tests/fixtures/why/history-hello.txt)"
+check "history --json: schema 1, on one line" \
+    "$("${tool}" history --json --root "${logs}" hello-2.12.1-GCCcore-13.3.0)" \
+    "$(cat tests/fixtures/why/history-hello-2.12.1-GCCcore-13.3.0.json)"
+check "history: a module name is the easyconfig's" \
+    "$("${tool}" history hello/2.12.1-GCCcore-13.3.0 --root "${logs}" | tail -n +2)" \
+    "$("${tool}" history hello-2.12.1-GCCcore-13.3.0 --root "${logs}" | tail -n +2)"
+check "history: the start of a name only up to a dash" "$("${tool}" history hell --root "${logs}")" \
+    "hell: 0 builds under ${logs}"
+check "history --target: only its builds" "$("${tool}" history --target=generic --root="${logs}" hello | tail -n 1)" \
+    "20261117_041222  generic  success  2m50s     hello-2.12.1-GCCcore-14.2.0"
+check "history: ROOT defaults to the current directory" "$(cd "${logs}" && "${tool}" history hello | head -1)" \
+    "hello: 11 builds under .: 3 succeeded, 8 failed"
+check "history: a build in the run's own directory has no target" \
+    "$("${tool}" history hello --root "${work}/flat" | tail -n 1)" \
+    "20261117_040615  -       failed   3m06s     ${b}"
+check "history: a kept session log alone is a failure, unread" \
+    "$("${tool}" history hello --root "${work}/broken" 2>&1)" \
+    "hello: 2 builds under ${work}/broken: 0 succeeded, 1 failed, 1 unknown
+
+RUN              TARGET  OUTCOME  DURATION  NAME
+20261117_050000  node1   failed   -         ${b}
+20261117_050000  node2   unknown  -         ${b}"
+
+# refused LABEL MESSAGE ARGS...: eb-keep-logs ARGS exits 2 with MESSAGE on
+# stderr.
 refused() {
     local label=$1 message=$2; shift 2
-    "${tool}" why "$@" > /dev/null 2> "${work}/err"
+    "${tool}" "$@" > /dev/null 2> "${work}/err"
     check "refused, ${label}: exit 2" "$?" "2"
     check "refused, ${label}: message" "$(cat "${work}/err")" "eb-keep-logs: ${message}"
 }
 mkdir -p "${work}/empty"
-refused "two runs" "why takes one RUN" a b
-refused "RUN and --latest" "why takes RUN or --latest, not both" "${logs}/20261117_040615" --latest
-refused "unknown option" "unknown option --bogus" --bogus
-refused "--target without a value" "--target needs a target" --target
-refused "empty --root" "--root needs a directory" --root=
-refused "empty RUN" "RUN must not be empty" ""
-refused "missing ROOT" "ROOT ${work}/nope is not a directory" --root "${work}/nope"
-refused "no run" "no run under ${work}/empty" --root "${work}/empty"
-refused "no run with the target" "no run under ${logs} has a target nope" --latest --target nope --root "${logs}"
-refused "missing RUN" "RUN ${work}/nope is not a directory" "${work}/nope"
-refused "missing TARGET" "TARGET nope is not a directory in ${logs}/20261117_040615" "${logs}/20261117_040615" --target nope
+refused "why, two runs" "why takes one RUN" why a b
+refused "why, RUN and --latest" "why takes RUN or --latest, not both" why "${logs}/20261117_040615" --latest
+refused "why, unknown option" "unknown option --bogus" why --bogus
+refused "why, --target without a value" "--target needs a target" why --target
+refused "why, empty --root" "--root needs a directory" why --root=
+refused "why, empty RUN" "RUN must not be empty" why ""
+refused "why, missing ROOT" "ROOT ${work}/nope is not a directory" why --root "${work}/nope"
+refused "why, no run" "no run under ${work}/empty" why --root "${work}/empty"
+refused "why, no run with the target" "no run under ${logs} has a target nope" why --latest --target nope --root "${logs}"
+refused "why, missing RUN" "RUN ${work}/nope is not a directory" why "${work}/nope"
+refused "why, missing TARGET" "TARGET nope is not a directory in ${logs}/20261117_040615" why "${logs}/20261117_040615" --target nope
+refused "history, no PACKAGE" "history needs PACKAGE" history --root "${logs}"
+refused "history, two packages" "history takes one PACKAGE" history a b
+refused "history, empty PACKAGE" "PACKAGE must not be empty" history ""
+refused "history, --latest" "unknown option --latest" history hello --latest
+refused "history, --target without a value" "--target needs a target" history hello --target
+refused "history, missing ROOT" "ROOT ${work}/nope is not a directory" history hello --root="${work}/nope"
 
 if [ "${fails}" -ne 0 ]; then echo "${fails} failed"; exit 1; fi
 echo "all passed"

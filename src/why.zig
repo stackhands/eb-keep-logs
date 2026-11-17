@@ -1,7 +1,8 @@
 //! `why`: read the logs a run kept, plain or as `rotate` compressed them,
 //! and say why its builds failed: for each, the EasyBuild step it failed
 //! in, EasyBuild's message, and the line of its log that shows the error,
-//! with the lines around it.
+//! with the lines around it. `history`: how each kept build of a package
+//! went, run by run, from EasyBuild's output.
 const std = @import("std");
 const common = @import("zig_common");
 const sys = common.sys;
@@ -492,7 +493,19 @@ const Failure = struct {
     @"error": ?ErrorLine,
 };
 
-const Counts = struct { success: usize = 0, failed: usize = 0, unknown: usize = 0 };
+const Counts = struct {
+    success: usize = 0,
+    failed: usize = 0,
+    unknown: usize = 0,
+
+    fn add(c: *Counts, o: Outcome) void {
+        switch (o) {
+            .success => c.success += 1,
+            .failed => c.failed += 1,
+            .unknown => c.unknown += 1,
+        }
+    }
+};
 
 const WhyReport = struct {
     schema_version: u32 = schema_version,
@@ -810,15 +823,10 @@ pub fn cmdWhy(gpa: Allocator, args: []const [:0]const u8) u8 {
         const builds = buildsIn(gpa, arena, dir, dir_s) catch die(oom, .{});
         for (builds) |b| {
             const v = outcomeOf(gpa, arena, dir, dir_s, b) catch die(oom, .{});
-            switch (v.outcome) {
-                .success => counts.success += 1,
-                .unknown => counts.unknown += 1,
-                .failed => {
-                    counts.failed += 1;
-                    const f = failureOf(gpa, arena, dir, dir_s, t, b, v) catch die(oom, .{});
-                    failures.append(arena, f) catch die(oom, .{});
-                },
-            }
+            counts.add(v.outcome);
+            if (v.outcome != .failed) continue;
+            const f = failureOf(gpa, arena, dir, dir_s, t, b, v) catch die(oom, .{});
+            failures.append(arena, f) catch die(oom, .{});
         }
     }
     const report: WhyReport = .{
@@ -828,6 +836,150 @@ pub fn cmdWhy(gpa: Allocator, args: []const [:0]const u8) u8 {
         .failures = failures.items,
     };
     emit(gpa, report, as_json, writeWhy);
+    return 0;
+}
+
+/// A build of a package, as history lists it; its target is null for a
+/// build in the run's own directory.
+const Kept = struct {
+    run: []const u8,
+    target: ?[]const u8,
+    name: []const u8,
+    outcome: Outcome,
+    duration_s: ?u64,
+    log: []const u8,
+};
+
+const HistoryReport = struct {
+    schema_version: u32 = schema_version,
+    kind: []const u8 = "history",
+    package: []const u8,
+    root: []const u8,
+    counts: Counts,
+    builds: []const Kept,
+};
+
+/// Whether build NAME is one of PACKAGE's: NAME is PACKAGE, or starts with
+/// PACKAGE and a dash, as `hello-2.12.1-GCCcore-14.2.0` does for hello and
+/// for hello-2.12.1.
+fn isBuildOf(name: []const u8, package: []const u8) bool {
+    return std.mem.startsWith(u8, name, package) and (name.len == package.len or name[package.len] == '-');
+}
+
+fn durationText(buf: *[24]u8, d: ?u64) []const u8 {
+    var w: std.Io.Writer = .fixed(buf);
+    writeDuration(&w, d orelse return "-") catch unreachable;
+    return w.buffered();
+}
+
+fn writeRow(w: *std.Io.Writer, cells: [5][]const u8, widths: [4]usize) std.Io.Writer.Error!void {
+    for (cells[0..4], widths) |c, n| try w.print("{s:<[1]}  ", .{ c, n });
+    try w.print("{s}\n", .{cells[4]});
+}
+
+fn writeHistory(w: *std.Io.Writer, r: HistoryReport) std.Io.Writer.Error!void {
+    const total = r.builds.len;
+    try w.print("{s}: {d} build{s} under {s}", .{ r.package, total, plural(total), r.root });
+    if (total > 0) try w.print(": {d} succeeded, {d} failed", .{ r.counts.success, r.counts.failed });
+    if (r.counts.unknown > 0) try w.print(", {d} unknown", .{r.counts.unknown});
+    try w.writeAll("\n");
+    if (total == 0) return;
+    const header = [5][]const u8{ "RUN", "TARGET", "OUTCOME", "DURATION", "NAME" };
+    var widths: [4]usize = undefined;
+    for (header[0..4], &widths) |h, *n| n.* = h.len;
+    var buf: [24]u8 = undefined;
+    for (r.builds) |b| {
+        const target: []const u8 = b.target orelse "-";
+        widths[0] = @max(widths[0], b.run.len);
+        widths[1] = @max(widths[1], target.len);
+        widths[2] = @max(widths[2], @tagName(b.outcome).len);
+        widths[3] = @max(widths[3], durationText(&buf, b.duration_s).len);
+    }
+    try w.writeAll("\n");
+    try writeRow(w, header, widths);
+    for (r.builds) |b| try writeRow(w, .{ b.run, b.target orelse "-", @tagName(b.outcome), durationText(&buf, b.duration_s), b.name }, widths);
+}
+
+/// `history PACKAGE [--target TARGET] [--root ROOT] [--json]`: print how
+/// each build of PACKAGE kept under ROOT went, oldest run first. Returns 0
+/// once its arguments are accepted, whatever it could read; a refused
+/// invocation exits 2.
+pub fn cmdHistory(gpa: Allocator, args: []const [:0]const u8) u8 {
+    var package_arg: ?[]const u8 = null;
+    var target: ?[]const u8 = null;
+    var root_arg: ?[]const u8 = null;
+    var as_json = false;
+    var i: usize = 0;
+    while (i < args.len) : (i += 1) {
+        const a = args[i];
+        if (std.mem.eql(u8, a, "--json")) {
+            as_json = true;
+        } else if (optionValue(args, &i, "--target", "a target")) |v| {
+            target = v;
+        } else if (optionValue(args, &i, "--root", "a directory")) |v| {
+            root_arg = v;
+        } else if (a.len > 0 and a[0] == '-') {
+            die("unknown option {s}", .{a});
+        } else {
+            if (package_arg != null) die("history takes one PACKAGE", .{});
+            package_arg = a;
+        }
+    }
+    const package_s = package_arg orelse die("history needs PACKAGE", .{});
+    if (package_s.len == 0) die("PACKAGE must not be empty", .{});
+
+    var arena_state = std.heap.ArenaAllocator.init(gpa);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+    const oom = "out of memory";
+    // A module name, NAME/VERSION, is the easyconfig's NAME-VERSION.
+    const package = arena.dupe(u8, package_s) catch die(oom, .{});
+    std.mem.replaceScalar(u8, package, '/', '-');
+
+    const root_s = root_arg orelse ".";
+    const root = fsx.openDir(fsx.cwd, root_s, true) catch die("ROOT {s} is not a directory", .{root_s});
+    defer sys.close(root);
+    var counts: Counts = .{};
+    var kept: std.ArrayList(Kept) = .empty;
+    const runs = runsIn(gpa, arena, root, root_s) catch die(oom, .{});
+    for (runs) |r| {
+        const run_s = std.fs.path.join(arena, &.{ root_s, r }) catch die(oom, .{});
+        const run = fsx.openDir(root, r, false) catch |err| {
+            warn("cannot open {s}: {t}", .{ run_s, err });
+            continue;
+        };
+        defer sys.close(run);
+        const targets: []const []const u8 = if (target) |t|
+            (if (isDirAt(run, t)) arena.dupe([]const u8, &.{t}) catch die(oom, .{}) else &.{})
+        else
+            targetsIn(gpa, arena, run, run_s) catch die(oom, .{});
+        for (targets) |t| {
+            const dir, const dir_s = (openBuilds(arena, run, run_s, t) catch die(oom, .{})) orelse continue;
+            defer sys.close(dir);
+            const builds = buildsIn(gpa, arena, dir, dir_s) catch die(oom, .{});
+            for (builds) |b| {
+                if (!isBuildOf(b.name, package)) continue;
+                const v = outcomeOf(gpa, arena, dir, dir_s, b) catch die(oom, .{});
+                counts.add(v.outcome);
+                const log = std.fs.path.join(arena, &.{ dir_s, b.stdout orelse b.session.? }) catch die(oom, .{});
+                kept.append(arena, .{
+                    .run = r,
+                    .target = if (t.len == 0) null else utf8(arena, t) catch die(oom, .{}),
+                    .name = utf8(arena, b.name) catch die(oom, .{}),
+                    .outcome = v.outcome,
+                    .duration_s = v.duration_s,
+                    .log = utf8(arena, log) catch die(oom, .{}),
+                }) catch die(oom, .{});
+            }
+        }
+    }
+    const report: HistoryReport = .{
+        .package = utf8(arena, package_s) catch die(oom, .{}),
+        .root = utf8(arena, root_s) catch die(oom, .{}),
+        .counts = counts,
+        .builds = kept.items,
+    };
+    emit(gpa, report, as_json, writeHistory);
     return 0;
 }
 
@@ -1087,4 +1239,14 @@ test "logOf and isRunName" {
     try testing.expect(isRunName("20261117_040615"));
     try testing.expect(!isRunName("20261117-040615"));
     try testing.expect(!isRunName("2026111_0406150"));
+}
+
+test "isBuildOf takes a name or its start up to a dash" {
+    const name = "hello-2.12.1-GCCcore-14.2.0";
+    try testing.expect(isBuildOf(name, "hello"));
+    try testing.expect(isBuildOf(name, "hello-2.12.1"));
+    try testing.expect(isBuildOf(name, name));
+    try testing.expect(!isBuildOf(name, "hell"));
+    try testing.expect(!isBuildOf(name, "hello-2.12"));
+    try testing.expect(isBuildOf("hello-world-1.0", "hello"));
 }
