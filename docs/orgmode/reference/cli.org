@@ -4,7 +4,7 @@
 
 * The eb-keep-logs command
 
-=eb-keep-logs= keeps the logs of a failed EasyBuild build, compresses and removes the old runs of a log tree, says from the kept logs why a run's builds failed, lists how a package's builds went run by run, reads who loaded a module from Lmod's usage log, reads who ran an executable from an XALT run record, lists paths under an install prefix from those records, classifies installed software by its recorded use, and reads what an EasyBuild dry-run or missing-modules report still has to build.
+=eb-keep-logs= keeps the logs of a failed EasyBuild build, compresses and removes the old runs of a log tree, says from the kept logs why a run's builds failed, lists how a package's builds went run by run, reads who loaded a module from Lmod's usage log, reads who ran an executable from an XALT run record, lists paths under an install prefix from those records, classifies installed software by its recorded use, reads what an EasyBuild dry-run or missing-modules report still has to build, writes a flaky-test evidence bundle, and compares such bundles across sites.
 This page describes the Zig build; the shell script =eb-keep-logs= in the repository behaves the same, except as [[file:compatibility.org][Compatibility]] lists: it has no =why=, =history=, =loads=, =runs=, =used=, =usage= or =pending=.
 
 ** Synopsis
@@ -19,6 +19,8 @@ eb-keep-logs runs --exec PATH [--json] FILE
 eb-keep-logs used --prefix PREFIX [--json] [--require-none] FILE...
 eb-keep-logs usage --software DIR --modules DIR [--since EPOCH] [--unused | --active] [--json] FILE...
 eb-keep-logs pending [--json] FILE
+eb-keep-logs test-bundle --test-id ID --suite-revision REV --eessi-target TARGET --stdout FILE --stderr FILE [--input FILE ...] [--module NAME=PATH ...] --seed SEED --allocation TEXT --binding TEXT --cpu TEXT --gpu TEXT [--out FILE]
+eb-keep-logs test-compare [--json] BUNDLE...
 eb-keep-logs -h | --help
 eb-keep-logs --version
 #+end_example
@@ -53,6 +55,20 @@ eb-keep-logs --version
 | =--unused=                                       | =usage=  | Print only installed =Name/Version= entries with no hit.                                                                                    |
 | =--active=                                       | =usage=  | Print only installed =Name/Version= entries with a hit, in the listing format =eb-stack stack gap --site= reads.                            |
 | =--json=                                         | =usage=  | Print one line of JSON instead of text.                                                                                                      |
+| =--test-id ID=, =--test-id=ID=                  | =test-bundle= | Required. Stable test identity shared by the same test across sites and runs.                                                               |
+| =--suite-revision REV=, =--suite-revision=REV=  | =test-bundle= | Required. Test-suite revision string.                                                                                                        |
+| =--eessi-target TARGET=, =--eessi-target=TARGET= | =test-bundle= | Required. EESSI target identifier.                                                                                                           |
+| =--stdout FILE=, =--stdout=FILE=                | =test-bundle= | Required. Captured stdout to normalize and hash.                                                                                             |
+| =--stderr FILE=, =--stderr=FILE=                | =test-bundle= | Required. Captured stderr to normalize and hash.                                                                                             |
+| =--input FILE=, =--input=FILE=                  | =test-bundle= | Optional, repeatable. One input file to hash.                                                                                                |
+| =--module NAME=PATH=, =--module=NAME=PATH=      | =test-bundle= | Optional, repeatable. One loaded module with its modulefile path.                                                                            |
+| =--seed SEED=, =--seed=SEED=                    | =test-bundle= | Required. Seed value to hash and record.                                                                                                     |
+| =--allocation TEXT=, =--allocation=TEXT=        | =test-bundle= | Required. Scheduler allocation summary.                                                                                                       |
+| =--binding TEXT=, =--binding=TEXT=              | =test-bundle= | Required. Scheduler binding summary.                                                                                                          |
+| =--cpu TEXT=, =--cpu=TEXT=                      | =test-bundle= | Required. CPU facts.                                                                                                                         |
+| =--gpu TEXT=, =--gpu=TEXT=                      | =test-bundle= | Required. GPU facts (or =none=).                                                                                                             |
+| =--out FILE=, =--out=FILE=                      | =test-bundle= | Optional. Write the bundle JSON to =FILE= instead of stdout.                                                                                 |
+| =--json=                                         | =test-compare= | Print one JSON summary of differing fields instead of text.                                                                                  |
 | =-h=, =--help=                                   |          | Print the usage on stdout and exit 0.                                                                                                        |
 | =--version=                                      |          | Print the version line on stdout and exit 0.                                                                                                 |
 
@@ -86,7 +102,7 @@ eb-keep-logs --version
 
 | =MESSAGE=                                                       | Cause                                                                                         |
 |-----------------------------------------------------------------+-----------------------------------------------------------------------------------------------|
-| =unknown command 'WORD' (failed, rotate, why, history, --help)=          | The first argument is none of the commands.                                                   |
+| =unknown command 'WORD' (failed, rotate, why, history, loads, runs, used, usage, pending, test-bundle, test-compare, --help)=          | The first argument is none of the commands.                                                   |
 | =failed needs STATUS NAME LOGDIR [TMP_LOGDIR]=                  | =failed= got fewer than three arguments.                                                      |
 | =STATUS must be a number, not 'STATUS'=                         | =STATUS= is empty or holds something other than digits.                                       |
 | =LOGDIR LOGDIR is not a directory=                              | =LOGDIR= does not name a directory that can be opened.                                        |
@@ -424,6 +440,21 @@ With =--json= the document has =schema_version= 1, =kind= ="pending"=, and an =e
 | =--json= | Print one line of JSON instead of the text lines. |
 | =FILE= | The report, as =eb --dry-run= or =eb --missing-modules= printed it. A file that cannot be read, or that is neither report, is refused. |
 
+** test-bundle
+
+=test-bundle= records one test run as a stable flaky-test evidence bundle.
+It normalizes stdout and stderr to LF line endings, trims trailing spaces and tabs on each line, and ensures a trailing newline when there is output.
+It hashes those normalized streams, hashes each =--input= file, hashes =--seed=, and records modules with modulefile paths, EESSI target, scheduler allocation and binding, CPU and GPU facts, and suite revision.
+With =--out FILE= it writes JSON there; without it, it prints the JSON.
+The JSON shape is schema_version 1 in [[file:json-schemas.org][JSON schemas]].
+
+** test-compare
+
+=test-compare= reads two or more =test-bundle= JSON documents and reports only which fields differ.
+It does not decide pass or fail.
+Compared fields are: test identity, suite revision, EESSI target, normalized stdout/stderr hashes, input and seed hashes, module list and paths, scheduler allocation and binding, and CPU/GPU facts.
+With =--json= it prints schema_version 1 JSON; without it, a text summary.
+
 *** --help
 
 The usage =-h=, =--help= and no arguments print on stdout, the same from the shell script:
@@ -594,6 +625,51 @@ otherwise lose, and keep the pipeline's log tree bounded.
       FILE
           The report, as eb --dry-run or eb --missing-modules printed it.
           Required.
+  eb-keep-logs test-bundle --test-id ID --suite-revision REV --eessi-target TARGET
+                           ... --stdout FILE --stderr FILE [--input FILE ...]
+                           ... [--module NAME=PATH ...] --seed SEED
+                           ... --allocation TEXT --binding TEXT --cpu TEXT --gpu TEXT
+                           [--out FILE]
+      Write one flaky-test evidence bundle as JSON schema_version 1, with a
+      stable test identity (ID), normalized stdout and stderr, input and
+      seed hashes, full module list and module paths, EESSI target,
+      scheduler allocation and binding, CPU and GPU facts, and test-suite
+      revision. Without --out, print it on stdout. Zig build only.
+      --test-id ID, --test-id=ID
+          Stable test identity. Required.
+      --suite-revision REV, --suite-revision=REV
+          Test-suite revision. Required.
+      --eessi-target TARGET, --eessi-target=TARGET
+          EESSI target of the run. Required.
+      --stdout FILE, --stdout=FILE
+          Captured stdout, normalized and hashed. Required.
+      --stderr FILE, --stderr=FILE
+          Captured stderr, normalized and hashed. Required.
+      --input FILE, --input=FILE
+          Input file to hash. Optional; may be repeated. Default: none.
+      --module NAME=PATH, --module=NAME=PATH
+          Loaded module and its modulefile path. Optional; may be
+          repeated. Default: none.
+      --seed SEED, --seed=SEED
+          Seed value to hash. Required.
+      --allocation TEXT, --allocation=TEXT
+          Scheduler allocation summary. Required.
+      --binding TEXT, --binding=TEXT
+          Scheduler binding summary. Required.
+      --cpu TEXT, --cpu=TEXT
+          CPU facts. Required.
+      --gpu TEXT, --gpu=TEXT
+          GPU facts, or none. Required.
+      --out FILE, --out=FILE
+          Write JSON to FILE. Default: stdout.
+  eb-keep-logs test-compare [--json] BUNDLE...
+      Summarize which evidence fields differ across two or more
+      test-bundle JSON files, without deciding pass or fail. --json prints
+      schema_version 1. Zig build only.
+      --json
+          Print one line of JSON instead of text. Default: text.
+      BUNDLE
+          Two or more test-bundle JSON files. Required.
   eb-keep-logs -h | --help
       Print this help on stdout and exit 0.
   eb-keep-logs --version
@@ -615,7 +691,7 @@ Environment:
                        directory of zone files.
 
 Exit status:
-  0   -h, --help or --version, or a failed, rotate, why, history, loads, runs, used, usage or pending that
+  0   -h, --help or --version, or a failed, rotate, why, history, loads, runs, used, usage, pending, test-bundle or test-compare that
       accepted its arguments, whatever it could keep, compress, remove or
       read: what it could not do is reported on stderr. used with
       --require-none also exits 2 when any path was listed.

@@ -17,6 +17,7 @@ const xalt_runs = @import("runs.zig");
 const pending = @import("pending.zig");
 const used_cmd = @import("used.zig");
 const usage_cmd = @import("usage.zig");
+const test_bundle = @import("test_bundle.zig");
 const syslog = @import("syslog.zig");
 
 const Allocator = std.mem.Allocator;
@@ -193,6 +194,51 @@ const usage_text =
     \\      FILE
     \\          The report, as eb --dry-run or eb --missing-modules printed it.
     \\          Required.
+    \\  eb-keep-logs test-bundle --test-id ID --suite-revision REV --eessi-target TARGET
+    \\                           ... --stdout FILE --stderr FILE [--input FILE ...]
+    \\                           ... [--module NAME=PATH ...] --seed SEED
+    \\                           ... --allocation TEXT --binding TEXT --cpu TEXT --gpu TEXT
+    \\                           [--out FILE]
+    \\      Write one flaky-test evidence bundle as JSON schema_version 1, with a
+    \\      stable test identity (ID), normalized stdout and stderr, input and
+    \\      seed hashes, full module list and module paths, EESSI target,
+    \\      scheduler allocation and binding, CPU and GPU facts, and test-suite
+    \\      revision. Without --out, print it on stdout. Zig build only.
+    \\      --test-id ID, --test-id=ID
+    \\          Stable test identity. Required.
+    \\      --suite-revision REV, --suite-revision=REV
+    \\          Test-suite revision. Required.
+    \\      --eessi-target TARGET, --eessi-target=TARGET
+    \\          EESSI target of the run. Required.
+    \\      --stdout FILE, --stdout=FILE
+    \\          Captured stdout, normalized and hashed. Required.
+    \\      --stderr FILE, --stderr=FILE
+    \\          Captured stderr, normalized and hashed. Required.
+    \\      --input FILE, --input=FILE
+    \\          Input file to hash. Optional; may be repeated. Default: none.
+    \\      --module NAME=PATH, --module=NAME=PATH
+    \\          Loaded module and its modulefile path. Optional; may be
+    \\          repeated. Default: none.
+    \\      --seed SEED, --seed=SEED
+    \\          Seed value to hash. Required.
+    \\      --allocation TEXT, --allocation=TEXT
+    \\          Scheduler allocation summary. Required.
+    \\      --binding TEXT, --binding=TEXT
+    \\          Scheduler binding summary. Required.
+    \\      --cpu TEXT, --cpu=TEXT
+    \\          CPU facts. Required.
+    \\      --gpu TEXT, --gpu=TEXT
+    \\          GPU facts, or none. Required.
+    \\      --out FILE, --out=FILE
+    \\          Write JSON to FILE. Default: stdout.
+    \\  eb-keep-logs test-compare [--json] BUNDLE...
+    \\      Summarize which evidence fields differ across two or more
+    \\      test-bundle JSON files, without deciding pass or fail. --json prints
+    \\      schema_version 1. Zig build only.
+    \\      --json
+    \\          Print one line of JSON instead of text. Default: text.
+    \\      BUNDLE
+    \\          Two or more test-bundle JSON files. Required.
     \\  eb-keep-logs -h | --help
     \\      Print this help on stdout and exit 0.
     \\  eb-keep-logs --version
@@ -214,7 +260,7 @@ const usage_text =
     \\                       directory of zone files.
     \\
     \\Exit status:
-    \\  0   -h, --help or --version, or a failed, rotate, why, history, loads, runs, used, usage or pending that
+    \\  0   -h, --help or --version, or a failed, rotate, why, history, loads, runs, used, usage, pending, test-bundle or test-compare that
     \\      accepted its arguments, whatever it could keep, compress, remove or
     \\      read: what it could not do is reported on stderr. used with
     \\      --require-none also exits 2 when any path was listed.
@@ -1141,11 +1187,13 @@ pub fn main(init: std.process.Init) u8 {
     if (std.mem.eql(u8, cmd, "used")) return used_cmd.cmdUsed(gpa, args[2..]);
     if (std.mem.eql(u8, cmd, "usage")) return usage_cmd.cmdUsage(gpa, args[2..]);
     if (std.mem.eql(u8, cmd, "pending")) return pending.cmdPending(gpa, args[2..]);
+    if (std.mem.eql(u8, cmd, "test-bundle")) return test_bundle.cmdTestBundle(gpa, args[2..]);
+    if (std.mem.eql(u8, cmd, "test-compare")) return test_bundle.cmdTestCompare(gpa, args[2..]);
     if (cmd.len == 0) {
         cli.put(1, usage_text);
         return cli.usage_exit;
     }
-    die("unknown command '{s}' (failed, rotate, why, history, loads, runs, used, usage, pending, --help)", .{cmd});
+    die("unknown command '{s}' (failed, rotate, why, history, loads, runs, used, usage, pending, test-bundle, test-compare, --help)", .{cmd});
 }
 
 test {
@@ -1157,6 +1205,7 @@ test {
     _ = pending;
     _ = used_cmd;
     _ = usage_cmd;
+    _ = test_bundle;
     _ = syslog;
 }
 

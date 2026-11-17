@@ -64,6 +64,67 @@ run "runs" validate runs runs --exec gmx --json "${work}/runs.json"
 run "pending dry-run" validate pending pending --json "${work}/dry.txt"
 run "used" validate used used --prefix "${software}/Foo/1.0" --json "${work}/xalt.json"
 run "usage" validate usage usage --software "${software}" --modules "${modules}" --json "${work}/xalt.json" "${work}/lmod.log"
+cat > "${work}/stdout-a.log" <<'EOF'
+line one
+line two
+EOF
+cat > "${work}/stderr-a.log" <<'EOF'
+warn
+EOF
+cat > "${work}/stdout-b.log" <<'EOF'
+line one
+line three
+EOF
+cat > "${work}/stderr-b.log" <<'EOF'
+warn
+EOF
+echo alpha > "${work}/input-a.txt"
+echo beta > "${work}/input-b.txt"
+run "test-bundle" validate test-bundle test-bundle \
+    --test-id qe.pw.scf-si \
+    --suite-revision abc1234 \
+    --eessi-target x86_64/intel/sapphirerapids \
+    --stdout "${work}/stdout-a.log" \
+    --stderr "${work}/stderr-a.log" \
+    --input "${work}/input-a.txt" \
+    --input "${work}/input-b.txt" \
+    --module QuantumESPRESSO/7.4=/cvmfs/eessi/software/QuantumESPRESSO/7.4.lua \
+    --seed 42 \
+    --allocation "nodes=1" \
+    --binding "core" \
+    --cpu "cpu-a" \
+    --gpu "none"
+"${tool}" test-bundle \
+    --test-id qe.pw.scf-si \
+    --suite-revision abc1234 \
+    --eessi-target x86_64/intel/sapphirerapids \
+    --stdout "${work}/stdout-a.log" \
+    --stderr "${work}/stderr-a.log" \
+    --input "${work}/input-a.txt" \
+    --input "${work}/input-b.txt" \
+    --module QuantumESPRESSO/7.4=/cvmfs/eessi/software/QuantumESPRESSO/7.4.lua \
+    --seed 42 \
+    --allocation "nodes=1" \
+    --binding "core" \
+    --cpu "cpu-a" \
+    --gpu "none" \
+    --out "${work}/bundle-a.json"
+"${tool}" test-bundle \
+    --test-id qe.pw.scf-si \
+    --suite-revision abc1234 \
+    --eessi-target x86_64/intel/sapphirerapids \
+    --stdout "${work}/stdout-b.log" \
+    --stderr "${work}/stderr-b.log" \
+    --input "${work}/input-a.txt" \
+    --input "${work}/input-b.txt" \
+    --module QuantumESPRESSO/7.4=/cvmfs/eessi/software/QuantumESPRESSO/7.4.lua \
+    --seed 42 \
+    --allocation "nodes=2" \
+    --binding "core" \
+    --cpu "cpu-b" \
+    --gpu "none" \
+    --out "${work}/bundle-b.json"
+run "test-compare" bash -c "\"${tool}\" test-compare --json \"${work}/bundle-a.json\" \"${work}/bundle-b.json\" | python3 \"${repo_root}/tests/json_schema_validate.py\" \"${schema_dir}/test-compare.schema.json\""
 
 echo "${fails} failed"
 [ "${fails}" -eq 0 ]

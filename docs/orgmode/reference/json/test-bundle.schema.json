@@ -1,0 +1,103 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://stackhands.github.io/eb-keep-logs/reference/json/test-bundle.schema.json",
+  "title": "eb-keep-logs test-bundle",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "kind",
+    "test_id",
+    "suite_revision",
+    "eessi_target",
+    "stdout",
+    "stderr",
+    "inputs",
+    "input_hash_sha256",
+    "seed",
+    "modules",
+    "scheduler",
+    "hardware"
+  ],
+  "properties": {
+    "schema_version": { "type": "integer", "const": 1 },
+    "kind": { "type": "string", "const": "test-bundle" },
+    "test_id": { "type": "string", "minLength": 1 },
+    "suite_revision": { "type": "string", "minLength": 1 },
+    "eessi_target": { "type": "string", "minLength": 1 },
+    "stdout": { "$ref": "#/$defs/stream" },
+    "stderr": { "$ref": "#/$defs/stream" },
+    "inputs": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/input" }
+    },
+    "input_hash_sha256": { "$ref": "#/$defs/sha256" },
+    "seed": { "$ref": "#/$defs/seed" },
+    "modules": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/module" }
+    },
+    "scheduler": { "$ref": "#/$defs/scheduler" },
+    "hardware": { "$ref": "#/$defs/hardware" }
+  },
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "stream": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["normalized", "sha256"],
+      "properties": {
+        "normalized": { "type": "string" },
+        "sha256": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "input": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256"],
+      "properties": {
+        "path": { "type": "string", "minLength": 1 },
+        "sha256": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "seed": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["value", "sha256"],
+      "properties": {
+        "value": { "type": "string" },
+        "sha256": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "module": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "path"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "path": { "type": "string", "minLength": 1 }
+      }
+    },
+    "scheduler": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["allocation", "binding"],
+      "properties": {
+        "allocation": { "type": "string", "minLength": 1 },
+        "binding": { "type": "string", "minLength": 1 }
+      }
+    },
+    "hardware": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["cpu", "gpu"],
+      "properties": {
+        "cpu": { "type": "string", "minLength": 1 },
+        "gpu": { "type": "string", "minLength": 1 }
+      }
+    }
+  }
+}
