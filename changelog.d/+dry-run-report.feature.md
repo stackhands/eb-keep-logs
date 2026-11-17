@@ -1,0 +1,1 @@
+`pending FILE` prints what an EasyBuild `--dry-run` or `--missing-modules` report still has to build. `[x]` is left out. Nothing left prints `nothing to build`. The shell script refuses the command. It does not run `eb` and does not resolve dependencies.
