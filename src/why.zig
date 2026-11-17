@@ -831,8 +831,8 @@ pub fn cmdWhy(gpa: Allocator, args: []const [:0]const u8) u8 {
             const p = std.fs.path.join(arena, &.{ runs[k], t }) catch die(oom, .{});
             if (isDirAt(root, p)) break :blk runs[k];
         }
-        if (target) |t| die("no run under {s} has a target {s}", .{ root_s, t });
-        die("no run under {s}", .{root_s});
+        if (target) |t| die("no run under {s} has a target {s}. Give --target a directory of that run", .{ root_s, t });
+        die("no run under {s}; it holds no directory named YYYYMMDD_HHMMSS. Give --root the directory of the runs, or name one run", .{root_s});
     };
     const run_s = if (root_arg == null or std.fs.path.isAbsolute(run_name)) run_name else std.fs.path.join(arena, &.{ root_s, run_name }) catch die(oom, .{});
     const run = fsx.openDir(root, run_name, true) catch die("RUN {s} is not a directory", .{run_s});
@@ -959,7 +959,7 @@ pub fn cmdHistory(gpa: Allocator, args: []const [:0]const u8) u8 {
             package_arg = a;
         }
     }
-    const package_s = package_arg orelse die("history needs PACKAGE", .{});
+    const package_s = package_arg orelse die("history needs PACKAGE: the easyconfig name without .eb, or NAME/VERSION", .{});
     if (package_s.len == 0) die("PACKAGE must not be empty", .{});
 
     var arena_state = std.heap.ArenaAllocator.init(gpa);

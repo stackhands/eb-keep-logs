@@ -200,11 +200,11 @@ refused "why, --target without a value" "--target needs a target" why --target
 refused "why, empty --root" "--root needs a directory" why --root=
 refused "why, empty RUN" "RUN must not be empty" why ""
 refused "why, missing ROOT" "ROOT ${work}/nope is not a directory" why --root "${work}/nope"
-refused "why, no run" "no run under ${work}/empty" why --root "${work}/empty"
-refused "why, no run with the target" "no run under ${logs} has a target nope" why --latest --target nope --root "${logs}"
+refused "why, no run" "no run under ${work}/empty; it holds no directory named YYYYMMDD_HHMMSS. Give --root the directory of the runs, or name one run" why --root "${work}/empty"
+refused "why, no run with the target" "no run under ${logs} has a target nope. Give --target a directory of that run" why --latest --target nope --root "${logs}"
 refused "why, missing RUN" "RUN ${work}/nope is not a directory" why "${work}/nope"
 refused "why, missing TARGET" "TARGET nope is not a directory in ${logs}/20261117_040615" why "${logs}/20261117_040615" --target nope
-refused "history, no PACKAGE" "history needs PACKAGE" history --root "${logs}"
+refused "history, no PACKAGE" "history needs PACKAGE: the easyconfig name without .eb, or NAME/VERSION" history --root "${logs}"
 refused "history, two packages" "history takes one PACKAGE" history a b
 refused "history, empty PACKAGE" "PACKAGE must not be empty" history ""
 refused "history, --latest" "unknown option --latest" history hello --latest
