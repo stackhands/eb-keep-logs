@@ -102,6 +102,28 @@ pub const Zone = struct {
     }
 };
 
+/// A calendar date in the proleptic Gregorian calendar.
+pub const CivilDate = struct {
+    year: i64,
+    month: u8,
+    day: u8,
+};
+
+/// Calendar date `days` days after 1970-01-01 in the proleptic Gregorian
+/// calendar (Howard Hinnant's civil_from_days).
+pub fn civilFromDays(days: i64) CivilDate {
+    const z = days + 719468;
+    const era = @divFloor(z, 146097);
+    const doe = z - era * 146097;
+    const yoe = @divFloor(doe - @divFloor(doe, 1460) + @divFloor(doe, 36524) - @divFloor(doe, 146096), 365);
+    const doy = doe - (365 * yoe + @divFloor(yoe, 4) - @divFloor(yoe, 100));
+    const mp = @divFloor(5 * doy + 2, 153);
+    const d: u8 = @intCast(doy - @divFloor(153 * mp + 2, 5) + 1);
+    const m: u8 = @intCast(if (mp < 10) mp + 3 else mp - 9);
+    const y: i64 = yoe + era * 400 + @as(i64, if (m <= 2) 1 else 0);
+    return .{ .year = y, .month = m, .day = d };
+}
+
 /// Days from 1970-01-01 to `y_in`-`m`-`d` in the proleptic Gregorian
 /// calendar, negative before it (Howard Hinnant's days_from_civil). `m` is
 /// 1..12; neither it nor `d` is checked.
@@ -500,4 +522,17 @@ test "a rule string after a leading ':' is read, as glibc reads it" {
     defer colon.deinit();
     // `TZ=: date -d 20261101 +%s` prints 1793491200, the UTC midnight.
     try std.testing.expectEqual(@as(?i64, 1793491200), colon.fromLocal(daysFromCivil(2026, 11, 1) * 86400));
+}
+
+test "civilFromDays inverts daysFromCivil" {
+    const cases = [_]CivilDate{
+        .{ .year = 1970, .month = 1, .day = 1 },
+        .{ .year = 2024, .month = 2, .day = 29 },
+        .{ .year = 2026, .month = 11, .day = 17 },
+        .{ .year = 2027, .month = 12, .day = 31 },
+    };
+    for (cases) |c| {
+        const d = daysFromCivil(c.year, c.month, c.day);
+        try std.testing.expectEqual(c, civilFromDays(d));
+    }
 }

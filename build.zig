@@ -102,6 +102,11 @@ pub fn build(b: *std.Build) void {
     test_bundle_test.setCwd(b.path("."));
     test_bundle_test.expectExitCode(0);
     test_bundle_test.has_side_effects = true;
+    const lifecycle_test = b.addSystemCommand(&.{ "bash", "-c", "TOOL_BIN=\"$0\" exec bash tests/test_lifecycle.sh" });
+    lifecycle_test.addArtifactArg(exe);
+    lifecycle_test.setCwd(b.path("."));
+    lifecycle_test.expectExitCode(0);
+    lifecycle_test.has_side_effects = true;
     const stable_output_test = b.addSystemCommand(&.{ "bash", "-c", "TOOL_BIN=\"$0\" exec bash tests/test_output_stability.sh" });
     stable_output_test.addArtifactArg(exe);
     stable_output_test.setCwd(b.path("."));
@@ -121,5 +126,6 @@ pub fn build(b: *std.Build) void {
     test_step.dependOn(&pending_test.step);
     test_step.dependOn(&json_schema_test.step);
     test_step.dependOn(&test_bundle_test.step);
+    test_step.dependOn(&lifecycle_test.step);
     test_step.dependOn(&stable_output_test.step);
 }

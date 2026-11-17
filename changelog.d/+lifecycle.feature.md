@@ -1,0 +1,1 @@
+`eb-keep-logs lifecycle` reads `usage --json` output and a TOML policy to emit a reviewable `keep`, `warn`, `forbid-after`, and `candidate-remove` plan plus Lmod `.modulerc.lua` warnings and forbids without deleting files, enforcing a minimum observation window and checking installed dependents via `eb-stack rebuild-set`.
