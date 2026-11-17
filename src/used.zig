@@ -6,11 +6,10 @@
 //! does not open a database.
 const std = @import("std");
 const common = @import("zig_common");
-const sys = common.sys;
-const fsx = common.fsx;
 const cli = common.cli;
 const loads = @import("loads.zig");
 const runs = @import("runs.zig");
+const logfile = @import("logfile.zig");
 
 const Allocator = std.mem.Allocator;
 const tool = "eb-keep-logs";
@@ -367,23 +366,19 @@ pub fn formatJson(gpa: Allocator, prefix: []const u8, table: *Table) ![]u8 {
     return try out.toOwnedSlice();
 }
 
-fn readLog(gpa: Allocator, path: []const u8) ?[]u8 {
-    const opened = fsx.openRegular(fsx.cwd, path, false) catch |err| {
-        warn("cannot read {s}: {s}", .{ path, @errorName(err) });
-        return null;
-    };
-    defer sys.close(opened.fd);
-    return fsx.readAll(gpa, opened.fd, read_limit) catch |err| {
+fn readLog(gpa: Allocator, path: []const u8, gzip: bool) ?[]u8 {
+    return logfile.read(gpa, common.fsx.cwd, path, read_limit, gzip) catch |err| {
         warn("cannot read {s}: {s}", .{ path, @errorName(err) });
         return null;
     };
 }
 
-/// `used --prefix PREFIX [--json] [--require-none] FILE...`.
+/// `used --prefix PREFIX [--json] [--require-none] [--gzip] FILE...`.
 pub fn cmdUsed(gpa: Allocator, args: []const []const u8) u8 {
     var prefix: []const u8 = "";
     var json_out = false;
     var require_none = false;
+    var gzip = false;
     var files: std.ArrayList([]const u8) = .empty;
     defer files.deinit(gpa);
 
@@ -404,6 +399,8 @@ pub fn cmdUsed(gpa: Allocator, args: []const []const u8) u8 {
             json_out = true;
         } else if (std.mem.eql(u8, a, "--require-none")) {
             require_none = true;
+        } else if (std.mem.eql(u8, a, "--gzip")) {
+            gzip = true;
         } else if (a.len > 0 and a[0] == '-') {
             die("used does not know '{s}'", .{a});
         } else {
@@ -422,7 +419,7 @@ pub fn cmdUsed(gpa: Allocator, args: []const []const u8) u8 {
     defer table.deinit();
 
     for (files.items) |path| {
-        const text = readLog(gpa, path) orelse return 2;
+        const text = readLog(gpa, path, gzip) orelse return 2;
         defer gpa.free(text);
         scanText(a, &table, prefix, text) catch |err| switch (err) {
             error.BadJson => {

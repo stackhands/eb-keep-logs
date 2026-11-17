@@ -56,6 +56,11 @@ active=$("${tool}" usage --software "${software}" --modules "${modules}" --activ
     "${work}/xalt.json" "${work}/lmod.log")
 check "active is a sorted Name/Version listing" "${active}" $'Bar/2.0\nFoo/1.0\nNever/3.0\nOld/1.0'
 
+gzip -c "${work}/xalt.json" > "${work}/xalt.json.gz"
+active=$("${tool}" usage --gzip --software "${software}" --modules "${modules}" --active \
+    "${work}/xalt.json.gz" "${work}/lmod.log")
+check "gzip and plain records share one report" "${active}" $'Bar/2.0\nFoo/1.0\nNever/3.0\nOld/1.0'
+
 relative=$(cd "${work}" && "${tool}" usage --software software --modules modules \
     --since 100 --active xalt.json lmod.log)
 check "relative roots match absolute record paths" "${relative}" $'Bar/2.0\nFoo/1.0'

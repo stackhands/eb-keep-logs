@@ -87,7 +87,7 @@ otherwise lose, and keep the pipeline's log tree bounded.
           directory.
       --json
           Print one line of JSON instead, with schema_version 1.
-  eb-keep-logs loads --module NAME FILE
+  eb-keep-logs loads --module NAME [--gzip] FILE
       Print who loaded NAME, from Lmod's ModuleUsageTracking lines in FILE.
       Each record is user=USER module=NAME path=PATH host=HOST time=TIME,
       in any order, and a syslog prefix is left in place. Each load is
@@ -97,10 +97,12 @@ otherwise lose, and keep the pipeline's log tree bounded.
       --module NAME, --module=NAME
           The module's full name, as Lmod recorded it, such as
           GROMACS/2024.1. Required.
+      --gzip
+          Decompress FILE when its name ends in .gz.
       FILE
           The log that holds the records. A line that is not one is
           skipped.
-  eb-keep-logs used --prefix PREFIX [--json] [--require-none] FILE...
+  eb-keep-logs used --prefix PREFIX [--json] [--require-none] [--gzip] FILE...
       Print paths under PREFIX that appear in XALT or Lmod records in
       FILE. A run record lists userT.exec_path (kind run) and each libA
       path under PREFIX (kind run-lib) even when exec_path is outside.
@@ -117,11 +119,14 @@ otherwise lose, and keep the pipeline's log tree bounded.
           Print one line of JSON instead.
       --require-none
           Exit 2 when any path under PREFIX was found.
+      --gzip
+          Decompress each FILE whose name ends in .gz; read the others
+          as plain text.
       FILE
           One or more files of concatenated XALT JSON objects and/or Lmod
           ModuleUsageTracking lines. Required.
   eb-keep-logs usage --software DIR --modules DIR [--since EPOCH]
-                     [--unused | --active] [--json] FILE...
+                     [--unused | --active] [--json] [--gzip] FILE...
       Compare installed DIR/Name/Version software with XALT and Lmod
       records. XALT paths below the software directory and Lmod module
       loads below the modules directory count as hits. By default, print
@@ -145,10 +150,13 @@ otherwise lose, and keep the pipeline's log tree bounded.
           List installed Name/Version entries with at least one hit.
       --json
           Print one line of JSON instead.
+      --gzip
+          Decompress each FILE whose name ends in .gz; read the others
+          as plain text.
       FILE
           One or more files of concatenated XALT JSON objects and/or Lmod
           ModuleUsageTracking lines. Required.
-  eb-keep-logs runs --exec PATH FILE
+  eb-keep-logs runs --exec PATH [--gzip] FILE
       Print who ran PATH, from XALT run records in FILE. A run record is a
       JSON object whose userT holds user, exec_path and, when present,
       syshost and start_time. A link record is not a run and is skipped.
@@ -158,6 +166,8 @@ otherwise lose, and keep the pipeline's log tree bounded.
       only. It does not record runs.
       --exec PATH, --exec=PATH
           The executable, as a full path or its last component. Required.
+      --gzip
+          Decompress FILE when its name ends in .gz.
       FILE
           One or more JSON objects. An object that is not a run record is
           skipped.

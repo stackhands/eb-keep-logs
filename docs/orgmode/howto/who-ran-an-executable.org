@@ -28,6 +28,15 @@ A link record, the one that lists libraries, is not a run and is skipped.
    =time== is the =start_time= XALT wrote.
    A file with no run of that executable prints =no run of gmx=.
 
+2. Read a rotated gzip record file by adding =--gzip=:
+
+   #+begin_src bash
+   eb-keep-logs runs --gzip --exec gmx /var/log/xalt/runs.json.gz
+   #+end_src
+
+   The option decompresses =FILE= only when its name ends in =.gz=.
+   Without =--gzip=, the file is read as plain text.
+
 ** If it fails
 
 | Message | Cause | What to do |
@@ -36,7 +45,7 @@ A link record, the one that lists libraries, is not a run and is skipped.
 | =eb-keep-logs: runs needs --exec= | =--exec= was omitted, or its value was empty. | Pass the executable path, or its last component, as =gmx=. |
 | =eb-keep-logs: runs needs a record file= | No file was given. | Pass the path of the XALT records. |
 | =eb-keep-logs: runs: PATH is not XALT run JSON= | The file is not one or more JSON objects. | Point it at the run records, not a log of another shape. |
-| =eb-keep-logs: runs does not know 'OPTION'= | An option other than =--exec=. | Drop it. The command takes =--exec= and one file. |
+| =eb-keep-logs: runs does not know 'OPTION'= | An option other than =--exec= or =--gzip=. | Drop it. The command takes =--exec=, optional =--gzip= and one file. |
 
 ** Related
 

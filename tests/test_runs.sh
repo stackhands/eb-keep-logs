@@ -51,6 +51,8 @@ out=$("${tool}" runs --exec hello_world "${work}/runs.json")
 check "basename match, link record skipped" "${out}" "user=faheymr host=darter time=1428766963 path=/lustre/medusa/faheymr/hello_world"
 check "full path" "$("${tool}" runs --exec=/opt/site/bin/gmx "${work}/runs.json")" "user=ada host=login01 time=1428767000.5 path=/opt/site/bin/gmx"
 check "none" "$("${tool}" runs --exec missing "${work}/runs.json")" "no run of missing"
+gzip -c "${work}/runs.json" > "${work}/runs.json.gz"
+check "gzip records" "$("${tool}" runs --gzip --exec hello_world "${work}/runs.json.gz")" "user=faheymr host=darter time=1428766963 path=/lustre/medusa/faheymr/hello_world"
 "${tool}" runs "${work}/runs.json" >/dev/null 2>"${work}/err"
 check "exec is required" "$?" "2"
 check "the refusal names the flag" "$(cat "${work}/err")" "eb-keep-logs: runs needs --exec"

@@ -5,6 +5,7 @@ const sys = common.sys;
 const fsx = common.fsx;
 const cli = common.cli;
 const used = @import("used.zig");
+const logfile = @import("logfile.zig");
 
 const Allocator = std.mem.Allocator;
 const tool = "eb-keep-logs";
@@ -43,13 +44,8 @@ fn warn(comptime fmt: []const u8, args: anytype) void {
     cli.err(tool ++ ": " ++ fmt ++ "\n", args);
 }
 
-fn readLog(gpa: Allocator, path: []const u8) ?[]u8 {
-    const opened = fsx.openRegular(fsx.cwd, path, false) catch |err| {
-        warn("cannot read {s}: {s}", .{ path, @errorName(err) });
-        return null;
-    };
-    defer sys.close(opened.fd);
-    return fsx.readAll(gpa, opened.fd, read_limit) catch |err| {
+fn readLog(gpa: Allocator, path: []const u8, gzip: bool) ?[]u8 {
+    return logfile.read(gpa, fsx.cwd, path, read_limit, gzip) catch |err| {
         warn("cannot read {s}: {s}", .{ path, @errorName(err) });
         return null;
     };
@@ -247,7 +243,7 @@ fn formatJson(
 }
 
 /// `usage --software DIR --modules DIR [--since EPOCH]
-/// [--unused | --active] [--json] FILE...`.
+/// [--unused | --active] [--json] [--gzip] FILE...`.
 pub fn cmdUsage(gpa: Allocator, args: []const []const u8) u8 {
     var software: []const u8 = "";
     var modules: []const u8 = "";
@@ -255,6 +251,7 @@ pub fn cmdUsage(gpa: Allocator, args: []const []const u8) u8 {
     var since: ?f64 = null;
     var selection: Selection = .all;
     var json_out = false;
+    var gzip = false;
     var files: std.ArrayList([]const u8) = .empty;
     defer files.deinit(gpa);
 
@@ -279,6 +276,8 @@ pub fn cmdUsage(gpa: Allocator, args: []const []const u8) u8 {
             selection = .active;
         } else if (std.mem.eql(u8, arg, "--json")) {
             json_out = true;
+        } else if (std.mem.eql(u8, arg, "--gzip")) {
+            gzip = true;
         } else if (arg.len > 0 and arg[0] == '-') {
             die("usage does not know '{s}'", .{arg});
         } else {
@@ -309,7 +308,7 @@ pub fn cmdUsage(gpa: Allocator, args: []const []const u8) u8 {
     defer table.deinit(arena);
 
     for (files.items) |path| {
-        const text = readLog(gpa, path) orelse return 2;
+        const text = readLog(gpa, path, gzip) orelse return 2;
         defer gpa.free(text);
         const hits = used.parseHits(arena, text) catch |err| switch (err) {
             error.BadJson => {

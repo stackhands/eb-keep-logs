@@ -8,6 +8,7 @@ const common = @import("zig_common");
 const sys = common.sys;
 const fsx = common.fsx;
 const cli = common.cli;
+const logfile = @import("logfile.zig");
 
 const Allocator = std.mem.Allocator;
 const tool = "eb-keep-logs";
@@ -58,44 +59,13 @@ const steps = [_]struct { name: []const u8, said: []const u8 }{
     .{ .name = "testcases", .said = "running test cases" },
 };
 
-/// Why a log could not be read: the system's error, no memory, 1 GiB or
-/// more of text, or a `.gz` that is not gzip or is damaged.
-pub const ReadError = sys.Error || Allocator.Error || error{ StreamTooLong, BadGzip };
+/// Why a log could not be read.
+pub const ReadError = logfile.ReadError;
 
 /// The text of the regular file `dir/name`, through gzip when the name ends
 /// in `.gz`. A symbolic link is not followed.
 pub fn readLog(gpa: Allocator, dir: fsx.fd_t, name: []const u8) ReadError![]u8 {
-    const f = try fsx.openRegular(dir, name, false);
-    defer sys.close(f.fd);
-    const raw = try fsx.readAll(gpa, f.fd, read_limit);
-    if (!std.mem.endsWith(u8, name, ".gz")) return raw;
-    defer gpa.free(raw);
-    return gunzip(gpa, raw);
-}
-
-/// The bytes the gzip data `raw` holds, its members one after another as
-/// `gzip -d` gives them; `read_limit` or more of them is an error. The
-/// inflater only reads a member's CRC-32 and size, so they are checked
-/// here.
-pub fn gunzip(gpa: Allocator, raw: []const u8) (Allocator.Error || error{ StreamTooLong, BadGzip })![]u8 {
-    const window = try gpa.alloc(u8, std.compress.flate.max_window_len);
-    defer gpa.free(window);
-    var in: std.Io.Reader = .fixed(raw);
-    var out: std.ArrayList(u8) = .empty;
-    errdefer out.deinit(gpa);
-    while (true) {
-        var d: std.compress.flate.Decompress = .init(&in, .gzip, window);
-        const start = out.items.len;
-        d.reader.appendRemaining(gpa, &out, .limited(read_limit - start)) catch |err| switch (err) {
-            error.ReadFailed => return error.BadGzip,
-            else => |e| return e,
-        };
-        const m = d.container_metadata.gzip;
-        const member = out.items[start..];
-        if (m.crc != std.hash.Crc32.hash(member) or m.count != @as(u32, @truncate(member.len)))
-            return error.BadGzip;
-        if (in.bufferedLen() == 0) return out.toOwnedSlice(gpa);
-    }
+    return logfile.read(gpa, dir, name, read_limit, true);
 }
 
 /// A line of a log: its text without the newline, its number from 1, and
@@ -1217,37 +1187,6 @@ test "verdict" {
     try testing.expectEqual(@as(?u64, null), v.duration_s);
     v = try verdict(arena, "== building...\n");
     try testing.expectEqual(Outcome.unknown, v.outcome);
-}
-
-test "gunzip reads what gzip wrote, and refuses what it did not" {
-    const gpa = testing.allocator;
-    var plain: std.ArrayList(u8) = .empty;
-    defer plain.deinit(gpa);
-    for (0..20000) |i| try plain.print(gpa, "== line {d} of a log that repeats itself\n", .{i % 700});
-    var aw: std.Io.Writer.Allocating = try .initCapacity(gpa, 4096);
-    defer aw.deinit();
-    const window = try gpa.alloc(u8, std.compress.flate.max_window_len);
-    defer gpa.free(window);
-    var c = try std.compress.flate.Compress.init(&aw.writer, window, .gzip, .best);
-    try c.writer.writeAll(plain.items);
-    try c.finish();
-    const got = try gunzip(gpa, aw.written());
-    defer gpa.free(got);
-    try testing.expectEqualStrings(plain.items, got);
-
-    const twice = try std.mem.concat(gpa, u8, &.{ aw.written(), aw.written() });
-    defer gpa.free(twice);
-    const both = try gunzip(gpa, twice);
-    defer gpa.free(both);
-    try testing.expectEqual(2 * plain.items.len, both.len);
-    try testing.expectEqualStrings(plain.items, both[plain.items.len..]);
-
-    var bad = try gpa.dupe(u8, aw.written());
-    defer gpa.free(bad);
-    bad[bad.len - 6] ^= 0xff;
-    try testing.expectError(error.BadGzip, gunzip(gpa, bad));
-    try testing.expectError(error.BadGzip, gunzip(gpa, aw.written()[0 .. aw.written().len / 2]));
-    try testing.expectError(error.BadGzip, gunzip(gpa, "not gzip at all"));
 }
 
 test "clip and utf8" {

@@ -7,9 +7,8 @@
 //! a database.
 const std = @import("std");
 const common = @import("zig_common");
-const sys = common.sys;
-const fsx = common.fsx;
 const cli = common.cli;
+const logfile = @import("logfile.zig");
 
 const Allocator = std.mem.Allocator;
 const tool = "eb-keep-logs";
@@ -23,13 +22,8 @@ fn warn(comptime fmt: []const u8, args: anytype) void {
     cli.err(tool ++ ": " ++ fmt ++ "\n", args);
 }
 
-fn readLog(gpa: Allocator, path: []const u8) ?[]u8 {
-    const opened = fsx.openRegular(fsx.cwd, path, false) catch |err| {
-        warn("cannot read {s}: {s}", .{ path, @errorName(err) });
-        return null;
-    };
-    defer sys.close(opened.fd);
-    return fsx.readAll(gpa, opened.fd, read_limit) catch |err| {
+fn readLog(gpa: Allocator, path: []const u8, gzip: bool) ?[]u8 {
+    return logfile.read(gpa, common.fsx.cwd, path, read_limit, gzip) catch |err| {
         warn("cannot read {s}: {s}", .{ path, @errorName(err) });
         return null;
     };
@@ -139,10 +133,11 @@ pub fn formatRuns(gpa: Allocator, text: []const u8, exec: []const u8) (Allocator
     return try out.toOwnedSlice(gpa);
 }
 
-/// `runs --exec PATH FILE`.
+/// `runs --exec PATH [--gzip] FILE`.
 pub fn cmdRuns(gpa: Allocator, args: []const []const u8) u8 {
     var exec: []const u8 = "";
     var path: []const u8 = "";
+    var gzip = false;
     var i: usize = 0;
     while (i < args.len) : (i += 1) {
         const a = args[i];
@@ -156,6 +151,8 @@ pub fn cmdRuns(gpa: Allocator, args: []const []const u8) u8 {
             };
             if (v.len == 0 or v[0] == '-') die("runs needs --exec", .{});
             exec = v;
+        } else if (std.mem.eql(u8, a, "--gzip")) {
+            gzip = true;
         } else if (a.len > 0 and a[0] == '-') {
             die("runs does not know '{s}'", .{a});
         } else if (path.len == 0) {
@@ -166,7 +163,7 @@ pub fn cmdRuns(gpa: Allocator, args: []const []const u8) u8 {
     }
     if (exec.len == 0) die("runs needs --exec", .{});
     if (path.len == 0) die("runs needs a record file", .{});
-    const text = readLog(gpa, path) orelse return 2;
+    const text = readLog(gpa, path, gzip) orelse return 2;
     defer gpa.free(text);
     const body = formatRuns(gpa, text, exec) catch |err| switch (err) {
         error.BadJson => {

@@ -22,12 +22,14 @@ It reports candidates; it does not retire or uninstall anything.
    eb-keep-logs usage \
      --software /srv/easybuild/software \
      --modules /srv/easybuild/modules/all \
-     --unused \
-     /var/log/xalt/run.json /var/log/lmod/module-usage.log \
+     --unused --gzip \
+     /var/log/xalt/run.json.gz /var/log/lmod/module-usage.log \
      > unused.txt
    #+end_src
 
    =unused.txt= is sorted and contains one =Name/Version= per line.
+   =--gzip= decompresses inputs ending in =.gz= and reads the other inputs as plain text.
+   This lets the report combine rotated and current records.
    Review it against retention, licensing and support policy before changing the installation.
 
 3. Limit the observation window when the records span a longer period.

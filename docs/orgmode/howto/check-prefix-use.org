@@ -20,12 +20,13 @@ Before uninstalling or retiring an install tree, see whether XALT or Lmod record
 1. Pass the install prefix and the record files:
 
    #+begin_src bash
-   eb-keep-logs used --prefix /opt/site/software/pkg-1.0 /var/log/xalt.json /var/log/moduleUsage.log
+   eb-keep-logs used --gzip --prefix /opt/site/software/pkg-1.0 /var/log/xalt.json.gz /var/log/moduleUsage.log
    #+end_src
 
    Each hit is one line, =path=PATH kind=KIND last=TIME count=N=.
    =last= is the newest time seen for that path; it may be empty when no time was recorded.
    No path under the prefix prints =nothing under /opt/site/software/pkg-1.0=.
+   With =--gzip=, an input ending in =.gz= is decompressed and every other input remains plain text, so rotated and current records can be checked together.
 
 2. To gate uninstall or retire on zero use:
 

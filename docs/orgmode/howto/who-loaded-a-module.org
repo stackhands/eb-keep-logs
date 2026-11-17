@@ -30,7 +30,16 @@ Lmod can syslog each load as =user=USER module=NAME path=PATH host=HOST time=TIM
 
    =time== is the epoch Lmod wrote. A recent time is someone who still loads the module.
 
-2. A log that never mentions the module prints one line and exits 0:
+2. Read a rotated gzip log by adding =--gzip=:
+
+   #+begin_src bash
+   eb-keep-logs loads --gzip --module GROMACS/2024.1 /var/log/moduleUsage.log.gz
+   #+end_src
+
+   The option decompresses =FILE= only when its name ends in =.gz=.
+   Without =--gzip=, the file is read as plain text.
+
+3. A log that never mentions the module prints one line and exits 0:
 
    #+begin_example
    no load of GROMACS/2024.1
@@ -45,8 +54,8 @@ Lmod can syslog each load as =user=USER module=NAME path=PATH host=HOST time=TIM
 | =eb-keep-logs: loads is in the Zig build only= | The =eb-keep-logs= on =PATH= is the shell script. | Put the Zig build first on =PATH=. |
 | =eb-keep-logs: loads needs --module= | =--module= was omitted, or its value was empty. | Pass the full module name, as =GROMACS/2024.1=. |
 | =eb-keep-logs: loads needs a log file= | No file was given. | Pass the path of the tracking log. |
-| =eb-keep-logs: cannot read FILE: ERROR= | The file cannot be opened or is larger than 64 MiB. | Point at the log you can read, or split a larger one. |
-| =eb-keep-logs: loads does not know 'OPTION'= | An option other than =--module=. | Drop it. The command takes =--module= and one file. |
+| =eb-keep-logs: cannot read FILE: ERROR= | The file cannot be opened, is larger than 64 MiB, or a =.gz= input with =--gzip= is not valid gzip data. | Point at a readable log of the expected type, or split a larger one. |
+| =eb-keep-logs: loads does not know 'OPTION'= | An option other than =--module= or =--gzip=. | Drop it. The command takes =--module=, optional =--gzip= and one file. |
 
 ** Related
 

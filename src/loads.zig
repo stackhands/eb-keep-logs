@@ -6,9 +6,8 @@
 //! is how Lmod writes them.
 const std = @import("std");
 const common = @import("zig_common");
-const sys = common.sys;
-const fsx = common.fsx;
 const cli = common.cli;
+const logfile = @import("logfile.zig");
 
 const Allocator = std.mem.Allocator;
 const tool = "eb-keep-logs";
@@ -78,22 +77,18 @@ pub fn formatLoads(gpa: Allocator, text: []const u8, module: []const u8) Allocat
     return try out.toOwnedSlice(gpa);
 }
 
-fn readLog(gpa: Allocator, path: []const u8) ?[]u8 {
-    const opened = fsx.openRegular(fsx.cwd, path, false) catch |err| {
-        warn("cannot read {s}: {s}", .{ path, @errorName(err) });
-        return null;
-    };
-    defer sys.close(opened.fd);
-    return fsx.readAll(gpa, opened.fd, read_limit) catch |err| {
+fn readLog(gpa: Allocator, path: []const u8, gzip: bool) ?[]u8 {
+    return logfile.read(gpa, common.fsx.cwd, path, read_limit, gzip) catch |err| {
         warn("cannot read {s}: {s}", .{ path, @errorName(err) });
         return null;
     };
 }
 
-/// `loads --module NAME FILE`.
+/// `loads --module NAME [--gzip] FILE`.
 pub fn cmdLoads(gpa: Allocator, args: []const []const u8) u8 {
     var module: []const u8 = "";
     var path: []const u8 = "";
+    var gzip = false;
     var i: usize = 0;
     while (i < args.len) : (i += 1) {
         const a = args[i];
@@ -107,6 +102,8 @@ pub fn cmdLoads(gpa: Allocator, args: []const []const u8) u8 {
             };
             if (v.len == 0 or v[0] == '-') die("loads needs --module", .{});
             module = v;
+        } else if (std.mem.eql(u8, a, "--gzip")) {
+            gzip = true;
         } else if (a.len > 0 and a[0] == '-') {
             die("loads does not know '{s}'", .{a});
         } else if (path.len == 0) {
@@ -117,7 +114,7 @@ pub fn cmdLoads(gpa: Allocator, args: []const []const u8) u8 {
     }
     if (module.len == 0) die("loads needs --module", .{});
     if (path.len == 0) die("loads needs a log file", .{});
-    const text = readLog(gpa, path) orelse return 2;
+    const text = readLog(gpa, path, gzip) orelse return 2;
     defer gpa.free(text);
     const body = formatLoads(gpa, text, module) catch die("out of memory", .{});
     defer gpa.free(body);

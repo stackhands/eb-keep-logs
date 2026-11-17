@@ -49,6 +49,10 @@ EOF
 out=$("${tool}" used --prefix "${prefix}" "${work}/moduleUsage.log")
 check "module-load aggregates" "${out}" "path=${prefix}/modules/Hello kind=module-load last=3.0 count=2"
 
+gzip -c "${work}/xalt.json" > "${work}/xalt.json.gz"
+out=$("${tool}" used --gzip --prefix "${prefix}" "${work}/moduleUsage.log" "${work}/xalt.json.gz")
+check "mixed plain and gzip records" "$(grep -c 'kind=module-load' <<< "${out}"),$(grep -c 'kind=run ' <<< "${out}")" "1,1"
+
 touch "${work}/empty.json"
 check "nothing under message" "$("${tool}" used --prefix "${prefix}" "${work}/empty.json")" "nothing under ${prefix}"
 
