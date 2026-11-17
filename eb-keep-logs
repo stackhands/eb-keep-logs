@@ -100,6 +100,26 @@ otherwise lose, and keep the pipeline's log tree bounded.
       FILE
           The log that holds the records. A line that is not one is
           skipped.
+  eb-keep-logs used --prefix PREFIX [--json] [--require-none] FILE...
+      Print paths under PREFIX that appear in XALT or Lmod records in
+      FILE. A run record lists userT.exec_path (kind run) and each libA
+      path under PREFIX (kind run-lib) even when exec_path is outside.
+      A link record lists resultT.exec_path and each linkA path (kind
+      link). A package record lists package_path (kind pkg). An Lmod
+      tracking line lists path when it is under PREFIX (kind module-load).
+      Each line is path=PATH kind=KIND last=TIME count=N; last is the
+      newest time seen for that path. With no hit, nothing under PREFIX.
+      --json prints one JSON document with schema_version 1. --require-none
+      exits 2 when any hit is listed. Zig build only.
+      --prefix PREFIX, --prefix=PREFIX
+          The install tree to check. Required; a newline in it is refused.
+      --json
+          Print one line of JSON instead.
+      --require-none
+          Exit 2 when any path under PREFIX was found.
+      FILE
+          One or more files of concatenated XALT JSON objects and/or Lmod
+          ModuleUsageTracking lines. Required.
   eb-keep-logs runs --exec PATH FILE
       Print who ran PATH, from XALT run records in FILE. A run record is a
       JSON object whose userT holds user, exec_path and, when present,
@@ -146,9 +166,10 @@ Environment:
                        directory of zone files.
 
 Exit status:
-  0   -h, --help or --version, or a failed, rotate, why, history, loads, runs or pending that
+  0   -h, --help or --version, or a failed, rotate, why, history, loads, runs, used or pending that
       accepted its arguments, whatever it could keep, compress, remove or
-      read: what it could not do is reported on stderr.
+      read: what it could not do is reported on stderr. used with
+      --require-none also exits 2 when any path was listed.
   2   The invocation was refused, with eb-keep-logs: MESSAGE on stderr; or
       no command was given, and this help is on stdout.
   75  rotate waited --lock-timeout seconds for the lock another rotate
@@ -713,7 +734,7 @@ case "${1:-}" in
     --version) echo "eb-keep-logs ${VERSION}" ;;
     failed) shift; cmd_failed "$@" ;;
     rotate) shift; cmd_rotate "$@" ;;
-    why | history | loads | runs | pending) die "$1 is in the Zig build only" ;;
+    why | history | loads | runs | used | pending) die "$1 is in the Zig build only" ;;
     "") usage; exit 2 ;;
-    *) die "unknown command '$1' (failed, rotate, why, history, loads, runs, pending, --help)" ;;
+    *) die "unknown command '$1' (failed, rotate, why, history, loads, runs, used, pending, --help)" ;;
 esac

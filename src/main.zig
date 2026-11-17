@@ -15,6 +15,7 @@ const why = @import("why.zig");
 const loads = @import("loads.zig");
 const xalt_runs = @import("runs.zig");
 const pending = @import("pending.zig");
+const used_cmd = @import("used.zig");
 const syslog = @import("syslog.zig");
 
 const Allocator = std.mem.Allocator;
@@ -112,6 +113,26 @@ const usage_text =
     \\      FILE
     \\          The log that holds the records. A line that is not one is
     \\          skipped.
+    \\  eb-keep-logs used --prefix PREFIX [--json] [--require-none] FILE...
+    \\      Print paths under PREFIX that appear in XALT or Lmod records in
+    \\      FILE. A run record lists userT.exec_path (kind run) and each libA
+    \\      path under PREFIX (kind run-lib) even when exec_path is outside.
+    \\      A link record lists resultT.exec_path and each linkA path (kind
+    \\      link). A package record lists package_path (kind pkg). An Lmod
+    \\      tracking line lists path when it is under PREFIX (kind module-load).
+    \\      Each line is path=PATH kind=KIND last=TIME count=N; last is the
+    \\      newest time seen for that path. With no hit, nothing under PREFIX.
+    \\      --json prints one JSON document with schema_version 1. --require-none
+    \\      exits 2 when any hit is listed. Zig build only.
+    \\      --prefix PREFIX, --prefix=PREFIX
+    \\          The install tree to check. Required; a newline in it is refused.
+    \\      --json
+    \\          Print one line of JSON instead.
+    \\      --require-none
+    \\          Exit 2 when any path under PREFIX was found.
+    \\      FILE
+    \\          One or more files of concatenated XALT JSON objects and/or Lmod
+    \\          ModuleUsageTracking lines. Required.
     \\  eb-keep-logs runs --exec PATH FILE
     \\      Print who ran PATH, from XALT run records in FILE. A run record is a
     \\      JSON object whose userT holds user, exec_path and, when present,
@@ -158,9 +179,10 @@ const usage_text =
     \\                       directory of zone files.
     \\
     \\Exit status:
-    \\  0   -h, --help or --version, or a failed, rotate, why, history, loads, runs or pending that
+    \\  0   -h, --help or --version, or a failed, rotate, why, history, loads, runs, used or pending that
     \\      accepted its arguments, whatever it could keep, compress, remove or
-    \\      read: what it could not do is reported on stderr.
+    \\      read: what it could not do is reported on stderr. used with
+    \\      --require-none also exits 2 when any path was listed.
     \\  2   The invocation was refused, with eb-keep-logs: MESSAGE on stderr; or
     \\      no command was given, and this help is on stdout.
     \\  75  rotate waited --lock-timeout seconds for the lock another rotate
@@ -1081,12 +1103,13 @@ pub fn main(init: std.process.Init) u8 {
     if (std.mem.eql(u8, cmd, "history")) return why.cmdHistory(gpa, args[2..]);
     if (std.mem.eql(u8, cmd, "loads")) return loads.cmdLoads(gpa, args[2..]);
     if (std.mem.eql(u8, cmd, "runs")) return xalt_runs.cmdRuns(gpa, args[2..]);
+    if (std.mem.eql(u8, cmd, "used")) return used_cmd.cmdUsed(gpa, args[2..]);
     if (std.mem.eql(u8, cmd, "pending")) return pending.cmdPending(gpa, args[2..]);
     if (cmd.len == 0) {
         cli.put(1, usage_text);
         return cli.usage_exit;
     }
-    die("unknown command '{s}' (failed, rotate, why, history, loads, runs, pending, --help)", .{cmd});
+    die("unknown command '{s}' (failed, rotate, why, history, loads, runs, used, pending, --help)", .{cmd});
 }
 
 test {
@@ -1096,6 +1119,7 @@ test {
     _ = loads;
     _ = xalt_runs;
     _ = pending;
+    _ = used_cmd;
     _ = syslog;
 }
 
