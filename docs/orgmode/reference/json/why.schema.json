@@ -1,0 +1,59 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://stackhands.github.io/eb-keep-logs/reference/json/why.schema.json",
+  "title": "eb-keep-logs why --json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "kind", "run", "run_dir", "counts", "failures"],
+  "properties": {
+    "schema_version": { "type": "integer", "const": 1 },
+    "kind": { "type": "string", "const": "why" },
+    "run": { "type": "string" },
+    "run_dir": { "type": "string" },
+    "counts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["success", "failed", "unknown"],
+      "properties": {
+        "success": { "type": "integer", "minimum": 0 },
+        "failed": { "type": "integer", "minimum": 0 },
+        "unknown": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "failures": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/failure" }
+    }
+  },
+  "$defs": {
+    "failure": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["target", "name", "package", "easyconfig", "step", "message", "duration_s", "log", "error"],
+      "properties": {
+        "target": { "type": ["string", "null"] },
+        "name": { "type": "string" },
+        "package": { "type": ["string", "null"] },
+        "easyconfig": { "type": ["string", "null"] },
+        "step": { "type": ["string", "null"] },
+        "message": { "type": ["string", "null"] },
+        "duration_s": { "type": ["integer", "null"], "minimum": 0 },
+        "log": { "type": ["string", "null"] },
+        "error": {
+          "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/error_line" }]
+        }
+      }
+    },
+    "error_line": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["line", "text", "before", "after"],
+      "properties": {
+        "line": { "type": "integer", "minimum": 1 },
+        "text": { "type": "string" },
+        "before": { "type": "array", "items": { "type": "string" } },
+        "after": { "type": "array", "items": { "type": "string" } }
+      }
+    }
+  }
+}

@@ -15,6 +15,8 @@ const cli = common.cli;
 
 const Allocator = std.mem.Allocator;
 const tool = "eb-keep-logs";
+/// The `schema_version` of what `--json` prints.
+pub const schema_version: u32 = 1;
 const read_limit: usize = 64 * 1024 * 1024;
 
 fn die(comptime fmt: []const u8, args: anytype) noreturn {
@@ -89,9 +91,20 @@ fn barePath(line: []const u8) ?[]const u8 {
     return text;
 }
 
-/// Lines still to build. `nothing to build` when the report has none.
-/// `error.NotAReport` when the text is neither shape.
-pub fn formatPending(gpa: Allocator, text: []const u8) (Allocator.Error || error{NotAReport})![]u8 {
+const ReportMode = enum { module, terse, missing, bare };
+
+const JsonEntry = struct {
+    action: []const u8,
+    name: []const u8,
+};
+
+const JsonReport = struct {
+    schema_version: u32 = schema_version,
+    kind: []const u8 = "pending",
+    entries: []const JsonEntry,
+};
+
+fn reportMode(text: []const u8) error{NotAReport}!ReportMode {
     var modules: usize = 0;
     var terse: usize = 0;
     var missing: usize = 0;
@@ -111,7 +124,7 @@ pub fn formatPending(gpa: Allocator, text: []const u8) (Allocator.Error || error
             bare += 1;
         } else other += 1;
     }
-    const mode: enum { module, terse, missing, bare } = if (modules > 0)
+    return if (modules > 0)
         .module
     else if (terse > 0)
         .terse
@@ -120,43 +133,66 @@ pub fn formatPending(gpa: Allocator, text: []const u8) (Allocator.Error || error
     else if (bare > 0 and other == 0)
         .bare
     else
-        return error.NotAReport;
+        error.NotAReport;
+}
 
-    var out: std.ArrayList(u8) = .empty;
-    errdefer out.deinit(gpa);
-    var n: usize = 0;
-    it = std.mem.splitScalar(u8, text, '\n');
+fn collectEntries(gpa: Allocator, text: []const u8, mode: ReportMode) Allocator.Error![]JsonEntry {
+    var entries: std.ArrayList(JsonEntry) = .empty;
+    errdefer entries.deinit(gpa);
+    var it = std.mem.splitScalar(u8, text, '\n');
     while (it.next()) |raw| {
         const line = trim(raw);
         switch (mode) {
             .module => if (moduleLine(line)) |mark| {
                 if (!mark.build) continue;
-                try out.print(gpa, "build {s}\n", .{mark.name});
-                n += 1;
+                try entries.append(gpa, .{ .action = "build", .name = mark.name });
             },
             .terse => if (terseLine(line)) |mark| {
                 if (!mark.build) continue;
-                try out.print(gpa, "build {s}\n", .{mark.name});
-                n += 1;
+                try entries.append(gpa, .{ .action = "build", .name = mark.name });
             },
             .missing => if (missingLine(line)) |name| {
-                try out.print(gpa, "missing {s}\n", .{name});
-                n += 1;
+                try entries.append(gpa, .{ .action = "missing", .name = name });
             },
             .bare => if (barePath(line)) |path| {
-                try out.print(gpa, "missing {s}\n", .{path});
-                n += 1;
+                try entries.append(gpa, .{ .action = "missing", .name = path });
             },
         }
     }
-    if (n == 0) try out.appendSlice(gpa, "nothing to build\n");
+    return try entries.toOwnedSlice(gpa);
+}
+
+pub fn formatJson(gpa: Allocator, items: []const JsonEntry) ![]u8 {
+    const report: JsonReport = .{ .entries = items };
+    var out: std.Io.Writer.Allocating = .init(gpa);
+    defer out.deinit();
+    try std.json.Stringify.value(report, .{}, &out.writer);
+    try out.writer.writeAll("\n");
+    return try out.toOwnedSlice();
+}
+
+/// Lines still to build. `nothing to build` when the report has none.
+/// `error.NotAReport` when the text is neither shape.
+pub fn formatPending(gpa: Allocator, text: []const u8) (Allocator.Error || error{NotAReport})![]u8 {
+    const mode = try reportMode(text);
+    const items = try collectEntries(gpa, text, mode);
+    defer gpa.free(items);
+    var out: std.ArrayList(u8) = .empty;
+    errdefer out.deinit(gpa);
+    for (items) |e| try out.print(gpa, "{s} {s}\n", .{ e.action, e.name });
+    if (items.len == 0) try out.appendSlice(gpa, "nothing to build\n");
     return try out.toOwnedSlice(gpa);
 }
 
-/// `pending FILE`.
+/// `pending [--json] FILE`.
 pub fn cmdPending(gpa: Allocator, args: []const []const u8) u8 {
+    var json_out = false;
     var path: []const u8 = "";
     for (args) |a| {
+        if (std.mem.eql(u8, a, "--json")) {
+            json_out = true;
+            continue;
+        }
         if (a.len > 0 and a[0] == '-') die("pending does not know '{s}'", .{a});
         if (path.len != 0) die("pending does not know '{s}'", .{a});
         path = a;
@@ -164,12 +200,24 @@ pub fn cmdPending(gpa: Allocator, args: []const []const u8) u8 {
     if (path.len == 0) die("pending needs a report", .{});
     const text = readLog(gpa, path) orelse return 2;
     defer gpa.free(text);
-    const body = formatPending(gpa, text) catch |err| switch (err) {
-        error.NotAReport => {
-            warn("pending: {s} is not a dry-run or missing-modules report", .{path});
-            return 2;
-        },
-        error.OutOfMemory => die("out of memory", .{}),
+    const body = if (json_out) blk: {
+        const mode = reportMode(text) catch |err| switch (err) {
+            error.NotAReport => {
+                warn("pending: {s} is not a dry-run or missing-modules report", .{path});
+                return 2;
+            },
+        };
+        const items = collectEntries(gpa, text, mode) catch die("out of memory", .{});
+        defer gpa.free(items);
+        break :blk formatJson(gpa, items) catch die("out of memory", .{});
+    } else blk: {
+        break :blk formatPending(gpa, text) catch |err| switch (err) {
+            error.NotAReport => {
+                warn("pending: {s} is not a dry-run or missing-modules report", .{path});
+                return 2;
+            },
+            error.OutOfMemory => die("out of memory", .{}),
+        };
     };
     defer gpa.free(body);
     cli.out("{s}", .{body});

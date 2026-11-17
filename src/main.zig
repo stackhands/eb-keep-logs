@@ -101,7 +101,7 @@ const usage_text =
     \\          directory.
     \\      --json
     \\          Print one line of JSON instead, with schema_version 1.
-    \\  eb-keep-logs loads --module NAME FILE
+    \\  eb-keep-logs loads --module NAME [--json] FILE
     \\      Print who loaded NAME, from Lmod's ModuleUsageTracking lines in FILE.
     \\      Each record is user=USER module=NAME path=PATH host=HOST time=TIME,
     \\      in any order, and a syslog prefix is left in place. Each load is
@@ -111,6 +111,8 @@ const usage_text =
     \\      --module NAME, --module=NAME
     \\          The module's full name, as Lmod recorded it, such as
     \\          GROMACS/2024.1. Required.
+    \\      --json
+    \\          Print one line of JSON instead, with schema_version 1.
     \\      FILE
     \\          The log that holds the records. A line that is not one is
     \\          skipped.
@@ -162,7 +164,7 @@ const usage_text =
     \\      FILE
     \\          One or more files of concatenated XALT JSON objects and/or Lmod
     \\          ModuleUsageTracking lines. Required.
-    \\  eb-keep-logs runs --exec PATH FILE
+    \\  eb-keep-logs runs --exec PATH [--json] FILE
     \\      Print who ran PATH, from XALT run records in FILE. A run record is a
     \\      JSON object whose userT holds user, exec_path and, when present,
     \\      syshost and start_time. A link record is not a run and is skipped.
@@ -172,10 +174,12 @@ const usage_text =
     \\      only. It does not record runs.
     \\      --exec PATH, --exec=PATH
     \\          The executable, as a full path or its last component. Required.
+    \\      --json
+    \\          Print one line of JSON instead, with schema_version 1.
     \\      FILE
     \\          One or more JSON objects. An object that is not a run record is
     \\          skipped.
-    \\  eb-keep-logs pending FILE
+    \\  eb-keep-logs pending [--json] FILE
     \\      Print what an EasyBuild dry-run or missing-modules report still has
     \\      to build. A dry-run line is "* [ ] PATH (module: NAME)", and [F] and
     \\      [R] count as still to build; [x] is already installed and is not
@@ -184,6 +188,8 @@ const usage_text =
     \\      line. Each is one line, build NAME or missing NAME, in the file's
     \\      order. A report with nothing left prints nothing to build. Zig build
     \\      only. It does not run eb, and it does not resolve dependencies.
+    \\      --json
+    \\          Print one line of JSON instead, with schema_version 1.
     \\      FILE
     \\          The report, as eb --dry-run or eb --missing-modules printed it.
     \\          Required.

@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://stackhands.github.io/eb-keep-logs/reference/json/used.schema.json",
+  "title": "eb-keep-logs used --json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "prefix", "uses"],
+  "properties": {
+    "schema_version": { "type": "integer", "const": 1 },
+    "prefix": { "type": "string" },
+    "uses": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/use" }
+    }
+  },
+  "$defs": {
+    "use": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "path", "last", "count"],
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": ["run", "run-lib", "link", "pkg", "module-load"]
+        },
+        "path": { "type": "string" },
+        "last": { "type": "string" },
+        "count": { "type": "integer", "minimum": 1 }
+      }
+    }
+  }
+}

@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://stackhands.github.io/eb-keep-logs/reference/json/runs.schema.json",
+  "title": "eb-keep-logs runs --json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "kind", "exec", "runs"],
+  "properties": {
+    "schema_version": { "type": "integer", "const": 1 },
+    "kind": { "type": "string", "const": "runs" },
+    "exec": { "type": "string" },
+    "runs": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/run" }
+    }
+  },
+  "$defs": {
+    "run": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["user", "host", "time", "path"],
+      "properties": {
+        "user": { "type": "string" },
+        "host": { "type": "string" },
+        "time": { "type": "string" },
+        "path": { "type": "string" }
+      }
+    }
+  }
+}
