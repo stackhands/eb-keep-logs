@@ -200,16 +200,28 @@ refused "why, --target without a value" "--target needs a target" why --target
 refused "why, empty --root" "--root needs a directory" why --root=
 refused "why, empty RUN" "RUN must not be empty" why ""
 refused "why, missing ROOT" "ROOT ${work}/nope is not a directory" why --root "${work}/nope"
-refused "why, no run" "no run under ${work}/empty" why --root "${work}/empty"
-refused "why, no run with the target" "no run under ${logs} has a target nope" why --latest --target nope --root "${logs}"
+refused "why, no run" "no run under ${work}/empty; it holds no directory named YYYYMMDD_HHMMSS. Give --root the directory of the runs, or name one run" why --root "${work}/empty"
+refused "why, no run with the target" "no run under ${logs} has a target nope. Give --target a directory of that run" why --latest --target nope --root "${logs}"
 refused "why, missing RUN" "RUN ${work}/nope is not a directory" why "${work}/nope"
 refused "why, missing TARGET" "TARGET nope is not a directory in ${logs}/20261117_040615" why "${logs}/20261117_040615" --target nope
-refused "history, no PACKAGE" "history needs PACKAGE" history --root "${logs}"
+refused "history, no PACKAGE" "history needs PACKAGE: the easyconfig name without .eb, or NAME/VERSION" history --root "${logs}"
 refused "history, two packages" "history takes one PACKAGE" history a b
 refused "history, empty PACKAGE" "PACKAGE must not be empty" history ""
 refused "history, --latest" "unknown option --latest" history hello --latest
 refused "history, --target without a value" "--target needs a target" history hello --target
 refused "history, missing ROOT" "ROOT ${work}/nope is not a directory" history hello --root="${work}/nope"
+# -h and --help of why and history print what to pass and exit 0.
+help_ok() {
+    local label=$1; shift
+    "${tool}" "$@" > "${work}/help" 2> "${work}/err"
+    check "help, ${label}: exit 0" "$?" "0"
+    check "help, ${label}: stderr empty" "$(cat "${work}/err")" ""
+    check "help, ${label}: names a run directory" "$(grep -c 'YYYYMMDD_HHMMSS' "${work}/help")" "1"
+}
+help_ok "why --help" why --help
+help_ok "why -h" why -h
+help_ok "history --help" history --help
+help_ok "history -h" history -h
 
 if [ "${fails}" -ne 0 ]; then echo "${fails} failed"; exit 1; fi
 echo "all passed"
