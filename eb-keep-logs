@@ -101,6 +101,9 @@ Environment:
   EB_PIPELINE_LOG_DIR  rotate leaves alone the run that holds this path.
   EB_KEEP_LOGS_SYSLOG  Default --syslog target (journald, syslog, unix:///...,
                        journal+unix:///..., udp://host:port, tcp://host:port).
+  EB_KEEP_LOGS_SYSLOG_PEN
+                       IANA Private Enterprise Number for RFC 5424 SD-ID
+                       ebKeepLogs@<PEN>. Default: 32473 (RFC 5398 placeholder).
   TZ, TZDIR            The time zone of the local midnights, and the
                        directory of zone files.
 
@@ -177,6 +180,27 @@ _last_log() {
     fi
 }
 
+_resolve_syslog_pen() {
+    local raw="${EB_KEEP_LOGS_SYSLOG_PEN:-}"
+    SYSLOG_PEN="32473"
+    [ -n "${raw}" ] || return 0
+    local s="${raw#"${raw%%[![:space:]]*}"}"
+    s="${s%"${s##*[![:space:]]}"}"
+    [[ -n "${s}" && "${#s}" -le 20 && "${s}" =~ ^[0-9]+$ ]] ||
+        die "EB_KEEP_LOGS_SYSLOG_PEN must be a positive integer, not '${raw}'"
+    local trimmed="${s#"${s%%[!0]*}"}"
+    [ -n "${trimmed}" ] ||
+        die "EB_KEEP_LOGS_SYSLOG_PEN must be a positive integer, not '${raw}'"
+    if [ "${#trimmed}" -eq 20 ]; then
+        local hi="${trimmed:0:10}" lo="${trimmed:10:10}"
+        lo="1${lo}"
+        if [ "${hi}" -gt 1844674407 ] || { [ "${hi}" -eq 1844674407 ] && [ "${lo}" -gt 13709551615 ]; }; then
+            die "EB_KEEP_LOGS_SYSLOG_PEN must be a positive integer, not '${raw}'"
+        fi
+    fi
+    SYSLOG_PEN="${trimmed}"
+}
+
 _resolve_syslog() {
     local raw="${1}"
     SYSLOG_TARGET=""
@@ -208,11 +232,11 @@ _emit_syslog() {
         py=/usr/bin/python3
     fi
     if [ -n "${py}" ]; then
-        if ! "${py}" - "$target" "$sev" "$msgid" "$msg" "$$" "$@" <<'PY'
+        if ! "${py}" - "$target" "${SYSLOG_PEN:-32473}" "$sev" "$msgid" "$msg" "$$" "$@" <<'PY'
 import datetime, os, socket, sys
 
-target, sev_s, msgid, msg, pid = sys.argv[1:6]
-pairs = [kv.split("=", 1) for kv in sys.argv[6:] if "=" in kv]
+target, pen, sev_s, msgid, msg, pid = sys.argv[1:7]
+pairs = [kv.split("=", 1) for kv in sys.argv[7:] if "=" in kv]
 
 def one_line(s, limit=500):
     return "".join(" " if ord(c) < 32 or ord(c) == 127 else c for c in s)[:limit]
@@ -281,7 +305,7 @@ else:
     ts = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
     host = "".join(c for c in socket.gethostname() if 33 <= ord(c) <= 126)[:255] or "-"
     sd = " ".join(f'{k[2:]}="{sd_esc(v)}"' for k, v in pairs if k.startswith("P:"))
-    line = f"<{pri}>1 {ts} {host} eb-keep-logs {pid} {msgid} [ebKeepLogs@32473 {sd}] {one_line(msg)}"
+    line = f"<{pri}>1 {ts} {host} eb-keep-logs {pid} {msgid} [ebKeepLogs@{pen} {sd}] {one_line(msg)}"
     payload = line.encode("utf-8", "replace")
     if scheme == "unix":
         ok = send_unix(hp, payload, True)
@@ -357,6 +381,7 @@ cmd_failed() {
     [[ "${status}" =~ ^[0-9]+$ ]] || die "STATUS must be a number, not '${status}'"
     [ -d "${logdir}" ] || die "LOGDIR ${logdir} is not a directory"
     local syslog_target=""
+    _resolve_syslog_pen
     if [ "${have_syslog}" -eq 1 ]; then
         _resolve_syslog "${syslog_opt}"
         syslog_target="${SYSLOG_TARGET}"
@@ -597,6 +622,7 @@ cmd_rotate() {
         lock_timeout=600
     fi
     local syslog_target=""
+    _resolve_syslog_pen
     if [ "${have_syslog}" -eq 1 ]; then
         _resolve_syslog "${syslog_opt}"
         syslog_target="${SYSLOG_TARGET}"

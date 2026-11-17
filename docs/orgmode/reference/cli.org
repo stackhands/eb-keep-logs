@@ -61,6 +61,7 @@ eb-keep-logs --version
 | =EB_KEEP_LOGS_NOW=    | =rotate= | The time =rotate= takes as now, in seconds since the epoch: an integer. Unset or empty, it is the current time.                                                                                                                                                                                                                                                                                                      |
 | =EB_PIPELINE_LOG_DIR= | =rotate= | The run that holds this path is left alone: it is the run eb-pipeline writes into. Unset, empty, or a path that does not exist, it changes nothing.                                                                                                                                                                                                                                                                  |
 | =EB_KEEP_LOGS_SYSLOG= | =failed=, =rotate= | Default =--syslog= target (=journald=, =syslog=, =unix:///path=, =journal+unix:///path=, =udp://host:port=, or =tcp://host:port=). Unset or empty, no syslog event is emitted.                                                                                                                                                                                                                                      |
+| =EB_KEEP_LOGS_SYSLOG_PEN= | =failed=, =rotate= | Positive decimal IANA Private Enterprise Number used as the suffix of the RFC 5424 =SD-ID= (=ebKeepLogs@<PEN>=). Unset or empty, defaults to =32473=, the IANA documentation PEN (RFC 5398 and RFC 5424 section 6.3.2) reserved as a placeholder until a site or project PEN is assigned.                                                                                                               |
 | =TZ=                  | =rotate= | The time zone of the local midnight: unset, =/etc/localtime=; empty, UTC; otherwise, with a leading =:= dropped, a zone file, by name under =TZDIR= or by absolute path, or else a POSIX rule string such as =CET-1CEST,M3.5.0,M10.5.0/3=, as the shell script's =date= reads it, a malformed one as far as glibc reads it. A zone that cannot be read is UTC; [[file:compatibility.org][Compatibility]] lists the zones =date= reads otherwise. |
 | =TZDIR=               | =rotate= | The directory of zone files, =/usr/share/zoneinfo= when unset or empty.                                                                                                                                                                                                                                                                                                                                              |
 
@@ -388,6 +389,9 @@ Environment:
   EB_PIPELINE_LOG_DIR  rotate leaves alone the run that holds this path.
   EB_KEEP_LOGS_SYSLOG  Default --syslog target (journald, syslog, unix:///...,
                        journal+unix:///..., udp://host:port, tcp://host:port).
+  EB_KEEP_LOGS_SYSLOG_PEN
+                       IANA Private Enterprise Number for RFC 5424 SD-ID
+                       ebKeepLogs@<PEN>. Default: 32473 (RFC 5398 placeholder).
   TZ, TZDIR            The time zone of the local midnights, and the
                        directory of zone files.
 

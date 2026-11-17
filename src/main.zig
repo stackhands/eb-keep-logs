@@ -110,6 +110,9 @@ const usage_text =
     \\  EB_PIPELINE_LOG_DIR  rotate leaves alone the run that holds this path.
     \\  EB_KEEP_LOGS_SYSLOG  Default --syslog target (journald, syslog, unix:///...,
     \\                       journal+unix:///..., udp://host:port, tcp://host:port).
+    \\  EB_KEEP_LOGS_SYSLOG_PEN
+    \\                       IANA Private Enterprise Number for RFC 5424 SD-ID
+    \\                       ebKeepLogs@<PEN>. Default: 32473 (RFC 5398 placeholder).
     \\  TZ, TZDIR            The time zone of the local midnights, and the
     \\                       directory of zone files.
     \\
@@ -366,9 +369,16 @@ fn closeBuildLogs(c: Ctx, logdir: fsx.fd_t, logdir_s: []const u8, name: []const 
 }
 
 fn resolveSyslog(c: Ctx, cli_syslog: ?[]const u8) ?syslog.Target {
+    const pen_raw = c.getenv("EB_KEEP_LOGS_SYSLOG_PEN") orelse "";
+    const pen = if (pen_raw.len > 0)
+        (syslog.parsePen(pen_raw) orelse die("EB_KEEP_LOGS_SYSLOG_PEN must be a positive integer, not '{s}'", .{pen_raw}))
+    else
+        syslog.default_pen;
     const raw = cli_syslog orelse (c.getenv("EB_KEEP_LOGS_SYSLOG") orelse "");
     if (raw.len == 0) return null;
-    return syslog.parseTarget(raw) orelse die("invalid syslog target '{s}'", .{raw});
+    var target = syslog.parseTarget(raw) orelse die("invalid syslog target '{s}'", .{raw});
+    target.pen = pen;
+    return target;
 }
 
 fn emitFailedSyslog(

@@ -32,6 +32,8 @@ Passing =--syslog= or setting =EB_KEEP_LOGS_SYSLOG= emits a structured RFC 5424 
    eb-keep-logs rotate /srv/build-logs --compress-after 30 --delete-after 365
    #+end_src
 
+   For RFC 5424 targets, export =EB_KEEP_LOGS_SYSLOG_PEN= to set your site or project IANA Private Enterprise Number in the structured-data identifier (=ebKeepLogs@<PEN>=); when unset or empty, it defaults to =32473=, the IANA documentation PEN (RFC 5398 and RFC 5424 section 6.3.2) reserved as a placeholder until a PEN is assigned.
+
 2. Route events in =rsyslog= using the stable =MSGID= values:
 
    - =EB_KEEP_FAILED=: one or more files were kept and added to =.licensed-logs= (severity 4, warning).

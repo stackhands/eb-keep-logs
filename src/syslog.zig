@@ -15,11 +15,26 @@ pub const Scheme = enum {
     rfc5424_tcp,
 };
 
+/// IANA documentation Private Enterprise Number (RFC 5398 / RFC 5424 section 6.3.2),
+/// used as the default SD-ID suffix until a site or project PEN is assigned.
+pub const default_pen = "32473";
+
 pub const Target = struct {
     scheme: Scheme,
     host_or_path: []const u8,
     port: u16 = 0,
+    pen: []const u8 = default_pen,
 };
+
+pub fn parsePen(raw: []const u8) ?[]const u8 {
+    const s = trimWs(raw);
+    if (s.len == 0 or s.len > 20) return null;
+    for (s) |c| if (c < '0' or c > '9') return null;
+    const trimmed = std.mem.trimStart(u8, s, "0");
+    if (trimmed.len == 0) return null;
+    _ = std.fmt.parseInt(u64, trimmed, 10) catch return null;
+    return trimmed;
+}
 
 pub const Param = struct {
     key: []const u8,
@@ -157,14 +172,15 @@ pub fn formatRfc5424(
     msgid: []const u8,
     params: []const Param,
     msg: []const u8,
+    pen: []const u8,
 ) Allocator.Error![]u8 {
     var out: std.ArrayList(u8) = .empty;
     const pri: u8 = 8 + severity;
     const ts = utcTimestamp(arena);
     const host = hostname(arena);
     const pid = linux.getpid();
-    try out.print(arena, "<{d}>1 {s} {s} eb-keep-logs {d} {s} [ebKeepLogs@32473", .{
-        pri, ts, host, pid, msgid,
+    try out.print(arena, "<{d}>1 {s} {s} eb-keep-logs {d} {s} [ebKeepLogs@{s}", .{
+        pri, ts, host, pid, msgid, pen,
     });
     for (params) |p| {
         const esc = try sdEscape(arena, p.value);
@@ -399,15 +415,15 @@ pub fn emit(
             return sendUnix(arena, target.host_or_path, payload, false);
         },
         .rfc5424_unix => {
-            const payload = formatRfc5424(arena, severity, msgid, params, msg) catch return false;
+            const payload = formatRfc5424(arena, severity, msgid, params, msg, target.pen) catch return false;
             return sendUnix(arena, target.host_or_path, payload, true);
         },
         .rfc5424_udp => {
-            const payload = formatRfc5424(arena, severity, msgid, params, msg) catch return false;
+            const payload = formatRfc5424(arena, severity, msgid, params, msg, target.pen) catch return false;
             return sendInet(arena, target.host_or_path, target.port, false, payload);
         },
         .rfc5424_tcp => {
-            const payload = formatRfc5424(arena, severity, msgid, params, msg) catch return false;
+            const payload = formatRfc5424(arena, severity, msgid, params, msg, target.pen) catch return false;
             return sendInet(arena, target.host_or_path, target.port, true, payload);
         },
     }
@@ -425,14 +441,17 @@ test "parseTarget accepts unix, journald, udp and tcp" {
     try std.testing.expect(parseTarget("tcp://host:0") == null);
 }
 
-test "formatRfc5424 escapes structured data values" {
+test "formatRfc5424 escapes structured data values and uses configured PEN" {
     var arena_state = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena_state.deinit();
     const a = arena_state.allocator();
     const msg = try formatRfc5424(a, 4, "EB_KEEP_FAILED", &.{
         .{ .key = "cmd", .value = "failed" },
         .{ .key = "name", .value = "a\"b\\c]d" },
-    }, "kept 1");
+    }, "kept 1", "55555");
     try std.testing.expect(std.mem.startsWith(u8, msg, "<12>1 "));
-    try std.testing.expect(std.mem.find(u8, msg, "EB_KEEP_FAILED [ebKeepLogs@32473 cmd=\"failed\" name=\"a\\\"b\\\\c\\]d\"] kept 1") != null);
+    try std.testing.expect(std.mem.find(u8, msg, "EB_KEEP_FAILED [ebKeepLogs@55555 cmd=\"failed\" name=\"a\\\"b\\\\c\\]d\"] kept 1") != null);
+    try std.testing.expect(parsePen("0") == null);
+    try std.testing.expect(parsePen("abc") == null);
+    try std.testing.expectEqualStrings("49152", parsePen("049152").?);
 }

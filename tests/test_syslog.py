@@ -22,14 +22,15 @@ RFC5424_RE = re.compile(
     r"(eb-keep-logs) "
     r"(\d+|-) "
     r"([A-Z0-9_]+) "
-    r"(\[ebKeepLogs@32473 [^\]]*\]) "
+    r"(\[ebKeepLogs@([0-9]+) [^\]]*\]) "
     r"(.*)$"
 )
 
 
 def _parse_sd(sd_block: str) -> dict[str, str]:
-    assert sd_block.startswith("[ebKeepLogs@32473 ") and sd_block.endswith("]")
-    inner = sd_block[len("[ebKeepLogs@32473 ") : -1]
+    m = re.match(r"^\[ebKeepLogs@[0-9]+ (.*)\]$", sd_block)
+    assert m is not None, sd_block
+    inner = m.group(1)
     out: dict[str, str] = {}
     i = 0
     while i < len(inner):
@@ -277,6 +278,30 @@ class KeepLogsSyslogTests(unittest.TestCase):
         )
         self.assertEqual(missing.returncode, 0)
         self.assertTrue(os.path.isfile(os.path.join(self.logdir, "Foo-1.0.failed.ebout.log")))
+
+    def test_custom_syslog_pen_and_invalid_pen_refused(self):
+        sock, path = self._dgram("pen.sock")
+        try:
+            proc = self._run(
+                ["failed", f"--syslog=unix://{path}", "1", "Foo-1.0", self.logdir],
+                self._env(EB_KEEP_LOGS_SYSLOG_PEN="55555"),
+            )
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            raw = sock.recv(65536).decode("utf-8")
+            m = RFC5424_RE.fullmatch(raw)
+            self.assertIsNotNone(m, raw)
+            assert m is not None
+            self.assertEqual(m.group(8), "55555")
+            self.assertIn("[ebKeepLogs@55555 ", raw)
+        finally:
+            sock.close()
+
+        bad_pen = self._run(
+            ["failed", f"--syslog=unix://{path}", "1", "Foo-1.0", self.logdir],
+            self._env(EB_KEEP_LOGS_SYSLOG_PEN="0"),
+        )
+        self.assertEqual(bad_pen.returncode, 2)
+        self.assertIn("EB_KEEP_LOGS_SYSLOG_PEN", bad_pen.stderr)
 
 
 if __name__ == "__main__":

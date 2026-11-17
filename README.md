@@ -113,7 +113,7 @@ Both are in the Zig build only.
 
 ## Emit syslog and journald events
 
-Pass `--syslog TARGET` (or set `EB_KEEP_LOGS_SYSLOG`) to `failed` or `rotate` to emit structured RFC 5424 messages or native `systemd-journald` fields (`journald`, `syslog`, `unix:///path`, `journal+unix:///path`, `udp://host:port`, `tcp://host:port`) with stable `MSGID` values (`EB_KEEP_FAILED`, `EB_KEEP_NONE`, `EB_ROTATE_DONE`) without copying log file contents into syslog.
+Pass `--syslog TARGET` (or set `EB_KEEP_LOGS_SYSLOG`) to `failed` or `rotate` to emit structured RFC 5424 messages (`ebKeepLogs@<PEN>`, with `EB_KEEP_LOGS_SYSLOG_PEN` defaulting to `32473`, the IANA RFC 5398 documentation placeholder until a site or project PEN is assigned) or native `systemd-journald` fields (`journald`, `syslog`, `unix:///path`, `journal+unix:///path`, `udp://host:port`, `tcp://host:port`) with stable `MSGID` values (`EB_KEEP_FAILED`, `EB_KEEP_NONE`, `EB_ROTATE_DONE`) without copying log file contents into syslog.
 
 ## Tests
 
