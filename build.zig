@@ -42,15 +42,19 @@ pub fn build(b: *std.Build) void {
     // The shell suite of the old implementation, run against this binary.
     // It and the differential run below run in the build root: their script
     // paths are relative, and zig build may be started in a subdirectory.
+    // Both run every time, as the cache sees neither their scripts nor the
+    // date and tzdata of the host, which the suite compares with.
     const suite = b.addSystemCommand(&.{ "bash", "-c", "TOOL_BIN=\"$0\" exec bash tests/test_eb_keep_logs.sh" });
     suite.addArtifactArg(exe);
     suite.setCwd(b.path("."));
     suite.expectExitCode(0);
+    suite.has_side_effects = true;
     // The same invocations through the shell implementation and this one.
     const diff = b.addSystemCommand(&.{ "bash", "-c", "TOOL_BIN=\"$0\" exec bash tests/differential.sh" });
     diff.addArtifactArg(exe);
     diff.setCwd(b.path("."));
     diff.expectExitCode(0);
+    diff.has_side_effects = true;
 
     const test_step = b.step("test", "Run the unit tests, the command-line suite and the differential run");
     test_step.dependOn(&b.addRunArtifact(unit).step);

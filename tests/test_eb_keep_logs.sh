@@ -10,13 +10,16 @@ tool="${TOOL_BIN:-${repo_root}/eb-keep-logs}"
 unset EB_PIPELINE_LOG_DIR
 
 fails=0
+# Failures go to stderr: zig build test shows a script's stderr, not stdout.
 check() {
     if [ "$2" = "$3" ]; then
         echo "ok   $1"
     else
-        echo "FAIL $1"
-        echo "     expected: $3"
-        echo "     got:      $2"
+        {
+            echo "FAIL $1"
+            echo "     expected: $3"
+            echo "     got:      $2"
+        } >&2
         fails=$((fails + 1))
     fi
 }
@@ -362,15 +365,31 @@ check "empty EB_KEEP_LOGS_NOW: the current time" \
     "eb-keep-logs rotate: 1 file compressed, 0 runs deleted under ${now_root}"
 check "empty EB_KEEP_LOGS_NOW: the run 40 days old compressed" "$(lsrun "${now_root}/${old_run}")" "H.stdout.log.gz "
 
-# rotate: with ENV, a run's local midnight is the one date(1) gives. Thirty
-# days after it the run is 30 days old, and 29 a second before.
+# rotate: with ENV, a run's local midnight is the one GNU date gives, and the
+# tool runs with GNU date as date. Thirty days after it the run is 30 days
+# old, and 29 a second before. Ubuntu's date is uutils' from 25.10, GNU's
+# being gnudate; uutils' reads as UTC some TZ rule strings that glibc reads.
+gnu_date=
+for d in date gnudate; do
+    if "${d}" --version 2>/dev/null | grep -q '(GNU coreutils)'; then
+        gnu_date=$(command -v "${d}")
+        mkdir -p "${work}/gnu"
+        ln -s "${gnu_date}" "${work}/gnu/date"
+        break
+    fi
+done
 zoned() {
     local label=$1 midnight
     shift
+    if [ -z "${gnu_date}" ]; then
+        echo "skip ${label}: no GNU date to compare with" >&2
+        return
+    fi
     rm -rf "${work}/zoned"
     mkdir -p "${work}/zoned/20261101_000000"
     echo log > "${work}/zoned/20261101_000000/J.stdout.log"
-    midnight=$(env "$@" date -d 20261101 +%s)
+    midnight=$(env "$@" "${gnu_date}" -d 20261101 +%s)
+    set -- PATH="${work}/gnu:${PATH}" "$@"
     env "$@" EB_KEEP_LOGS_NOW=$((midnight + 30 * 86400 - 1)) "${tool}" rotate "${work}/zoned" --compress-after 30 >/dev/null
     check "${label}: 29 days old a second before date's midnight" "$(lsrun "${work}/zoned/20261101_000000")" "J.stdout.log "
     env "$@" EB_KEEP_LOGS_NOW=$((midnight + 30 * 86400)) "${tool}" rotate "${work}/zoned" --compress-after 30 >/dev/null

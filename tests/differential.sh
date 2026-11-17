@@ -33,9 +33,12 @@ compare() {
                 return
             fi
         done
-        echo "DIFF ${label}: exit ${oc} vs ${nc}"
-        diff "${work}/o.out" "${work}/n.out" | sed 's/^/     out /'
-        diff "${work}/o.err" "${work}/n.err" | sed 's/^/     err /'
+        # On stderr: zig build test shows a script's stderr, not stdout.
+        {
+            echo "DIFF ${label}: exit ${oc} vs ${nc}"
+            diff "${work}/o.out" "${work}/n.out" | sed 's/^/     out /'
+            diff "${work}/o.err" "${work}/n.err" | sed 's/^/     err /'
+        } >&2
         diffs=$((diffs + 1))
     else
         echo "same ${label}"

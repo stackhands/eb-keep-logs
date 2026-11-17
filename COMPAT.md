@@ -38,6 +38,7 @@ on the same invocations.
 | a log larger than 1 GiB | scanned | copied, not checked for another build and not scanned for the command output or meson paths, with a message on stderr |
 | a meson testlog larger than 1 GiB | kept unless its summary shows every test passing | kept without reading the summary, with a message on stderr |
 | a log with NUL bytes | `grep` reports a binary match and the scan finds nothing | scanned as text |
+| `date` not GNU's, as on Ubuntu from 25.10, where `date` is uutils' and GNU's is `gnudate` | run ages follow that `date`; uutils' 0.10.0 reads as UTC some `TZ` rule strings that glibc reads, such as one after a `:` or one without an end rule: `TZ=CET-1CEST,M3.5.0 date -d 20261101 +%s` prints 1793491200 | run ages as GNU `date` gives them, whatever `date` is: 1793484000, as `gnudate` prints |
 
 ## Unintended differences
 
