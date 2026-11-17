@@ -4,8 +4,8 @@
 
 * The eb-keep-logs command
 
-=eb-keep-logs= keeps the logs of a failed EasyBuild build, compresses and removes the old runs of a log tree, says from the kept logs why a run's builds failed, lists how a package's builds went run by run, reads who loaded a module from Lmod's usage log, reads who ran an executable from an XALT run record, lists paths under an install prefix from those records, and reads what an EasyBuild dry-run or missing-modules report still has to build.
-This page describes the Zig build; the shell script =eb-keep-logs= in the repository behaves the same, except as [[file:compatibility.org][Compatibility]] lists: it has no =why=, =history=, =loads=, =runs=, =used= or =pending=.
+=eb-keep-logs= keeps the logs of a failed EasyBuild build, compresses and removes the old runs of a log tree, says from the kept logs why a run's builds failed, lists how a package's builds went run by run, reads who loaded a module from Lmod's usage log, reads who ran an executable from an XALT run record, lists paths under an install prefix from those records, classifies installed software by its recorded use, and reads what an EasyBuild dry-run or missing-modules report still has to build.
+This page describes the Zig build; the shell script =eb-keep-logs= in the repository behaves the same, except as [[file:compatibility.org][Compatibility]] lists: it has no =why=, =history=, =loads=, =runs=, =used=, =usage= or =pending=.
 
 ** Synopsis
 
@@ -17,6 +17,7 @@ eb-keep-logs history PACKAGE [--target TARGET] [--root ROOT] [--json]
 eb-keep-logs loads --module NAME FILE
 eb-keep-logs runs --exec PATH FILE
 eb-keep-logs used --prefix PREFIX [--json] [--require-none] FILE...
+eb-keep-logs usage --software DIR --modules DIR [--since EPOCH] [--unused | --active] [--json] FILE...
 eb-keep-logs pending FILE
 eb-keep-logs -h | --help
 eb-keep-logs --version
@@ -46,6 +47,12 @@ eb-keep-logs --version
 | =--target TARGET=, =--target=TARGET=             | =why=, =history= | Read only the builds in the run's directory =TARGET=; for =history=, in each run's, a run without one passed over. Without it, those in the run's own directory and then in each directory in it, by name. |
 | =--root ROOT=, =--root=ROOT=                     | =why=, =history= | The directory that holds the runs, directories named =YYYYMMDD_HHMMSS=, not symbolic links. Without it, the current directory.               |
 | =--json=                                         | =why=, =history= | Print one line of JSON instead of the report; its keys are under Files below.                                                                |
+| =--software DIR=, =--software=DIR=               | =usage=  | Required. Read installed software from the direct =Name/Version= directories below =DIR=.                                                   |
+| =--modules DIR=, =--modules=DIR=                 | =usage=  | Required. Count an Lmod record only when its module-file path is =DIR= or below it.                                                          |
+| =--since EPOCH=, =--since=EPOCH=                 | =usage=  | Count records at or after the non-negative epoch time; leave out records with no numeric time.                                              |
+| =--unused=                                       | =usage=  | Print only installed =Name/Version= entries with no hit.                                                                                    |
+| =--active=                                       | =usage=  | Print only installed =Name/Version= entries with a hit, in the listing format =eb-stack stack gap --site= reads.                            |
+| =--json=                                         | =usage=  | Print one line of JSON instead of text.                                                                                                      |
 | =-h=, =--help=                                   |          | Print the usage on stdout and exit 0.                                                                                                        |
 | =--version=                                      |          | Print the version line on stdout and exit 0.                                                                                                 |
 
@@ -337,6 +344,46 @@ The shell script has no =used=.
 | =--require-none= | Exit 2 when any path under =PREFIX= was found. |
 | =FILE= | One or more record files. Concatenated XALT JSON objects and/or Lmod lines. A file that cannot be read, or truncated JSON, is refused. |
 
+** usage
+
+=usage --software DIR --modules DIR [--since EPOCH] [--unused | --active] [--json] FILE...= compares the installed software below =DIR= with XALT and Lmod records.
+An installed entry is each directory =DIR/Name/Version=.
+An XALT run, run-library, link, link-library or package path below the software directory is a hit on the =Name/Version= in its first two path components.
+An Lmod ModuleUsageTracking record is a hit on its =module=NAME/Version= when its =path= is below the modules directory.
+Records from all =FILE= arguments are parsed once, in command-line order, and their hits are combined.
+
+Without a selection option, text output is sorted by =Name/Version= and has one of these forms:
+
+#+begin_example
+active Name/Version hits=N last=EPOCH
+unused Name/Version
+#+end_example
+
+=last= is the newest textual time in a hit and is empty when the newest hit did not spell its time as a string.
+=--unused= prints only installed entries with no hit, one =Name/Version= per line, for review as retirement or uninstall candidates.
+=--active= prints only entries with a hit in the same one-per-line format.
+That active listing is a module listing accepted directly by =eb-stack stack gap --site=; =usage= does not classify gaps or replace that command.
+=--unused= and =--active= are mutually exclusive.
+
+=--since EPOCH= counts a record only when its numeric time is at least =EPOCH=.
+It therefore leaves out XALT package records and other records without a time.
+Epoch values may include a fractional part and must be finite and non-negative.
+
+With =--json= the document has =schema_version= 1, =kind= ="usage"=, =software=, =modules=, =since= (the argument as text or =null=), =selection= (="all"=, ="unused"= or ="active"=), and a sorted =packages= array.
+Each package has =name=, =version=, =module=, =active=, =hits= and =last= (a time string or =null=).
+The selection filters the JSON array as it filters text.
+The shell script has no =usage=.
+
+| Option / argument | Meaning |
+|---|---|
+| =--software DIR= | The software install tree. Required. |
+| =--modules DIR= | The module tree used to constrain Lmod record paths. Required. |
+| =--since EPOCH= | Count timed records at or after =EPOCH=. |
+| =--unused= | List installed entries with no hit. |
+| =--active= | List installed entries with at least one hit. |
+| =--json= | Print one JSON document instead of text. |
+| =FILE= | One or more concatenated-XALT-JSON or Lmod usage-log files. A file that cannot be read, or truncated JSON, is refused. |
+
 
 ** runs
 
@@ -479,6 +526,34 @@ otherwise lose, and keep the pipeline's log tree bounded.
       FILE
           One or more files of concatenated XALT JSON objects and/or Lmod
           ModuleUsageTracking lines. Required.
+  eb-keep-logs usage --software DIR --modules DIR [--since EPOCH]
+                     [--unused | --active] [--json] FILE...
+      Compare installed DIR/Name/Version software with XALT and Lmod
+      records. XALT paths below the software directory and Lmod module
+      loads below the modules directory count as hits. By default, print
+      every installed Name/Version with its state, hit count and newest
+      time. --unused and --active print only Name/Version lines;
+      --active output is accepted by eb-stack stack gap --site. --since
+      ignores records older than EPOCH and records without a time.
+      --json prints one JSON document with schema_version 1. Zig build
+      only.
+      --software DIR, --software=DIR
+          The software install tree, with Name/Version directories.
+          Required.
+      --modules DIR, --modules=DIR
+          The module tree that Lmod record paths must be below. Required.
+      --since EPOCH, --since=EPOCH
+          Count records at or after this non-negative epoch time.
+          Default: all record times.
+      --unused
+          List installed Name/Version entries with no hit.
+      --active
+          List installed Name/Version entries with at least one hit.
+      --json
+          Print one line of JSON instead.
+      FILE
+          One or more files of concatenated XALT JSON objects and/or Lmod
+          ModuleUsageTracking lines. Required.
   eb-keep-logs runs --exec PATH FILE
       Print who ran PATH, from XALT run records in FILE. A run record is a
       JSON object whose userT holds user, exec_path and, when present,
@@ -525,7 +600,7 @@ Environment:
                        directory of zone files.
 
 Exit status:
-  0   -h, --help or --version, or a failed, rotate, why, history, loads, runs, used or pending that
+  0   -h, --help or --version, or a failed, rotate, why, history, loads, runs, used, usage or pending that
       accepted its arguments, whatever it could keep, compress, remove or
       read: what it could not do is reported on stderr. used with
       --require-none also exits 2 when any path was listed.
