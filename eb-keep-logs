@@ -11,10 +11,13 @@
 #       EasyBuild's default place is used, unless it is another build's.
 #       NAME.stdout.log and a TMP_LOGDIR below LOGDIR are closed to others too.
 #   eb-keep-logs rotate ROOT --compress-after DAYS [--delete-after DAYS]
+#                            [--lock-timeout SECONDS]
 #       In the run directories directly under ROOT (named YYYYMMDD_HHMMSS),
 #       gzip the logs of runs older than DAYS; with --delete-after, remove
 #       whole runs older than that. Permissions and .licensed-logs follow.
 #       EB_KEEP_LOGS_NOW, in seconds since the epoch, sets the current time.
+#       One rotate at a time holds ROOT/.eb-keep-logs-rotate.lock; another
+#       waits up to SECONDS for it (600; 0 does not wait), then exits 75.
 #   eb-keep-logs --help | --version
 #
 # A failed build's log is in EasyBuild's tmpdir on the build node, which goes
@@ -25,7 +28,7 @@ set -uo pipefail
 
 VERSION=0.1.0
 
-usage() { sed -n '2,20p' "$0" | sed 's/^# \{0,1\}//'; }
+usage() { sed -n '2,23p' "$0" | sed 's/^# \{0,1\}//'; }
 
 die() { echo "eb-keep-logs: $*" >&2; exit 2; }
 
@@ -243,14 +246,52 @@ _run_of() {
     esac
 }
 
+# "/NAME" for each run directly under ROOT that a process has a file in open
+# for writing, of the processes whose descriptors this one may read in /proc:
+# a build that is still going, whichever run it writes into. A link
+# /proc/PID/fd/N has its owner's write bit when N is open for writing; for a
+# file removed since, the link names the path it had, with " (deleted)" added.
+_written_runs() {
+    local root target
+    root=$(realpath -e -- "$1") || return 0
+    root="${root%/}"
+    while IFS= read -r -d '' target; do
+        _run_of "${root}" "${target}"
+    done < <(find /proc/[0-9]*/fd -mindepth 1 -maxdepth 1 -type l -perm -u=w -printf '%l\0' 2>/dev/null)
+    return 0
+}
+
+# Hold an exclusive flock on the lock file LOCK until this rotate exits,
+# waiting up to SECONDS for another holder; exit 75 when it does not let go.
+# Opened for reading when it cannot be opened for writing, by a user who may
+# not write ROOT. On a file system that cannot lock, rotate without it.
+_lock_rotate() {
+    local lock="$1" seconds="$2" fd rc=0
+    if [ -L "${lock}" ] || { [ -e "${lock}" ] && [ ! -f "${lock}" ]; }; then
+        die "cannot lock ${lock}"
+    fi
+    { exec {fd}>>"${lock}"; } 2>/dev/null || { exec {fd}<"${lock}"; } 2>/dev/null || die "cannot lock ${lock}"
+    flock -w "${seconds}" -E 75 "${fd}" || rc=$?
+    case "${rc}" in
+        0) ;;
+        75) echo "eb-keep-logs: another rotate holds the lock ${lock}; gave up after ${seconds} s (--lock-timeout)" >&2
+            exit 75 ;;
+        *) echo "eb-keep-logs: cannot lock ${lock}; rotating without the lock" >&2 ;;
+    esac
+}
+
 cmd_rotate() {
-    local root="" compress_after="" delete_after=""
+    local root="" compress_after="" delete_after="" lock_timeout=""
     while [ $# -gt 0 ]; do
         case "$1" in
             --compress-after) compress_after="${2:-}"; shift 2 ;;
             --compress-after=*) compress_after="${1#*=}"; shift ;;
             --delete-after) delete_after="${2:-}"; shift 2 ;;
             --delete-after=*) delete_after="${1#*=}"; shift ;;
+            --lock-timeout)
+                [ $# -ge 2 ] || die "--lock-timeout needs a number of seconds"
+                lock_timeout="$2"; shift 2 ;;
+            --lock-timeout=*) lock_timeout="${1#*=}"; shift ;;
             -*) die "unknown option $1" ;;
             *) [ -z "${root}" ] || die "rotate takes one ROOT"; root="$1"; shift ;;
         esac
@@ -262,14 +303,25 @@ cmd_rotate() {
         [[ "${delete_after}" =~ ^[0-9]+$ ]] || die "--delete-after needs a number of days"
         [ "${delete_after}" -gt "${compress_after}" ] || die "--delete-after must be later than --compress-after"
     fi
-    local run age file list path compressed=0 deleted=0 own
-    own="$(_own_runs "${root}")/"
+    if [ -n "${lock_timeout}" ]; then
+        [[ "${lock_timeout}" =~ ^[0-9]+$ ]] || die "--lock-timeout needs a number of seconds"
+        lock_timeout="${lock_timeout#"${lock_timeout%%[!0]*}"}"
+        lock_timeout="${lock_timeout:-0}"
+        # flock(1) cannot set a timer for 10^19 seconds; this is 31 years.
+        [ "${#lock_timeout}" -le 9 ] || lock_timeout=999999999
+    else
+        lock_timeout=600
+    fi
+    _lock_rotate "$(_joinable "${root}")/.eb-keep-logs-rotate.lock" "${lock_timeout}"
+    local run age file list tmp path compressed=0 deleted=0 live
+    live="$(_own_runs "${root}")$(_written_runs "${root}")/"
     for run in "$(_joinable "${root}")"/*/; do
         run="${run%/}"
         [ -d "${run}" ] && [ ! -L "${run}" ] || continue
         age=$(_run_age_days "${run}") || continue
-        # The next rotate takes the run this one writes into.
-        case "${own}" in *"/${run##*/}/"*) continue ;; esac
+        # A later rotate takes a run that is still written into, by this
+        # rotate or by a build that is still going.
+        case "${live}" in *"/${run##*/}/"*) continue ;; esac
         if [ -n "${delete_after}" ] && [ "${age}" -ge "${delete_after}" ]; then
             rm -rf -- "${run}"
             deleted=$((deleted + 1))
@@ -282,9 +334,13 @@ cmd_rotate() {
             gzip -9 -- "${file}" || continue
             compressed=$((compressed + 1))
             # A .licensed-logs in the run names the file by path; follow it.
+            # The new list is written beside the old one, under a name of its
+            # own, and renamed over it, so a reader sees one list or the other.
             while IFS= read -r -d '' list; do
-                awk -v p="${path}" '$0 == p { $0 = p ".gz" } { print }' "${list}" > "${list}.tmp" &&
-                    chmod --reference="${list}" "${list}.tmp" && mv -- "${list}.tmp" "${list}"
+                tmp=$(mktemp -- "${list%/*}/.licensed-logs.XXXXXXXX") || continue
+                { awk -v p="${path}" '$0 == p { $0 = p ".gz" } { print }' "${list}" > "${tmp}" &&
+                    chmod --reference="${list}" -- "${tmp}" && mv -f -- "${tmp}" "${list}"; } ||
+                    rm -f -- "${tmp}"
             done < <(find "${run}" -name .licensed-logs -type f -print0)
         done < <(find "${run}" -type f \( -name '*.log' -o -name '*.txt' \) -print0)
     done

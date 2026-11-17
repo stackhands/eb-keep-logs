@@ -1,0 +1,119 @@
+#+TITLE: Rotating a tree in use
+#+OPTIONS: toc:nil todo:nil num:nil author:nil title:nil
+#+STARTUP: content
+
+* Rotating a tree in use
+
+Why does =eb-keep-logs rotate= take a lock, how does that lock sit beside eb-pipeline's, why can the two never wait on each other for good, and how does =rotate= keep away from builds that are still going?
+
+** The problem
+
+Several things start =rotate= on one tree, and they do not take turns by themselves: the end of each pipeline run, a daily job, a person at a shell.
+Two rotations of one tree that run at the same time compress the same run between them, each the files the other has not reached yet, and each writes the run's =.licensed-logs= back with only its own changes, over the other's.
+The list then names files that are gone, and both rotations exit 0.
+Started together on a tree of three runs, two rotations left such a list in most of 200 rounds, with the shell script and with the Zig build.
+
+Builds also write into the tree while it is rotated.
+A run's age counts from the local midnight of the date in its name, so a run that started just before midnight is a day old just after it, and =--compress-after 1= takes it while its builds still run.
+EasyBuild keeps its log open for writing until a build ends, and then copies it into the installation; a rotation that compressed it in between left the build writing into a removed file, and the copy failed, so a build that had done its work exited 1.
+
+** How eb-keep-logs handles it
+
+Every =rotate= of a tree holds an exclusive lock on one file in it, =ROOT/.eb-keep-logs-rotate.lock=, from before it lists =ROOT= until it exits.
+It is a flock(2) lock, which the kernel lets go once the rotation's processes have ended, however they end: a rotation that is killed leaves no lock behind, only the empty file.
+
+1. A second =rotate= of the tree waits for the lock, up to =--lock-timeout= seconds, 600 by default, and once it has the lock finds the work done.
+2. When the wait runs out, it changes nothing and exits 75, =EX_TEMPFAIL= in =sysexits.h=: try again later.
+   It names the lock it waited for:
+
+   #+begin_example
+   eb-keep-logs: another rotate holds the lock /home/alice/build-logs/.eb-keep-logs-rotate.lock; gave up after 600 s (--lock-timeout)
+   #+end_example
+
+3. =--lock-timeout 0= does not wait, for a caller content to leave the work to the rotation already running.
+
+=rotate= creates the file when it is missing and leaves it in place.
+A symbolic link, or anything but a regular file, at that name is refused with exit status 2, and a user who may read the file but not write it still takes the lock.
+
+** Beside eb-pipeline's lock
+
+[[https://github.com/stackhands/eb-pipeline][eb-pipeline]] keeps a lock of its own in the log root, =.eb-pipeline-rotate.lock=, for another question: whether any of its runs still writes logs.
+Each of its runs holds that lock shared while it works, and waits for it when another run holds it alone.
+At its end, a run rotates only when it can take the lock alone at once, and otherwise leaves the rotation to a run that ends later.
+The two locks are separate files, and each tool takes only its own:
+
+| Lock                        | Taken by                    | How                                                                              |
+|-----------------------------+-----------------------------+----------------------------------------------------------------------------------|
+| =.eb-pipeline-rotate.lock=  | eb-pipeline's runs          | shared while a run works; alone, without waiting, around its =eb-keep-logs rotate= |
+| =.eb-keep-logs-rotate.lock= | every =eb-keep-logs rotate= | alone, waiting up to =--lock-timeout=, for the whole rotation                    |
+
+eb-pipeline takes its lock and then runs =rotate=, which takes the other; nothing takes them in the opposite order, and =rotate= never waits for eb-pipeline's lock.
+So no two processes can each hold one of the locks while they wait for the other's, and every wait =rotate= makes ends after =--lock-timeout=.
+What remains is a delay: an eb-pipeline run whose =rotate= waits for a rotation from a daily job holds its own lock for as long, and eb-pipeline runs that start meanwhile wait for it.
+
+A rotation from a daily job that should also leave eb-pipeline's runs alone takes eb-pipeline's lock first, in the same order, with flock(1):
+
+#+begin_src bash
+flock -w 3600 -E 75 ~/build-logs/.eb-pipeline-rotate.lock \
+  eb-keep-logs rotate ~/build-logs --compress-after 30 --delete-after 365
+#+end_src
+
+It waits, up to an hour, for a moment when no eb-pipeline run is working, and exits 75 when none comes; while it rotates, eb-pipeline runs that start wait for it.
+The opposite order, a wait for eb-pipeline's lock inside =rotate='s, is the one way to make two processes wait on each other, and then until =--lock-timeout= runs out.
+
+** Builds still going
+
+Before it compresses or deletes anything, =rotate= looks for the runs that are still written into, and leaves them, whole, to a later rotation:
+
+- the run that holds the file its standard output or standard error goes to;
+- the run that holds =EB_PIPELINE_LOG_DIR=, the log directory eb-pipeline exports, as srun carries the output of an eb-pipeline phase over a pipe;
+- every run that a process on this host has a file in open for writing.
+
+It finds the last in =/proc=: the link =/proc/PID/fd/N= names the file a process has open as descriptor =N=, and has its owner's write bit when the process may write to it.
+A file that is only read does not hold a run back, and a file removed while it is still open for writing still does, by the path it had.
+Once the build has ended, the next rotation takes its run as it takes any other.
+
+The builds eb-pipeline starts are seen on the host eb-pipeline runs on even when srun runs them on another node: eb-pipeline opens each build's =NAME.stdout.log= in the run and hands it to the command it starts, which holds it open for writing until the build ends.
+
+** Lists replaced whole
+
+=rotate= changes a run's =.licensed-logs= by writing the new list to a file of its own beside the old one and renaming that file over the list, which the kernel does in one step.
+A reader finds the old list or the new one, never part of one, and so does a rotation that overlaps another where the file system cannot lock.
+The Zig build also syncs the new list before the rename and its directory after it, as it does for the files =failed= keeps, so the change outlasts a crash; the shell script syncs nothing.
+Two rotations that do overlap can still leave a list that names a log by the name it had before the other compressed it, which the lock is there to prevent.
+
+** What was considered and turned down
+
+- /Sharing eb-pipeline's lock file./
+  An eb-pipeline run holds that lock alone while its own =rotate= runs, so a =rotate= that took it as well would wait for the run that started it.
+  Telling that hold apart from another's would rest on what the caller passes in the environment, which an older eb-pipeline, a wrapper script or a person does not pass.
+- /Waiting without a limit./
+  A rotation stalled on a file system would hold up every later one and, through eb-pipeline's lock, the pipeline's runs.
+- /A lock elsewhere, under =/tmp= or as a PID file./
+  A file in =ROOT= is seen wherever the tree is, and a flock(2) lock cannot outlive its holder as a PID file can.
+- /Refusing to rotate where the file system cannot lock./
+  eb-pipeline goes on without its own lock there; a refusal would turn that into a failed logs phase in every run.
+- /Judging a run by the times its files changed./
+  A build can write nothing into its run for hours, through one long compile step, so a quiet run is no sign that its builds have ended.
+- /A lock or a marker file that each build holds./
+  It would reach builds on other hosts, but only the builds that take it, and EasyBuild takes none; for eb-pipeline's runs, its own lock around a daily job does that already.
+- /Matching open files by device and inode, not by path./
+  It would also see a process that has the tree mounted at another path, as in a container, at the cost of a walk through every run before it is rotated; the builds eb-pipeline starts are seen by path already, through the output file it holds on its own host.
+
+** Limits
+
+- The lock reaches as far as the file system takes flock(2) locks: every process that sees the tree on a local file system or on NFS, where Linux takes them as fcntl(2) locks on the server; only the processes of one host on Lustre mounted with =localflock=.
+- On NFS an exclusive lock needs the file open for writing, so a user who may only read the lock file there cannot take it.
+- On a file system that cannot lock at all, or cannot lock for that user, =rotate= says so on stderr and rotates without the lock, as eb-pipeline does without its own.
+- The lock keeps rotations apart, not other writers: a person, or a tool that does not take it, can still change the tree while =rotate= runs.
+- =rotate= sees the writers on its own host, and of those only the processes whose descriptors it may read in =/proc=: the user's own, except one running a set-user-ID program, and every process for root.
+- A process that has the tree at another path, as in a container that mounts it elsewhere, is not seen, nor one that opens a file in an old run after =rotate= has looked.
+- A build on another host is seen only through a process on this one that writes into its run, as eb-pipeline's output file is; a daily job on another host than eb-pipeline's takes eb-pipeline's lock around =rotate=, as above, to wait for its runs.
+- A line added to a =.licensed-logs= while =rotate= rewrites that list goes with the old list; add lines between rotations.
+
+** Further reading
+
+- [[file:../howto/rotate-a-log-tree.org][Rotate a log tree]], from a pipeline or a daily job.
+- [[file:../reference/cli.org][The eb-keep-logs command]]: =--lock-timeout=, exit status 75, the lock file and the runs left alone.
+- [[man:flock(2)]], the lock, and [[man:flock(1)]], the command the shell script and the daily job use.
+- [[man:proc(5)]], for the links in =/proc/PID/fd=.

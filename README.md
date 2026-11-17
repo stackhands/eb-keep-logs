@@ -31,7 +31,7 @@ install -m 0755 "eb-keep-logs-$v-$arch-linux-musl" ~/.local/bin/eb-keep-logs
 ```
 
 The shell script `eb-keep-logs` in this repository is the same tool; copy it onto `PATH`.
-It needs `bash`, coreutils, GNU `grep` (for `grep -P`), `sed`, `find`, `gzip`, `awk` and, for `failed`, `eb`.
+It needs `bash`, coreutils, GNU `grep` (for `grep -P`), `sed`, `find`, `gzip`, `awk`, `flock` from util-linux for `rotate` and, for `failed`, `eb`.
 Without `grep -P` it still keeps the log and the command output, but not the meson testlog.
 
 There is no EasyBuild recipe for eb-keep-logs here or in the EasyBuild easyconfigs repository.
@@ -79,10 +79,15 @@ eb-keep-logs rotate /srv/build-logs --compress-after 30 --delete-after 365
 ```
 
 `rotate` looks only at run directories named `YYYYMMDD_HHMMSS` directly under the root, and dates each run by its name.
-It gzips the `*.log` and `*.txt` files of runs older than `--compress-after` days, keeps each file's mode, and updates the run's `.licensed-logs`.
+It gzips the `*.log` and `*.txt` files of runs older than `--compress-after` days, keeps each file's mode, and updates the run's `.licensed-logs`, writing each new list beside the old one and renaming it over it.
 It removes whole runs older than `--delete-after` days only when that option is given.
 It leaves alone the run it writes into, which is still going: the run that holds its standard output or error, and the run that holds `EB_PIPELINE_LOG_DIR`, the log directory `eb-pipeline` exports, because srun passes the output on over a pipe.
-The next `rotate` takes that run.
+It also leaves alone every run that a process on the same host has a file in open for writing, as a build that is still going has its log, whichever run started the rotation: it finds them in `/proc/PID/fd`, for the processes whose descriptors it may read.
+A later `rotate` takes such a run.
+
+Rotations of one tree take turns: each holds an exclusive flock on `ROOT/.eb-keep-logs-rotate.lock` while it runs.
+One that starts while another runs waits for it, up to `--lock-timeout` seconds (600; `0` does not wait), and when the wait runs out it changes nothing and exits 75.
+`eb-pipeline`'s `ROOT/.eb-pipeline-rotate.lock` is a separate lock, which `rotate` never takes; a daily job that should wait for eb-pipeline's runs takes that lock around `rotate` with `flock`.
 
 `EB_KEEP_LOGS_NOW`, in seconds since the epoch, sets the time `rotate` dates runs against.
 On a copy of the tree, it previews what a later rotation compresses and removes:

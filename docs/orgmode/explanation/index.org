@@ -13,4 +13,5 @@ Nothing here is a step to follow.
 
    why-eb-last-log
    local-time
+   rotate-in-use
 #+end_export

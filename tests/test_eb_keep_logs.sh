@@ -298,6 +298,29 @@ check "old run compressed" "$(ls "${root}/20261001_120000/site-zen4" | sort | tr
 check "compressed content intact" "$(zcat "${root}/20261001_120000/site-zen4/A.stdout.log.gz")" "old"
 check "closed log stays closed" "$(stat -c '%A' "${root}/20261001_120000/site-zen4/B.failed.ebout.log.gz" | cut -c8-10)" "---"
 check ".licensed-logs follows" "$(cat "${root}/20261001_120000/site-zen4/.licensed-logs")" "$(realpath "${root}/20261001_120000/site-zen4")/B.failed.ebout.log.gz"
+check ".licensed-logs follows: no temporary file left" "$(find "${root}/20261001_120000" -name '.licensed-logs?*' | wc -l)" "0"
+# The new list is written to a file of its own beside the old one, not
+# through a symbolic link at the fixed name the shell script used to write to.
+planted="${work}/planted/20261001_120000/site-zen4"
+mkdir -p "${planted}"
+echo log > "${planted}/P.stdout.log"
+realpath "${planted}/P.stdout.log" > "${planted}/.licensed-logs"
+chmod 640 "${planted}/.licensed-logs"
+echo victim > "${work}/victim"
+ln -s "${work}/victim" "${planted}/.licensed-logs.tmp"
+"${tool}" rotate "${work}/planted" --compress-after 30 >/dev/null 2>&1
+check "a link beside a list: not written through" "$(cat "${work}/victim")" "victim"
+check "a link beside a list: the list replaced" "$(stat -c '%F %a' "${planted}/.licensed-logs"): $(cat "${planted}/.licensed-logs")" \
+    "regular file 640: $(realpath "${planted}")/P.stdout.log.gz"
+# A list its owner may not write is still replaced, and keeps its mode.
+ro="${work}/ro/20261001_120000"
+mkdir -p "${ro}"
+echo log > "${ro}/Q.stdout.log"
+realpath "${ro}/Q.stdout.log" > "${ro}/.licensed-logs"
+chmod 444 "${ro}/.licensed-logs"
+"${tool}" rotate "${work}/ro" --compress-after 30 >/dev/null 2>&1
+check "a list its owner may not write: replaced, mode kept" \
+    "$(stat -c '%a' "${ro}/.licensed-logs"): $(cat "${ro}/.licensed-logs")" "444: $(realpath "${ro}")/Q.stdout.log.gz"
 check "recent run untouched" "$(ls "${root}/20261110_120000")" "C.stdout.log"
 check "non-run directory untouched" "$(ls "${root}/notarun")" "E.log"
 check "no deletion without --delete-after" "$(ls -d "${root}/20260801_090000" 2>/dev/null | wc -l | tr -d ' ')" "1"
@@ -321,7 +344,7 @@ check "help: EB_KEEP_LOGS_NOW" "$("${tool}" --help | grep -c 'EB_KEEP_LOGS_NOW')
 # rotate: the run rotate writes into is still going and is left alone. A run
 # that started before midnight is a day old just after it.
 next_day=$(date -d '2026-11-14 00:10' +%s)
-lsrun() { find "$1" -mindepth 1 -maxdepth 1 -printf '%f\n' | sort | tr '\n' ' '; }
+lsrun() { find "$1" -mindepth 1 -maxdepth 1 ! -name .eb-keep-logs-rotate.lock -printf '%f\n' | LC_ALL=C sort | tr '\n' ' '; }
 mkrun() {
     mkdir -p "$1/20261113_235000/site-zen4" "$1/20261110_120000"
     echo build > "$1/20261113_235000/site-zen4/F.stdout.log"
@@ -352,6 +375,61 @@ EB_PIPELINE_LOG_DIR=${log_dir} EB_KEEP_LOGS_NOW=${next_day} "${tool}" rotate "${
 check "own run through a pipe: not compressed" "$(lsrun "${log_dir}")" "F.stdout.log rotate.log "
 EB_KEEP_LOGS_NOW=${next_day} "${tool}" rotate "${piped}" --compress-after 1 > /dev/null 2>&1
 check "a finished run is compressed" "$(lsrun "${log_dir}")" "F.stdout.log.gz rotate.log.gz "
+
+# rotate: a build of another run, started before midnight UTC, is still
+# going: EasyBuild holds its session log open for writing, and copies it to
+# the installation at the end. rotate runs from a run started after midnight.
+# hold MODE FILE: a process that holds FILE open, for writing with >> and for
+# reading with <, until it is killed; its PID is in ${holder}.
+hold() {
+    rm -f "${work}/held"
+    case "$1" in
+        '>>') (exec 3>>"$2" && : > "${work}/held" && exec sleep 60) & ;;
+        '<') (exec 3<"$2" && : > "${work}/held" && exec sleep 60) & ;;
+    esac
+    holder=$!
+    until [ -e "${work}/held" ]; do sleep 0.05; done
+}
+utc_next_day=$(TZ=UTC date -d '2026-11-14 00:10' +%s)
+live="${work}/live"
+live_dir="${live}/20261113_235000/site-zen3/easybuild-logs/Foo-1.0"
+mkdir -p "${live_dir}" "${live}/20261114_000500/site-zen4" "${live}/20261001_120000"
+echo started > "${live_dir}/easybuild-Foo-1.0-20261113.235001.log"
+echo build > "${live}/20261113_235000/site-zen3/Foo-1.0.stdout.log"
+echo older > "${live}/20261001_120000/G.stdout.log"
+hold '>>' "${live_dir}/easybuild-Foo-1.0-20261113.235001.log"
+log="${live}/20261114_000500/site-zen4/rotate.log"
+TZ=UTC EB_KEEP_LOGS_NOW=${utc_next_day} "${tool}" rotate "${live}" --compress-after 1 > "${log}" 2>&1
+check "a build still going in another run: its log left alone" "$(lsrun "${live_dir}")" "easybuild-Foo-1.0-20261113.235001.log "
+check "a build still going in another run: nothing in its run compressed" \
+    "$(lsrun "${live}/20261113_235000/site-zen3")" "Foo-1.0.stdout.log easybuild-logs "
+check "a build still going in another run: an older run compressed" "$(lsrun "${live}/20261001_120000")" "G.stdout.log.gz "
+check "a build still going in another run: rotate's summary" "$(cat "${log}")" \
+    "eb-keep-logs rotate: 1 file compressed, 0 runs deleted under ${live}"
+kill "${holder}"; wait "${holder}" 2>/dev/null
+TZ=UTC EB_KEEP_LOGS_NOW=${utc_next_day} "${tool}" rotate "${live}" --compress-after 1 > /dev/null 2>&1
+check "a build that has ended: its run compressed" "$(lsrun "${live_dir}")$(lsrun "${live}/20261113_235000/site-zen3")" \
+    "easybuild-Foo-1.0-20261113.235001.log.gz Foo-1.0.stdout.log.gz easybuild-logs "
+
+# A process that only reads a run's logs does not hold the run back.
+read_root="${work}/read"
+mkdir -p "${read_root}/20261113_235000"
+echo build > "${read_root}/20261113_235000/R.stdout.log"
+hold '<' "${read_root}/20261113_235000/R.stdout.log"
+TZ=UTC EB_KEEP_LOGS_NOW=${utc_next_day} "${tool}" rotate "${read_root}" --compress-after 1 > /dev/null 2>&1
+check "a run a process only reads: compressed" "$(lsrun "${read_root}/20261113_235000")" "R.stdout.log.gz "
+kill "${holder}"; wait "${holder}" 2>/dev/null
+
+# Nor is a run that is still written into deleted past --delete-after.
+gone_live="${work}/gone-live"
+mkdir -p "${gone_live}/20261001_120000" "${gone_live}/20261002_120000"
+echo hung > "${gone_live}/20261001_120000/H.stdout.log"
+echo ended > "${gone_live}/20261002_120000/I.stdout.log"
+hold '>>' "${gone_live}/20261001_120000/H.stdout.log"
+TZ=UTC EB_KEEP_LOGS_NOW=${utc_next_day} "${tool}" rotate "${gone_live}" --compress-after 1 --delete-after 30 > /dev/null 2>&1
+check "a run still written into past --delete-after: kept as it is" "$(lsrun "${gone_live}")$(lsrun "${gone_live}/20261001_120000")" \
+    "20261001_120000 H.stdout.log "
+kill "${holder}"; wait "${holder}" 2>/dev/null
 
 # rotate: an empty EB_KEEP_LOGS_NOW is the current time, as an unset one is
 now_root="${work}/now"
@@ -418,6 +496,106 @@ check "compressing a run's logs moves its mtime" \
 check "an old mtime on a young run: not compressed" "$(lsrun "${mt_root}/20261110_120000")" "L.stdout.log "
 "${tool}" rotate "${mt_root}" --compress-after 30 --delete-after 40 >/dev/null
 check "a new mtime on an old run: deleted" "$(lsrun "${mt_root}")" "20261110_120000 "
+
+# rotate: one rotate of a tree at a time, holding ROOT/.eb-keep-logs-rotate.lock
+lk_root="${work}/locked"
+lock="${lk_root}/.eb-keep-logs-rotate.lock"
+mkdir -p "${lk_root}/20261001_120000"
+echo old > "${lk_root}/20261001_120000/M.stdout.log"
+exec {held}>>"${lock}"
+flock -n "${held}"
+check "lock held: refused at once" "$("${tool}" rotate "${lk_root}" --compress-after 30 --lock-timeout 0 2>&1; echo "exit $?")" \
+    "eb-keep-logs: another rotate holds the lock ${lock}; gave up after 0 s (--lock-timeout)
+exit 75"
+check "lock held: nothing compressed" "$(lsrun "${lk_root}/20261001_120000")" "M.stdout.log "
+start=$(date +%s%N)
+"${tool}" rotate "${lk_root}" --compress-after 30 --lock-timeout=1 > /dev/null 2>&1
+check "lock held: refused after --lock-timeout" "$?:$(( $(date +%s%N) - start >= 1000000000 ))" "75:1"
+(sleep 1; flock -u "${held}") &
+check "lock let go: the waiting rotate rotates" "$("${tool}" rotate "${lk_root}" --compress-after 30 2>&1)" \
+    "eb-keep-logs rotate: 1 file compressed, 0 runs deleted under ${lk_root}"
+wait
+exec {held}>&-
+check "the lock stays in ROOT" "$(stat -c '%F' "${lock}")" "regular empty file"
+chmod 444 "${lock}"
+exec {held}<"${lock}"
+flock -n "${held}"
+check "a lock this user may only read: still taken" "$("${tool}" rotate "${lk_root}" --compress-after 30 --lock-timeout 0 >/dev/null 2>&1; echo $?)" "75"
+exec {held}<&-
+check "a lock this user may only read: rotate runs" "$("${tool}" rotate "${lk_root}" --compress-after 30 2>&1)" \
+    "eb-keep-logs rotate: 0 files compressed, 0 runs deleted under ${lk_root}"
+chmod 644 "${lock}"
+"${tool}" rotate "${lk_root}" --compress-after 30 --lock-timeout x 2>/dev/null
+check "non-numeric --lock-timeout refused" "$?" "2"
+"${tool}" rotate "${lk_root}" --compress-after 30 --lock-timeout 2>/dev/null
+check "--lock-timeout without a value refused" "$?" "2"
+mkdir -p "${work}/symlock"
+ln -s "${work}/nowhere" "${work}/symlock/.eb-keep-logs-rotate.lock"
+"${tool}" rotate "${work}/symlock" --compress-after 30 >/dev/null 2>&1
+check "a symbolic link at the lock: refused" "$?" "2"
+check "a symbolic link at the lock: not followed" "$(find "${work}" -maxdepth 1 -name nowhere | wc -l)" "0"
+# A file system that cannot lock, as flock(1) reports it to the shell script;
+# the Zig build calls flock(2), which locks here.
+mkdir -p "${work}/nolock-bin" "${work}/nolock/20261001_120000"
+printf '#!/bin/sh\necho "flock: 3: Function not implemented" >&2\nexit 65\n' > "${work}/nolock-bin/flock"
+chmod +x "${work}/nolock-bin/flock"
+echo old > "${work}/nolock/20261001_120000/N.stdout.log"
+check "a file system that cannot lock: rotates without the lock" \
+    "$(PATH="${work}/nolock-bin:${PATH}" "${tool}" rotate "${work}/nolock" --compress-after 30 2>/dev/null)" \
+    "eb-keep-logs rotate: 1 file compressed, 0 runs deleted under ${work}/nolock"
+
+# rotate: two rotations of one tree started together; one waits for the other
+race="${work}/race"
+race_lists="" race_out=""
+for round in 1 2 3; do
+    rm -rf "${race}"
+    for t in a b; do
+        d="${race}/20261001_120000/${t}"
+        mkdir -p "${d}"
+        for i in 1 2 3 4 5 6; do seq 1 20000 > "${d}/n${i}.log"; done
+        for i in 1 2 3; do echo "$(realpath "${d}")/n${i}.log"; done > "${d}/.licensed-logs"
+    done
+    "${tool}" rotate "${race}" --compress-after 30 > "${work}/race1" 2>&1 &
+    r1=$!
+    "${tool}" rotate "${race}" --compress-after 30 > "${work}/race2" 2>&1 &
+    r2=$!
+    wait "${r1}"; s1=$?
+    wait "${r2}"; s2=$?
+    for t in a b; do
+        d="$(realpath "${race}/20261001_120000/${t}")"
+        [ "$(cat "${d}/.licensed-logs")" = "$(printf '%s\n' "${d}/n1.log.gz" "${d}/n2.log.gz" "${d}/n3.log.gz")" ] ||
+            race_lists+=" round ${round} ${t}"
+    done
+    race_out+="${s1} ${s2} $(cat "${work}/race1" "${work}/race2" | sed 's/ under .*//' | sort | tr '\n' ' ')"$'\n'
+done
+check "two rotations at once: every list whole" "${race_lists}" ""
+check "two rotations at once: one rotates, the other then finds nothing" "$(printf '%s' "${race_out}")" \
+    "$(for _ in 1 2 3; do echo "0 0 eb-keep-logs rotate: 0 files compressed, 0 runs deleted eb-keep-logs rotate: 12 files compressed, 0 runs deleted "; done)"
+# Without the lock, as the shell script rotates where the file system cannot
+# lock, two rotations at once can each list a file by the name it had when
+# they read the list; but each list is one of the lists they wrote, whole:
+# every line names one of the run's logs, each log once.
+race_torn=""
+for round in 1 2 3 4 5; do
+    rm -rf "${race}"
+    for t in a b; do
+        d="${race}/20261001_120000/${t}"
+        mkdir -p "${d}"
+        for i in 1 2 3 4 5 6; do seq 1 20000 > "${d}/n${i}.log"; done
+        for i in 1 2 3; do echo "$(realpath "${d}")/n${i}.log"; done > "${d}/.licensed-logs"
+    done
+    PATH="${work}/nolock-bin:${PATH}" "${tool}" rotate "${race}" --compress-after 30 > /dev/null 2>&1 &
+    r1=$!
+    PATH="${work}/nolock-bin:${PATH}" "${tool}" rotate "${race}" --compress-after 30 > /dev/null 2>&1 &
+    r2=$!
+    wait "${r1}" "${r2}"
+    for t in a b; do
+        d="$(realpath "${race}/20261001_120000/${t}")"
+        [ "$(sed 's/\.gz$//' "${d}/.licensed-logs")" = "$(printf '%s\n' "${d}/n1.log" "${d}/n2.log" "${d}/n3.log")" ] ||
+            race_torn+=" round ${round} ${t}"
+    done
+done
+check "two rotations without the lock: every list whole" "${race_torn}" ""
 
 if [ "${fails}" -ne 0 ]; then echo "${fails} failed"; exit 1; fi
 echo "all passed"

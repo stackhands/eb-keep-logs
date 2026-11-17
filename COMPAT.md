@@ -9,14 +9,16 @@ on the same invocations.
 
 | | |
 |---|---|
-| commands | `failed STATUS NAME LOGDIR [TMP_LOGDIR]`, `rotate ROOT --compress-after DAYS [--delete-after DAYS]`, `-h`, `--help`, `--version` |
-| exit codes | 0 on success and on every `failed` that got past its arguments; 2 for a refused invocation, after `eb-keep-logs: MESSAGE` on stderr; 2 with the usage text on stdout for no arguments |
+| commands | `failed STATUS NAME LOGDIR [TMP_LOGDIR]`, `rotate ROOT --compress-after DAYS [--delete-after DAYS] [--lock-timeout SECONDS]`, `-h`, `--help`, `--version` |
+| exit codes | 0 on success and on every `failed` that got past its arguments; 2 for a refused invocation, after `eb-keep-logs: MESSAGE` on stderr; 2 with the usage text on stdout for no arguments; 75 when another `rotate` holds ROOT's lock past `--lock-timeout`, after `eb-keep-logs: another rotate holds the lock ROOT/.eb-keep-logs-rotate.lock; gave up after N s (--lock-timeout)` on stderr |
+| one rotate at a time | `rotate` holds an exclusive flock(2) on `ROOT/.eb-keep-logs-rotate.lock`, created when missing, from before it reads ROOT until it exits; it waits up to `--lock-timeout` seconds for it, 600 without the option or with an empty value, 0 not at all, 999999999 at most; it opens the file for reading when it may not write it; a lock file that cannot be opened, or a symbolic link or non-regular file at its name, is refused, exit 2; on a file system that cannot lock, `rotate` says so on stderr and rotates without the lock |
 | environment | `PATH` (finds `eb`), `EASYBUILD_TMPDIR`, `EB_KEEP_LOGS_NOW`, `EB_PIPELINE_LOG_DIR`, `TZ`, `TZDIR` |
 | `eb` | `eb --last-log [--tmp-logdir=TMP_LOGDIR] --output-style=basic`, and the same without `--output-style` when that fails or prints nothing; the last line printed is the log |
 | stdout | `Failed build log: LOGDIR/NAME.failed.ebout.log`, `Failed command output: LOGDIR/NAME.failed.command-{out,err}.txt`, `Failed meson test log: LOGDIR/NAME.failed.meson-testlog.txt`, `Failed command output not kept: EASYBUILD_TMPDIR is not set.`, `Failed command output not kept: PATH is not under EASYBUILD_TMPDIR.`, `Failed command output not kept: PATH belongs to another user.`, `No EasyBuild log to keep for NAME.`, `No EasyBuild log to keep for NAME: eb is not on PATH.`, `No EasyBuild log to keep for NAME: eb --last-log exited N.`, `No EasyBuild log to keep for NAME: PATH is another build's log.`, `eb-keep-logs rotate: N files compressed, M runs deleted under ROOT`, with `1 file` and `1 run` for a count of one; LOGDIR in these lines without its trailing slashes |
-| files | kept files closed to others (command streams mode 0600), their resolved paths appended to `LOGDIR/.licensed-logs` unless already listed; on a failure, `NAME.stdout.log`, a TMP_LOGDIR below LOGDIR and the regular files directly in it closed to others, a symbolic link left as it is; `rotate` writes `FILE.gz` with the file's mode and updates `.licensed-logs` to the `.gz` path |
+| files | kept files closed to others (command streams mode 0600), their resolved paths appended to `LOGDIR/.licensed-logs` unless already listed; on a failure, `NAME.stdout.log`, a TMP_LOGDIR below LOGDIR and the regular files directly in it closed to others, a symbolic link left as it is; `rotate` writes `FILE.gz` with the file's mode and updates `.licensed-logs` to the `.gz` path, writing the new list to a file of its own beside the old one and renaming it over the list, so the list is always one whole version |
 | run ages | days from the local midnight of the date in the run's name, as `date -d YYYYMMDD` computes it, including TZ rules, except for the zones under unintended differences; a run whose local midnight does not exist is skipped |
 | the run in progress | `rotate` neither compresses nor deletes the run that holds its stdout or stderr, when either is a regular file, or `EB_PIPELINE_LOG_DIR` |
+| runs still written into | after taking its lock, `rotate` reads the links `/proc/PID/fd/N` of every process whose descriptors it may read; a run that holds the path a link with its owner's write bit names, also when the path ends in ` (deleted)`, is neither compressed nor deleted; without `/proc`, no run is left alone for this |
 
 ## Deliberate differences
 
@@ -26,12 +28,15 @@ on the same invocations.
 | `--version` | `eb-keep-logs 0.1.0` | `eb-keep-logs 0.2.1 (TARGET, MODE, zig VERSION, COMMIT)`; the first two words are unchanged |
 | `--compress-after` or `--delete-after` with no value after it | never returns | refused, exit 2 |
 | `EB_KEEP_LOGS_NOW` not empty and not an integer | evaluated as shell arithmetic | refused, exit 2 |
+| `rotate`'s lock file cannot be opened, or is a symbolic link or not a regular file | `eb-keep-logs: cannot lock PATH`, exit 2, from a look at the name just before it is opened | `eb-keep-logs: cannot lock PATH: ERROR`, exit 2, from the open itself |
+| the file system cannot lock `rotate`'s lock file | flock(1)'s error, then `eb-keep-logs: cannot lock PATH; rotating without the lock`; also when flock(1) is missing | `eb-keep-logs: cannot lock PATH: ERROR; rotating without the lock` |
+| a `rotate` waiting for the lock | takes it as soon as it is let go, as flock(1) blocks | tries for it every 20 ms |
 | a copy into LOGDIR fails | error from cp, then the file is still listed and reported | error on stderr; the file is neither listed nor reported |
 | a copy into an existing LOGDIR file fails part way (a full disk) | cp truncates the file first, so the previous bytes are gone | the previous file is left unchanged; nothing is listed or reported |
 | a symbolic link or non-regular file at a destination name in LOGDIR | cp writes through it | refused, reported on stderr |
 | `NAME.stdout.log` or TMP_LOGDIR that cannot be closed to others | chmod's error on stderr | `eb-keep-logs: cannot close PATH to others: ERROR` on stderr |
 | the failing command's streams | checked by path (`realpath`, `-L`, `stat`), then copied | opened without following a symbolic link at the last component; the same checks run on the open file, and that file is copied |
-| `.licensed-logs` after `rotate` | rewritten by every compressed file, as a new file owned by the caller | rewritten once per run when a line changes, keeping its owner (when permitted), mode and access ACL (access control list) entries, replaced atomically |
+| `.licensed-logs` after `rotate` | rewritten by every compressed file, as a new file owned by the caller with the list's mode, made by mktemp beside the list and renamed over it; nothing is synced | rewritten once per run when a line changes, keeping its owner (when permitted), mode and access ACL (access control list) entries; written beside the list, synced, renamed over it, and the directory synced, with `eb-keep-logs: cannot sync a .licensed-logs: ERROR` on stderr when that fails |
 | a run directory that cannot be removed | counted as deleted | reported on stderr, not counted |
 | compression | runs `gzip -9`, `find` and `awk` | in process; the gzip header (name, mtime, flags, OS) matches `gzip -9`, the compressed bytes differ; a file with other hard links or an existing `.gz` is skipped as gzip skips it |
 | `eb --last-log` that does not return | waits without a limit | its process group is killed after 300 s, and nothing is kept |

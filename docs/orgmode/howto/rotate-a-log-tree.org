@@ -10,7 +10,7 @@ Use this to keep a directory of build runs from growing without end: compress th
 ** Before you start
 
 - =eb-keep-logs= on your =PATH=; [[file:../tutorials/keep-a-failed-build-log.org][Keep a failed build's logs]] installs it.
-- A log tree, here =~/build-logs=, and write access to its runs: =rotate= replaces each log with a =.gz= file beside it, and removes whole runs.
+- A log tree, here =~/build-logs=, and write access to it and its runs: =rotate= keeps its lock file in the tree, replaces each log with a =.gz= file beside it, and removes whole runs.
 
 ** Steps
 
@@ -44,6 +44,21 @@ Use this to keep a directory of build runs from growing without end: compress th
 
    No run is 30 days old yet, so nothing changed.
    Run the same command at the end of each pipeline run, as the pipeline how-to does, or from a daily job.
+   Rotations of one tree take turns: one that starts while another runs waits for it, up to =--lock-timeout= seconds, 600 by default, and then finds the work done.
+   A run that a build still writes into is left, whatever its age, for a rotation after the build has ended.
+4. To rotate from a daily job, add the command to your crontab with =crontab -e=, its output going to a file outside the tree:
+
+   #+begin_example
+   15 3 * * * eb-keep-logs rotate ~/build-logs --compress-after 30 --delete-after 365 >> ~/rotate.log 2>&1
+   #+end_example
+
+   When eb-pipeline also rotates the tree, take its lock around the command, so the job waits until no eb-pipeline run is working, up to an hour:
+
+   #+begin_example
+   15 3 * * * flock -w 3600 -E 75 ~/build-logs/.eb-pipeline-rotate.lock eb-keep-logs rotate ~/build-logs --compress-after 30 --delete-after 365 >> ~/rotate.log 2>&1
+   #+end_example
+
+   Take eb-pipeline's lock outside the command, never inside it; [[file:../explanation/rotate-in-use.org][Rotating a tree in use]] says why.
 
 ** Check that it worked
 
@@ -72,10 +87,14 @@ drwxrwxr-x 3 alice alice 4096 Nov 16 17:53 easybuild-logs
 | =eb-keep-logs: ROOT PATH is not a directory=                       | The path is wrong, or names a run, not the tree.                                                     | Give the directory that holds the runs.                               |
 | =eb-keep-logs: cannot compress PATH: TooManyLinks=                 | The log has other hard links. The shell script prints =gzip='s own message.                          | Nothing: like =gzip=, =rotate= leaves it as it is.                    |
 | =eb-keep-logs: cannot compress PATH: Exists=                       | =PATH.gz= exists already. The shell script prints =gzip='s own message.                              | Remove or rename one of the two, and rotate again.                    |
-| A run is not compressed, and there is no message                   | Its name is not =YYYYMMDD_HHMMSS=, or it holds the output of this =rotate= or =EB_PIPELINE_LOG_DIR=. | Rename it, or leave it to the next =rotate=, after the run has ended. |
+| =eb-keep-logs: another rotate holds the lock PATH; gave up after 600 s (--lock-timeout)= | Another rotation of the tree ran for longer than =--lock-timeout=; this one changed nothing and exited 75. | Nothing, when the other does the work; else rotate again later, or raise =--lock-timeout=. |
+| =eb-keep-logs: cannot lock PATH: ERROR=                            | The lock file =ROOT/.eb-keep-logs-rotate.lock= cannot be opened, or is a symbolic link or directory; exit status 2. The shell script leaves out =: ERROR=. | Remove what is at that name, or rotate as a user who may write =ROOT=. |
+| =eb-keep-logs: cannot lock PATH: ERROR; rotating without the lock= | The file system cannot lock, as Lustre mounted without its =flock= option cannot; =rotate= goes on. | Rotate the tree from one place only, so that rotations cannot overlap. |
+| A run is not compressed or removed, and there is no message        | Its name is not =YYYYMMDD_HHMMSS=, or it holds the output of this =rotate= or =EB_PIPELINE_LOG_DIR=, or a process on this host has a file in it open for writing, as a build that is still going does. | Rename it, or leave it to a later =rotate=, after the run has ended; =lsof +D ~/build-logs/RUN= shows a process that still has a file in it open. |
 
 ** Related
 
 - [[file:mark-licensed-logs.org][Mark logs that may carry a licence number]]: =rotate= renames the lines of =.licensed-logs= to the =.gz= files.
 - [[file:../explanation/local-time.org][Run ages and local time]]
+- [[file:../explanation/rotate-in-use.org][Rotating a tree in use]]: the lock, how it sits beside eb-pipeline's, and builds still going.
 - [[file:../reference/cli.org][The eb-keep-logs command]]
