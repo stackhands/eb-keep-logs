@@ -341,6 +341,47 @@ check "rotate without --compress-after refused" "$?" "2"
 # --help: what `failed` copies, and the variable `rotate` reads
 check "help: the copy is the session log" "$("${tool}" --help | grep -c 'EasyBuild session log')" "1"
 check "help: EB_KEEP_LOGS_NOW" "$("${tool}" --help | grep -c 'EB_KEEP_LOGS_NOW')" "1"
+# --help lists every option either parser takes: the words starting with -
+# that the shell script's case patterns and the Zig build's comparisons of
+# an argument name. An option that takes a value gives its default or says
+# it is required, and the exit statuses are listed.
+"${tool}" --help > "${work}/help"
+options=$({
+    grep -oE -- '^ *-[-a-z|=*]+\)' "${repo_root}/eb-keep-logs" | tr -d ' )*' | tr '|' '\n' | grep -vx -- -
+    grep -oE '\(u8, [a-z_]+, "-[^"]*"\)' "${repo_root}/src/main.zig" | cut -d '"' -f 2
+} | LC_ALL=C sort -u)
+# listed OPT: whether --help names OPT as a word, or OPT= followed by a value.
+listed() {
+    case "$1" in
+        *=) grep -qE -- "(^|[[ ,|])$1[A-Z]" "${work}/help" ;;
+        *) grep -qE -- "(^|[[ ,|])$1(\$|[] ,|])" "${work}/help" ;;
+    esac
+}
+# entry OPT: the line of --help that starts with OPT and the lines indented
+# under it.
+entry() {
+    awk -v opt="$1 " '
+        { match($0, /^ */) }
+        found && RLENGTH <= depth { exit }
+        found { print }
+        !found && substr($0, RLENGTH + 1, length(opt)) == opt { found = 1; depth = RLENGTH; print }
+    ' "${work}/help"
+}
+check "help: lists every option" "$(for opt in ${options}; do listed "${opt}" || echo "${opt}"; done)" ""
+check "help: each option with a value gives its default" \
+    "$(for opt in ${options}; do [[ "${opt}" != *= ]] || [ "$(entry "${opt%=}" | grep -cE 'Default: |Required')" = 1 ] || echo "${opt%=}"; done)" ""
+check "help: --lock-timeout waits 600 s by default" "$(entry --lock-timeout | grep -c 'Default: 600;')" "1"
+check "help: exit statuses" "$(sed -n '/^Exit status:$/,$p' "${work}/help" | grep -oE '^  [0-9]+ ' | tr -d ' ' | tr '\n' ' ')" "0 2 75 "
+# whole: the last line of each paragraph that does not end with a full stop,
+# then the first two words of the last paragraph. What --help, -h and no
+# arguments print is whole when that is only "Exit status:".
+whole() { awk -v RS= '{ n = split($0, line, "\n"); if (line[n] !~ /\.$/) print line[n]; last = $1 " " $2 } END { print last }'; }
+check "help: --help prints it whole" "$(whole < "${work}/help")" "Exit status:"
+check "help: -h prints it whole" "$("${tool}" -h | whole)" "Exit status:"
+"${tool}" > "${work}/usage"
+check "help: no arguments print it whole, with exit 2" "$?: $(whole < "${work}/usage")" "2: Exit status:"
+# eb-pipeline passes --lock-timeout where `--help` exits 0 and names it.
+check "help: as eb-pipeline reads it" "$("${tool}" --help | grep -c -- --lock-timeout > /dev/null; echo "${PIPESTATUS[*]}")" "0 0"
 # rotate: the run rotate writes into is still going and is left alone. A run
 # that started before midnight is a day old just after it.
 next_day=$(date -d '2026-11-14 00:10' +%s)
