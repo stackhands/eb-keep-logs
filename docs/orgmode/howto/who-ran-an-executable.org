@@ -1,0 +1,44 @@
+#+TITLE: See who ran an executable
+#+OPTIONS: toc:nil todo:nil num:nil author:nil title:nil
+#+STARTUP: content
+
+* See who ran an executable
+
+Before you remove a program, see who actually ran it.
+=loads= answers who loaded the module. This answers who executed the binary, from the XALT run records the site already keeps.
+A link record, the one that lists libraries, is not a run and is skipped.
+=runs= does not record anything, and it does not open a database.
+
+** Before you start
+
+- The Zig build of =eb-keep-logs=. The shell script answers =runs= with =runs is in the Zig build only=.
+- A file of XALT run records. Each record is a JSON object, and several may follow one another.
+  =userT= holds =user=, =exec_path= and, when XALT wrote them, =syshost= and =start_time=.
+  The shape is the one in [[https://xalt.readthedocs.io/en/latest/120_xalt_json.html][XALT's JSON record]].
+
+** Steps
+
+1. Ask who ran one executable. =--exec= is the full path or its last component:
+
+   #+begin_src bash
+   eb-keep-logs runs --exec gmx /var/log/xalt/runs.json
+   #+end_src
+
+   Each run is one line, =user=USER host=HOST time=TIME path=PATH=, in the file's order.
+   =time== is the =start_time= XALT wrote.
+   A file with no run of that executable prints =no run of gmx=.
+
+** If it fails
+
+| Message | Cause | What to do |
+|---|---|---|
+| =eb-keep-logs: runs is in the Zig build only= | The =eb-keep-logs= on =PATH= is the shell script. | Put the Zig build first on =PATH=. |
+| =eb-keep-logs: runs needs --exec= | =--exec= was omitted, or its value was empty. | Pass the executable path, or its last component, as =gmx=. |
+| =eb-keep-logs: runs needs a record file= | No file was given. | Pass the path of the XALT records. |
+| =eb-keep-logs: runs: PATH is not XALT run JSON= | The file is not one or more JSON objects. | Point it at the run records, not a log of another shape. |
+| =eb-keep-logs: runs does not know 'OPTION'= | An option other than =--exec=. | Drop it. The command takes =--exec= and one file. |
+
+** Related
+
+- [[file:who-loaded-a-module.org][See who loaded a module]], for the module load rather than the execution
+- [[https://xalt.readthedocs.io/en/latest/120_xalt_json.html][A description of XALT's JSON record]]

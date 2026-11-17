@@ -1,0 +1,1 @@
+`runs --exec PATH FILE` prints who ran an executable, from XALT run records the site already has. A link record is skipped. No match prints `no run of PATH`. The shell script refuses the command. It does not record runs.
