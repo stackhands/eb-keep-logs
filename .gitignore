@@ -14,3 +14,8 @@ zig-pkg/
 /docs/**/__pycache__/
 /.pixi/
 /.lycheecache
+
+# Airspeed velocity results and cache.
+/.asv/
+/results/
+__pycache__/

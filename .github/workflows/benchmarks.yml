@@ -1,0 +1,67 @@
+# Build the pull request base and head, time both with airspeed velocity,
+# and post the comparison. The asv-perch step is the documented two-way
+# quick start. v1 and v1.2.2 currently point at the same commit; the step
+# pins the release tag v1.2.2.
+name: benchmarks
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  asv:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      - uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2.2.1
+        with:
+          version: 0.17.1
+
+      - name: Install airspeed velocity
+        run: |
+          python3 -m venv "$RUNNER_TEMP/asv-venv"
+          "$RUNNER_TEMP/asv-venv/bin/pip" install 'asv==0.6.6'
+          echo "$RUNNER_TEMP/asv-venv/bin" >> "$GITHUB_PATH"
+
+      - name: Build base and head and run airspeed velocity
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          git worktree add --detach "$RUNNER_TEMP/base-src" "$BASE_SHA"
+          git worktree add --detach "$RUNNER_TEMP/head-src" "$HEAD_SHA"
+          zig build -Drelease=true --prefix "$RUNNER_TEMP/base" \
+            --build-file "$RUNNER_TEMP/base-src/build.zig" \
+            --cache-dir "$RUNNER_TEMP/base-cache"
+          zig build -Drelease=true --prefix "$RUNNER_TEMP/head" \
+            --build-file "$RUNNER_TEMP/head-src/build.zig" \
+            --cache-dir "$RUNNER_TEMP/head-cache"
+          asv machine --yes
+          EB_KEEP_LOGS_BIN="$RUNNER_TEMP/base/bin/eb-keep-logs" \
+            asv run --quick --no-pull --record-samples \
+            -E "existing:$(command -v python3)" \
+            --set-commit-hash "$BASE_SHA"
+          EB_KEEP_LOGS_BIN="$RUNNER_TEMP/head/bin/eb-keep-logs" \
+            asv run --quick --no-pull --record-samples \
+            -E "existing:$(command -v python3)" \
+            --set-commit-hash "$HEAD_SHA"
+          printf 'main_sha=%s\npr_sha=%s\n' "$BASE_SHA" "$HEAD_SHA" > results/metadata.txt
+
+      - uses: HaoZeke/asv-perch@v1.2.2
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          results-path: results/
+          metadata-file: results/metadata.txt
