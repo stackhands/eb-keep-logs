@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://stackhands.github.io/eb-keep-logs/reference/json/usage.schema.json",
+  "title": "eb-keep-logs usage --json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "kind", "software", "modules", "since", "selection", "packages"],
+  "properties": {
+    "schema_version": { "type": "integer", "const": 1 },
+    "kind": { "type": "string", "const": "usage" },
+    "software": { "type": "string" },
+    "modules": { "type": "string" },
+    "since": { "type": ["string", "null"] },
+    "selection": { "type": "string", "enum": ["all", "unused", "active"] },
+    "packages": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/package" }
+    }
+  },
+  "$defs": {
+    "package": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "version", "module", "active", "hits", "last"],
+      "properties": {
+        "name": { "type": "string" },
+        "version": { "type": "string" },
+        "module": { "type": "string" },
+        "active": { "type": "boolean" },
+        "hits": { "type": "integer", "minimum": 0 },
+        "last": { "type": ["string", "null"] }
+      }
+    }
+  }
+}

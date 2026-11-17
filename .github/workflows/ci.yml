@@ -35,6 +35,7 @@ jobs:
         with:
           version: 0.17.1
       - run: zig fmt --check build.zig build.zig.zon src
-      - run: shellcheck -S warning tests/differential.sh tests/test_why.sh
+      - run: shellcheck -S warning tests/differential.sh tests/test_why.sh tests/test_json_schemas.sh
+      - run: pip install jsonschema
       - run: zig build test --summary all
       - run: zig build -Drelease=true -Dcommit=${{ github.sha }} && zig-out/bin/eb-keep-logs --version

@@ -14,11 +14,11 @@ eb-keep-logs failed [--syslog TARGET] STATUS NAME LOGDIR [TMP_LOGDIR]
 eb-keep-logs rotate ROOT --compress-after DAYS [--delete-after DAYS] [--lock-timeout SECONDS] [--syslog TARGET]
 eb-keep-logs why [RUN | --latest] [--target TARGET] [--root ROOT] [--json]
 eb-keep-logs history PACKAGE [--target TARGET] [--root ROOT] [--json]
-eb-keep-logs loads --module NAME FILE
-eb-keep-logs runs --exec PATH FILE
+eb-keep-logs loads --module NAME [--json] FILE
+eb-keep-logs runs --exec PATH [--json] FILE
 eb-keep-logs used --prefix PREFIX [--json] [--require-none] FILE...
 eb-keep-logs usage --software DIR --modules DIR [--since EPOCH] [--unused | --active] [--json] FILE...
-eb-keep-logs pending FILE
+eb-keep-logs pending [--json] FILE
 eb-keep-logs -h | --help
 eb-keep-logs --version
 #+end_example
@@ -46,7 +46,7 @@ eb-keep-logs --version
 | =--latest=                                       | =why=    | Read the newest run under =--root=, by its name; with =--target=, the newest that has that target. The default without =RUN=.               |
 | =--target TARGET=, =--target=TARGET=             | =why=, =history= | Read only the builds in the run's directory =TARGET=; for =history=, in each run's, a run without one passed over. Without it, those in the run's own directory and then in each directory in it, by name. |
 | =--root ROOT=, =--root=ROOT=                     | =why=, =history= | The directory that holds the runs, directories named =YYYYMMDD_HHMMSS=, not symbolic links. Without it, the current directory.               |
-| =--json=                                         | =why=, =history= | Print one line of JSON instead of the report; its keys are under Files below.                                                                |
+| =--json=                                         | =why=, =history=, =loads=, =runs=, =pending= | Print one line of JSON instead of the report; its keys are under [[file:json-schemas.org][JSON schemas]] and below.                           |
 | =--software DIR=, =--software=DIR=               | =usage=  | Required. Read installed software from the direct =Name/Version= directories below =DIR=.                                                   |
 | =--modules DIR=, =--modules=DIR=                 | =usage=  | Required. Count an Lmod record only when its module-file path is =DIR= or below it.                                                          |
 | =--since EPOCH=, =--since=EPOCH=                 | =usage=  | Count records at or after the non-negative epoch time; leave out records with no numeric time.                                              |
@@ -310,16 +310,19 @@ What =history= cannot read it reports on stderr as =why= does, a run that cannot
 
 ** loads
 
-=loads --module NAME FILE= prints who loaded =NAME=, from Lmod's ModuleUsageTracking lines in =FILE=.
+=loads --module NAME [--json] FILE= prints who loaded =NAME=, from Lmod's ModuleUsageTracking lines in =FILE=.
 A record is =user=USER module=NAME path=PATH host=HOST time=TIME=, in any order, with a syslog prefix left in place.
 Each load is one line, =user=USER host=HOST time=TIME path=PATH=, in the file's order.
-A file with no load of =NAME= prints =no load of NAME=.
+A file with no load of =NAME= prints =no load of NAME=; with =--json= the =loads= array is empty.
 A line that is not a record is skipped.
 The shell script has no =loads=.
+
+With =--json= the document has =schema_version= 1, =kind= ="loads"=, =module=, and a =loads= array in file order. Each element has =user=, =host=, =time= and =path= as the text lines print them.
 
 | Argument | Meaning |
 |---|---|
 | =NAME= | The module's full name, as Lmod recorded it, such as =GROMACS/2024.1=. Required, as =--module NAME= or =--module=NAME=. |
+| =--json= | Print one line of JSON instead of the text lines. |
 | =FILE= | The log. A file that cannot be read is refused. |
 
 
@@ -387,32 +390,38 @@ The shell script has no =usage=.
 
 ** runs
 
-=runs --exec PATH FILE= prints who ran =PATH=, from XALT run records in =FILE=.
+=runs --exec PATH [--json] FILE= prints who ran =PATH=, from XALT run records in =FILE=.
 A run record is a JSON object whose =userT= holds =user=, =exec_path= and, when present, =syshost= and =start_time=.
 A link record is not a run and is skipped.
 =PATH= matches =exec_path= in full or as its last component.
 Each run is one line, =user=USER host=HOST time=TIME path=PATH=, in the file's order.
-A file with no run of =PATH= prints =no run of PATH=.
+A file with no run of =PATH= prints =no run of PATH=; with =--json= the =runs= array is empty.
 The shell script has no =runs=. It does not record runs.
+
+With =--json= the document has =schema_version= 1, =kind= ="runs"=, =exec= as given, and a =runs= array in file order. Each element has =user=, =host=, =time= and =path= as the text lines print them; fields XALT omitted are empty strings.
 
 | Argument | Meaning |
 |---|---|
 | =PATH= | The executable, as a full path or its last component. Required, as =--exec PATH= or =--exec=PATH=. |
+| =--json= | Print one line of JSON instead of the text lines. |
 | =FILE= | One or more JSON objects. An object that is not a run record is skipped. A file that cannot be read, or that is not JSON, is refused. |
 
 
 ** pending
 
-=pending FILE= prints what an EasyBuild dry-run or missing-modules report still has to build.
+=pending [--json] FILE= prints what an EasyBuild dry-run or missing-modules report still has to build.
 A dry-run line is =* [ ] PATH (module: NAME)=, and =[F]= and =[R]= still build. =[x]= is already installed and is not printed.
 =--terse= prints =x PATH= or =- PATH=.
 A missing-modules line is =* NAME (FILE.eb)=, or with =--terse= one easyconfig path on each line.
 Each is one line, =build NAME= or =missing NAME=, in the file's order.
-A report with nothing left prints =nothing to build=.
+A report with nothing left prints =nothing to build=; with =--json= the =entries= array is empty.
 The shell script has no =pending=. It does not run =eb=, and it does not resolve dependencies.
+
+With =--json= the document has =schema_version= 1, =kind= ="pending"=, and an =entries= array in file order. Each element has =action= (="build"= or ="missing"=) and =name= as the text lines print them.
 
 | Argument | Meaning |
 |---|---|
+| =--json= | Print one line of JSON instead of the text lines. |
 | =FILE= | The report, as =eb --dry-run= or =eb --missing-modules= printed it. A file that cannot be read, or that is neither report, is refused. |
 
 *** --help
@@ -493,7 +502,7 @@ otherwise lose, and keep the pipeline's log tree bounded.
           directory.
       --json
           Print one line of JSON instead, with schema_version 1.
-  eb-keep-logs loads --module NAME FILE
+  eb-keep-logs loads --module NAME [--json] FILE
       Print who loaded NAME, from Lmod's ModuleUsageTracking lines in FILE.
       Each record is user=USER module=NAME path=PATH host=HOST time=TIME,
       in any order, and a syslog prefix is left in place. Each load is
@@ -503,6 +512,8 @@ otherwise lose, and keep the pipeline's log tree bounded.
       --module NAME, --module=NAME
           The module's full name, as Lmod recorded it, such as
           GROMACS/2024.1. Required.
+      --json
+          Print one line of JSON instead, with schema_version 1.
       FILE
           The log that holds the records. A line that is not one is
           skipped.
@@ -554,7 +565,7 @@ otherwise lose, and keep the pipeline's log tree bounded.
       FILE
           One or more files of concatenated XALT JSON objects and/or Lmod
           ModuleUsageTracking lines. Required.
-  eb-keep-logs runs --exec PATH FILE
+  eb-keep-logs runs --exec PATH [--json] FILE
       Print who ran PATH, from XALT run records in FILE. A run record is a
       JSON object whose userT holds user, exec_path and, when present,
       syshost and start_time. A link record is not a run and is skipped.
@@ -564,10 +575,12 @@ otherwise lose, and keep the pipeline's log tree bounded.
       only. It does not record runs.
       --exec PATH, --exec=PATH
           The executable, as a full path or its last component. Required.
+      --json
+          Print one line of JSON instead, with schema_version 1.
       FILE
           One or more JSON objects. An object that is not a run record is
           skipped.
-  eb-keep-logs pending FILE
+  eb-keep-logs pending [--json] FILE
       Print what an EasyBuild dry-run or missing-modules report still has
       to build. A dry-run line is "* [ ] PATH (module: NAME)", and [F] and
       [R] count as still to build; [x] is already installed and is not
@@ -576,6 +589,8 @@ otherwise lose, and keep the pipeline's log tree bounded.
       line. Each is one line, build NAME or missing NAME, in the file's
       order. A report with nothing left prints nothing to build. Zig build
       only. It does not run eb, and it does not resolve dependencies.
+      --json
+          Print one line of JSON instead, with schema_version 1.
       FILE
           The report, as eb --dry-run or eb --missing-modules printed it.
           Required.

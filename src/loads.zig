@@ -12,6 +12,8 @@ const cli = common.cli;
 
 const Allocator = std.mem.Allocator;
 const tool = "eb-keep-logs";
+/// The `schema_version` of what `--json` prints.
+pub const schema_version: u32 = 1;
 /// A module-usage log larger than this is refused rather than read part way.
 const read_limit: usize = 64 * 1024 * 1024;
 
@@ -60,21 +62,56 @@ pub fn parseRecord(line: []const u8) ?Record {
     };
 }
 
-/// The loads of `module` in `text`, one line each, in file order. No load
-/// is the line `no load of NAME`.
-pub fn formatLoads(gpa: Allocator, text: []const u8, module: []const u8) Allocator.Error![]u8 {
-    var out: std.ArrayList(u8) = .empty;
-    errdefer out.deinit(gpa);
-    var n: usize = 0;
+const JsonLoad = struct {
+    user: []const u8,
+    host: []const u8,
+    time: []const u8,
+    path: []const u8,
+};
+
+const JsonReport = struct {
+    schema_version: u32 = schema_version,
+    kind: []const u8 = "loads",
+    module: []const u8,
+    loads: []const JsonLoad,
+};
+
+fn collectLoads(gpa: Allocator, text: []const u8, module: []const u8) Allocator.Error![]JsonLoad {
+    var loads: std.ArrayList(JsonLoad) = .empty;
+    errdefer loads.deinit(gpa);
     var it = std.mem.splitScalar(u8, text, '\n');
     while (it.next()) |raw| {
         const line = std.mem.trimEnd(u8, raw, "\r");
         const rec = parseRecord(line) orelse continue;
         if (!std.mem.eql(u8, rec.module, module)) continue;
-        try out.print(gpa, "user={s} host={s} time={s} path={s}\n", .{ rec.user, rec.host, rec.time, rec.path });
-        n += 1;
+        try loads.append(gpa, .{
+            .user = rec.user,
+            .host = rec.host,
+            .time = rec.time,
+            .path = rec.path,
+        });
     }
-    if (n == 0) try out.print(gpa, "no load of {s}\n", .{module});
+    return try loads.toOwnedSlice(gpa);
+}
+
+pub fn formatJson(gpa: Allocator, module: []const u8, items: []const JsonLoad) ![]u8 {
+    const report: JsonReport = .{ .module = module, .loads = items };
+    var out: std.Io.Writer.Allocating = .init(gpa);
+    defer out.deinit();
+    try std.json.Stringify.value(report, .{}, &out.writer);
+    try out.writer.writeAll("\n");
+    return try out.toOwnedSlice();
+}
+
+/// The loads of `module` in `text`, one line each, in file order. No load
+/// is the line `no load of NAME`.
+pub fn formatLoads(gpa: Allocator, text: []const u8, module: []const u8) Allocator.Error![]u8 {
+    const items = try collectLoads(gpa, text, module);
+    defer gpa.free(items);
+    var out: std.ArrayList(u8) = .empty;
+    errdefer out.deinit(gpa);
+    for (items) |row| try out.print(gpa, "user={s} host={s} time={s} path={s}\n", .{ row.user, row.host, row.time, row.path });
+    if (items.len == 0) try out.print(gpa, "no load of {s}\n", .{module});
     return try out.toOwnedSlice(gpa);
 }
 
@@ -90,14 +127,17 @@ fn readLog(gpa: Allocator, path: []const u8) ?[]u8 {
     };
 }
 
-/// `loads --module NAME FILE`.
+/// `loads --module NAME [--json] FILE`.
 pub fn cmdLoads(gpa: Allocator, args: []const []const u8) u8 {
     var module: []const u8 = "";
+    var json_out = false;
     var path: []const u8 = "";
     var i: usize = 0;
     while (i < args.len) : (i += 1) {
         const a = args[i];
-        if (std.mem.eql(u8, a, "--module") or std.mem.startsWith(u8, a, "--module=")) {
+        if (std.mem.eql(u8, a, "--json")) {
+            json_out = true;
+        } else if (std.mem.eql(u8, a, "--module") or std.mem.startsWith(u8, a, "--module=")) {
             const v = if (std.mem.startsWith(u8, a, "--module="))
                 a["--module=".len..]
             else blk: {
@@ -119,7 +159,13 @@ pub fn cmdLoads(gpa: Allocator, args: []const []const u8) u8 {
     if (path.len == 0) die("loads needs a log file", .{});
     const text = readLog(gpa, path) orelse return 2;
     defer gpa.free(text);
-    const body = formatLoads(gpa, text, module) catch die("out of memory", .{});
+    const body = if (json_out) blk: {
+        const items = collectLoads(gpa, text, module) catch die("out of memory", .{});
+        defer gpa.free(items);
+        break :blk formatJson(gpa, module, items) catch die("out of memory", .{});
+    } else blk: {
+        break :blk formatLoads(gpa, text, module) catch die("out of memory", .{});
+    };
     defer gpa.free(body);
     cli.out("{s}", .{body});
     return 0;

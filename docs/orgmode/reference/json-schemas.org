@@ -1,0 +1,27 @@
+#+TITLE: JSON output schemas
+#+OPTIONS: toc:nil todo:nil num:nil author:nil title:nil
+#+STARTUP: content
+
+* JSON output schemas
+
+The Zig build's =--json= on =why=, =history=, =loads=, =runs=, =used=, =usage= and =pending= prints one line of JSON with =schema_version= 1.
+The shell script refuses those commands; see [[file:compatibility.org][Compatibility]].
+Each document is validated in CI against a JSON Schema file in the repository tree under =docs/orgmode/reference/json/=.
+The schemas use draft 2020-12; a new =schema_version= may drop or rename a key, or change what one means.
+
+| Command  | Schema file in the repository |
+|----------+-------------------------------|
+| =why=    | =docs/orgmode/reference/json/why.schema.json= |
+| =history= | =docs/orgmode/reference/json/history.schema.json= |
+| =loads=  | =docs/orgmode/reference/json/loads.schema.json= |
+| =runs=   | =docs/orgmode/reference/json/runs.schema.json= |
+| =used=   | =docs/orgmode/reference/json/used.schema.json= |
+| =usage=  | =docs/orgmode/reference/json/usage.schema.json= |
+| =pending= | =docs/orgmode/reference/json/pending.schema.json= |
+
+Field names and semantics for =why=, =history=, =used= and =usage= are under [[file:cli.org][The eb-keep-logs command]].
+=loads=, =runs= and =pending= document their JSON shape in the same page.
+
+** See also
+
+- [[file:cli.org][The eb-keep-logs command]]

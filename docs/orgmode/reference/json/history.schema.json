@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://stackhands.github.io/eb-keep-logs/reference/json/history.schema.json",
+  "title": "eb-keep-logs history --json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "kind", "package", "root", "counts", "builds"],
+  "properties": {
+    "schema_version": { "type": "integer", "const": 1 },
+    "kind": { "type": "string", "const": "history" },
+    "package": { "type": "string" },
+    "root": { "type": "string" },
+    "counts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["success", "failed", "unknown"],
+      "properties": {
+        "success": { "type": "integer", "minimum": 0 },
+        "failed": { "type": "integer", "minimum": 0 },
+        "unknown": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "builds": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/build" }
+    }
+  },
+  "$defs": {
+    "build": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["run", "target", "name", "outcome", "duration_s", "log"],
+      "properties": {
+        "run": { "type": "string" },
+        "target": { "type": ["string", "null"] },
+        "name": { "type": "string" },
+        "outcome": { "type": "string", "enum": ["success", "failed", "unknown"] },
+        "duration_s": { "type": ["integer", "null"], "minimum": 0 },
+        "log": { "type": "string" }
+      }
+    }
+  }
+}

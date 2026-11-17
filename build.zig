@@ -92,6 +92,11 @@ pub fn build(b: *std.Build) void {
     pending_test.setCwd(b.path("."));
     pending_test.expectExitCode(0);
     pending_test.has_side_effects = true;
+    const json_schema_test = b.addSystemCommand(&.{ "bash", "-c", "TOOL_BIN=\"$0\" exec bash tests/test_json_schemas.sh" });
+    json_schema_test.addArtifactArg(exe);
+    json_schema_test.setCwd(b.path("."));
+    json_schema_test.expectExitCode(0);
+    json_schema_test.has_side_effects = true;
 
     const test_step = b.step("test", "Run the unit tests, the command-line suites and the differential run");
     test_step.dependOn(&b.addRunArtifact(unit).step);
@@ -104,4 +109,5 @@ pub fn build(b: *std.Build) void {
     test_step.dependOn(&used_test.step);
     test_step.dependOn(&usage_test.step);
     test_step.dependOn(&pending_test.step);
+    test_step.dependOn(&json_schema_test.step);
 }
