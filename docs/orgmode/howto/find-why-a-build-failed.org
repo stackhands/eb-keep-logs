@@ -9,7 +9,7 @@ Use this after a run in which builds failed, to see for each the EasyBuild step 
 
 ** Before you start
 
-- =eb-keep-logs= built with Zig, as =zig build -Drelease=true= in its repository builds it, on your =PATH=: the shell script has no =why= or =history=.
+- =eb-keep-logs= on your =PATH= as the release binary or a Zig build; the shell script in the repository has no =why= or =history=.
 - A log tree, here =~/build-logs=, whose runs are named by their date and time, =YYYYMMDD_HHMMSS=, as [[file:call-from-a-pipeline.org][Call eb-keep-logs from a build pipeline]] makes them.
   A run keeps each build's =NAME.stdout.log= and, for a failed build, =NAME.failed.ebout.log=, in its own directory or in a directory per target, as eb-pipeline keeps them.
 

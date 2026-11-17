@@ -11,6 +11,7 @@ The title names the task.
 .. toctree::
    :maxdepth: 1
 
+   install
    call-from-a-pipeline
    find-why-a-build-failed
    who-loaded-a-module

@@ -1,0 +1,85 @@
+#+title: Install eb-keep-logs
+
+Install the =eb-keep-logs= program for your account, from a release or from source.
+A site that installs it as a module can load that module instead and skip this page.
+
+Release v0.2.1 is the latest tag.
+The code on the main branch also has =used= for prefix retention checks and fixes =failed= when EasyBuild 5.3 or later folds the path =eb --last-log= prints on a pipe.
+Until the next release, install from source for those changes, or to run this tutorial on EasyBuild 5.3 or newer.
+
+* Before you start
+
+- A Linux host on x86_64 or aarch64.
+  The release binary is linked statically against musl.
+- =eb= on =PATH= for =failed=.
+- For a build from source, Zig 0.17.1 and git.
+- =~/.local/bin= on your =PATH=.
+
+* Install a release
+
+1. Download the binary for this host's architecture and the release checksums, and check the binary:
+
+   #+begin_src bash
+   v=0.2.1; f=eb-keep-logs-$v-$(uname -m)-linux-musl
+   mkdir -p ~/.local/bin && cd ~/.local/bin
+   curl -fsSLO "https://github.com/stackhands/eb-keep-logs/releases/download/v$v/$f"
+   curl -fsSLO "https://github.com/stackhands/eb-keep-logs/releases/download/v$v/SHA256SUMS"
+   sha256sum -c --ignore-missing SHA256SUMS
+   #+end_src
+
+   #+begin_example
+   eb-keep-logs-0.2.1-x86_64-linux-musl: OK
+   #+end_example
+
+2. Name the binary =eb-keep-logs=:
+
+   #+begin_src bash
+   install -m 0755 "$f" eb-keep-logs
+   #+end_src
+
+Release 0.2.1 runs =failed=, =rotate=, =why= and =history=.
+The main branch also adds =used=.
+The shell script in the repository runs =failed= and =rotate= only.
+
+* Install from source
+
+Build the main branch with Zig 0.17.1 and install the binary:
+
+#+begin_src bash
+git clone https://github.com/stackhands/eb-keep-logs.git
+cd eb-keep-logs
+zig build -Drelease=true
+install -D -m 755 zig-out/bin/eb-keep-logs ~/.local/bin/eb-keep-logs
+#+end_src
+
+* Check that it worked
+
+#+begin_src bash
+command -v eb-keep-logs
+eb-keep-logs --version
+eb-keep-logs why --help | head -n 1
+#+end_src
+
+#+begin_example
+/home/alice/.local/bin/eb-keep-logs
+eb-keep-logs 0.2.1 (x86_64-linux-musl, zig 0.17.1)
+Usage: eb-keep-logs why [OPTIONS] [RUN]
+#+end_example
+
+The version line shows the release when you install a release file; a source build shows its commit.
+
+* If it fails
+
+| Message                                                                                         | Cause                                                                                 | What to do                                                                 |
+|-------------------------------------------------------------------------------------------------+---------------------------------------------------------------------------------------+----------------------------------------------------------------------------|
+| =eb-keep-logs-0.2.1-x86_64-linux-musl: FAILED= and =sha256sum: WARNING: 1 computed checksum did NOT match= | The file is not the one the checksums name.                          | Download again, and check again.                                           |
+| =curl: (22) The requested URL returned error: 404=                                              | The architecture is neither x86_64 nor aarch64, or =v= names no release.             | Install from source.                                                       |
+| =failed= keeps nothing on EasyBuild 5.3 or newer                                                | Release 0.2.1 predates the =--output-style=basic= fix for folded =eb --last-log= paths. | Install from source, or use the shell script from the same commit.          |
+| The shell does not find =eb-keep-logs=                                                          | =~/.local/bin= is not on =PATH=.                                                      | Add it in your shell startup file.                                         |
+| =why= or =history= is not a subcommand of this script=                                         | The shell script is on =PATH= ahead of the release binary.                            | Install the release binary or a Zig build, and put it first on =PATH=.     |
+
+* Related
+
+- [[file:../tutorials/keep-a-failed-build-log.org][Keep a failed build's logs]]
+- [[file:find-why-a-build-failed.org][Find why a build failed]]
+- [[file:../reference/cli.org][The eb-keep-logs command]]
