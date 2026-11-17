@@ -1,0 +1,118 @@
+#+TITLE: Find why a build failed
+#+OPTIONS: toc:nil todo:nil num:nil author:nil title:nil
+#+STARTUP: content
+
+* Find why a build failed
+
+Use this after a run in which builds failed, to see for each the EasyBuild step it failed in and the line of its log that shows the error without opening the logs, or to see how a package's builds went over the runs you keep.
+=eb-keep-logs why= and =eb-keep-logs history= read the logs =eb-keep-logs failed= kept, as they are or as =rotate= compressed them, and change nothing.
+
+** Before you start
+
+- =eb-keep-logs= built with Zig, as =zig build -Drelease=true= in its repository builds it, on your =PATH=: the shell script has no =why= or =history=.
+- A log tree, here =~/build-logs=, whose runs are named by their date and time, =YYYYMMDD_HHMMSS=, as [[file:call-from-a-pipeline.org][Call eb-keep-logs from a build pipeline]] makes them.
+  A run keeps each build's =NAME.stdout.log= and, for a failed build, =NAME.failed.ebout.log=, in its own directory or in a directory per target, as eb-pipeline keeps them.
+
+** Steps
+
+1. Ask about the newest run:
+
+   #+begin_src bash
+   eb-keep-logs why --root ~/build-logs
+   #+end_src
+
+   #+begin_example
+   /home/alice/build-logs/20261117_042207: 0 failed builds of 2
+   #+end_example
+
+   Without a run, =why= reads the newest, by the date and time in its name; here its two builds succeeded.
+2. Name the run whose builds failed, as =ls ~/build-logs= lists it:
+
+   #+begin_src bash
+   eb-keep-logs why 20261117_040615 --root ~/build-logs
+   #+end_src
+
+   #+begin_example
+   /home/alice/build-logs/20261117_040615: 1 failed build of 1
+
+   sapphirerapids/hello-2.12.1-GCCcore-14.2.0 failed in the build step, after 3m06s
+     package:    hello/2.12.1-GCCcore-14.2.0
+     easyconfig: /home/alice/corpus/cases/compile/hello-2.12.1-GCCcore-14.2.0.eb
+     EasyBuild:  shell command 'make ...' failed with exit code 2 in build step for hello-2.12.1-GCCcore-14.2.0.eb
+     log:        /home/alice/build-logs/20261117_040615/sapphirerapids/hello-2.12.1-GCCcore-14.2.0.failed.ebout.log:34142
+         34139 | gcc -DLOCALEDIR=\"/home/alice/eessi/versions/2025.06/software/linux/x86_64/intel/sapphirerapids/software/hello/2.12.1-GCCcore-14.2.0/share/locale\" -DHAVE_CONFIG_H -I.  -Ilib -I./lib -Isrc -I./src   -O2 -ftree-vectorize -march=native -fno-math-errno -MT lib/exitfail.o -MD -MP -MF $depbase.Tpo -c -o lib/exitfail.o lib/exitfail.c &&\
+         34140 | mv -f $depbase.Tpo $depbase.Po
+         34141 | src/hello.c: In function 'main':
+       > 34142 | src/hello.c:149:18: error: 'site_greeting' undeclared (first use in this function); did you mean 'mb_greeting'?
+         34143 |   149 |   greeting_msg = site_greeting;
+         34144 |       |                  ^~~~~~~~~~~~~
+         34145 |       |                  mb_greeting
+   #+end_example
+
+   Each failed build gets its target and name, the EasyBuild step it failed in, and how long EasyBuild took; then its package, its easyconfig, EasyBuild's own message, and the line of its log that shows the error, with the line number and three lines either side.
+   That line is the first compiler or linker error in the failed step, here GCC's; a build that failed without one, such as on a wrong checksum, gets EasyBuild's own error line.
+   With =--target TARGET=, only the builds in the run's directory =TARGET= are read.
+   For a failure class, feed the kept log to [[https://eb-stack.rgoswami.me/][eb-stack]]; =why= gives none.
+3. To read more of the log than the lines =why= shows, print the lines around the one it gives:
+
+   #+begin_src bash
+   sed -n '34100,34150p' ~/build-logs/20261117_040615/sapphirerapids/hello-2.12.1-GCCcore-14.2.0.failed.ebout.log
+   #+end_src
+
+   A log =rotate= compressed ends in =.gz=; read it with =zcat FILE | sed -n '34100,34150p'=.
+4. See how a package's builds went over the runs:
+
+   #+begin_src bash
+   eb-keep-logs history hello --root ~/build-logs
+   #+end_src
+
+   #+begin_example
+   hello: 11 builds under /home/alice/build-logs: 3 succeeded, 8 failed
+
+   RUN              TARGET          OUTCOME  DURATION  NAME
+   20261117_035825  sapphirerapids  failed   48s       hello-2.12.1-GCCcore-14.2.0
+   20261117_040032  sapphirerapids  failed   41s       hello-2.12.1-GCCcore-14.2.0
+   20261117_040119  sapphirerapids  failed   -         hello-2.12.1-GCCcore-14.2.0
+   20261117_040311  sapphirerapids  failed   2m24s     hello-2.12.1-GCCcore-14.2.0
+   20261117_040615  sapphirerapids  failed   3m06s     hello-2.12.1-GCCcore-14.2.0
+   20261117_040928  sapphirerapids  failed   2m30s     hello-2.12.1-GCCcore-14.2.0
+   20261117_041222  generic         success  2m50s     hello-2.12.1-GCCcore-14.2.0
+   20261117_041222  sapphirerapids  failed   2m54s     hello-2.12.1-GCCcore-13.3.0
+   20261117_041222  sapphirerapids  failed   2m33s     hello-2.12.1-GCCcore-14.2.0
+   20261117_042207  sapphirerapids  success  2m40s     hello-2.12.1-GCCcore-13.3.0
+   20261117_042207  sapphirerapids  success  2m52s     hello-2.12.1-GCCcore-14.2.0
+   #+end_example
+
+   =hello= takes every easyconfig whose name starts with =hello-=; =hello-2.12.1-GCCcore-13.3.0= takes that one alone.
+   A duration of =-= is one EasyBuild did not print, as when it stopped before building; ask =why= about that run for the reason.
+5. To put the reasons in a script's own summary, read the JSON =--json= prints:
+
+   #+begin_src bash
+   eb-keep-logs why 20261117_041222 --root ~/build-logs --json \
+     | jq -r '.failures[] | "\(.name): \(.step), \(.log):\(.error.line)"'
+   #+end_src
+
+   #+begin_example
+   hello-2.12.1-GCCcore-13.3.0: sanitycheck, /home/alice/build-logs/20261117_041222/sapphirerapids/hello-2.12.1-GCCcore-13.3.0.failed.ebout.log:35357
+   hello-2.12.1-GCCcore-14.2.0: test, /home/alice/build-logs/20261117_041222/sapphirerapids/hello-2.12.1-GCCcore-14.2.0.failed.ebout.log:34323
+   #+end_example
+
+   Its keys keep their meaning while =schema_version= is 1; [[file:../reference/cli.org][The eb-keep-logs command]] lists them.
+   For an eb-pipeline run, give =--root= the site file's =log_root= and =--target= the target: eb-pipeline keeps each run's logs in =LOG_ROOT/STAMP/TARGET/=.
+
+** If it fails
+
+| Message                                      | Cause                                                                                                     | What to do                                                       |
+|----------------------------------------------+-----------------------------------------------------------------------------------------------------------+------------------------------------------------------------------|
+| =eb-keep-logs: why is in the Zig build only= | The =eb-keep-logs= on your =PATH= is the shell script.                                                    | Put the Zig build first on =PATH=.                               |
+| =eb-keep-logs: ROOT PATH is not a directory= | =--root= names no directory.                                                                              | Give =--root= the log tree.                                      |
+| =eb-keep-logs: no run under ROOT=            | =ROOT= holds no directory named =YYYYMMDD_HHMMSS=.                                                        | Give =--root= the directory that holds the runs, not one run.    |
+| =RUN: 0 failed builds of 0=                  | The run holds no =NAME.stdout.log= or =NAME.failed.ebout.log=, in its own directory or one below it.      | Check that the pipeline writes its logs where =why= reads them.  |
+| =failed before its first step=               | EasyBuild stopped before its first step, as it does for a missing dependency.                             | Read the =EasyBuild:= line, which gives EasyBuild's message.     |
+| =log: PATH (no error recorded)=              | The log records no failure, or could not be read, as a message on stderr then says.                       | Read the log itself.                                             |
+
+** Related
+
+- [[file:../reference/cli.org][The eb-keep-logs command]]
+- [[file:call-from-a-pipeline.org][Call eb-keep-logs from a build pipeline]]
+- [[file:rotate-a-log-tree.org][Rotate a log tree]]
