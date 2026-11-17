@@ -1,0 +1,60 @@
+#+TITLE: Compare flaky-test evidence bundles across sites
+#+OPTIONS: toc:nil todo:nil num:nil author:nil title:nil
+#+STARTUP: content
+
+* Compare flaky-test evidence bundles across sites
+
+This guide records two test runs as comparable evidence bundles and compares their differing fields.
+It does not decide pass or fail.
+
+** 1. Capture one bundle per test run
+
+Save each run's stdout and stderr, then run =test-bundle= with the same stable test identity for that test:
+
+#+begin_example
+eb-keep-logs test-bundle \
+  --test-id qe.pw.scf-si \
+  --suite-revision 5f6a9cc \
+  --eessi-target x86_64/intel/sapphirerapids \
+  --stdout run-a.stdout \
+  --stderr run-a.stderr \
+  --input qe.in \
+  --seed 42 \
+  --module QuantumESPRESSO/7.4=/cvmfs/eessi/software/QuantumESPRESSO/7.4.lua \
+  --allocation "nodes=1 ntasks=32" \
+  --binding "rank0->core0, rank1->core1" \
+  --cpu "AMD EPYC 7B13 (32)" \
+  --gpu "none" \
+  --out run-a.bundle.json
+#+end_example
+
+Run it again for another site or run, changing only what actually differs, and write e.g. =run-b.bundle.json=.
+
+** 2. Compare bundles
+
+For a text summary:
+
+#+begin_example
+eb-keep-logs test-compare run-a.bundle.json run-b.bundle.json
+#+end_example
+
+For machine-readable output:
+
+#+begin_example
+eb-keep-logs test-compare --json run-a.bundle.json run-b.bundle.json > compare.json
+#+end_example
+
+The summary lists only fields that differ across bundles:
+
+- stable test identity and suite revision;
+- normalized stdout/stderr hashes;
+- input and seed hashes;
+- module list and module paths;
+- EESSI target;
+- scheduler allocation and binding;
+- CPU and GPU facts.
+
+** See also
+
+- [[file:../reference/cli.org][The eb-keep-logs command]]
+- [[file:../reference/json-schemas.org][JSON output schemas]]

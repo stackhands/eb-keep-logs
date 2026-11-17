@@ -18,6 +18,7 @@ The title names the task.
    who-ran-an-executable
    check-prefix-use
    review-unused-software
+   compare-flaky-test-bundles
    what-a-dry-run-would-build
    rotate-a-log-tree
    mark-licensed-logs

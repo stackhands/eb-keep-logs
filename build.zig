@@ -97,6 +97,16 @@ pub fn build(b: *std.Build) void {
     json_schema_test.setCwd(b.path("."));
     json_schema_test.expectExitCode(0);
     json_schema_test.has_side_effects = true;
+    const test_bundle_test = b.addSystemCommand(&.{ "bash", "-c", "TOOL_BIN=\"$0\" exec bash tests/test_test_bundle.sh" });
+    test_bundle_test.addArtifactArg(exe);
+    test_bundle_test.setCwd(b.path("."));
+    test_bundle_test.expectExitCode(0);
+    test_bundle_test.has_side_effects = true;
+    const stable_output_test = b.addSystemCommand(&.{ "bash", "-c", "TOOL_BIN=\"$0\" exec bash tests/test_output_stability.sh" });
+    stable_output_test.addArtifactArg(exe);
+    stable_output_test.setCwd(b.path("."));
+    stable_output_test.expectExitCode(0);
+    stable_output_test.has_side_effects = true;
 
     const test_step = b.step("test", "Run the unit tests, the command-line suites and the differential run");
     test_step.dependOn(&b.addRunArtifact(unit).step);
@@ -110,4 +120,6 @@ pub fn build(b: *std.Build) void {
     test_step.dependOn(&usage_test.step);
     test_step.dependOn(&pending_test.step);
     test_step.dependOn(&json_schema_test.step);
+    test_step.dependOn(&test_bundle_test.step);
+    test_step.dependOn(&stable_output_test.step);
 }
