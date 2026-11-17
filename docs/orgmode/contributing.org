@@ -35,6 +35,31 @@ This runs the unit tests, the command-line suite =tests/test_eb_keep_logs.sh= ag
 =bash tests/test_eb_keep_logs.sh= runs the suite against the shell script.
 A deliberate difference between the two has its row in =COMPAT.md=, which [[file:reference/compatibility.org][Compatibility]] shows, and its label in =tests/differential.sh=.
 
+** The log corpus
+
+=tests/fixtures/build-logs/= is the log tree of real EasyBuild 5.4.2 builds on top of EESSI 2025.06, laid out as eb-pipeline lays out its runs, =RUN/TARGET/NAME.stdout.log=, with what =eb-keep-logs failed= kept beside each failed build.
+The builds of GNU hello 2.12.1 in =tests/corpus/cases/= fail as builds do: a checksum of another release, a patch made for an older version, a dependency nobody packaged, a configure that finds no working compiler, a compile error, an undefined reference, a failing test and a sanity check path that is not there; the last run builds it.
+=eb-keep-logs rotate= compressed the first four runs.
+
+The builds ran as =alice= on a host named =node1=, so the logs name no real user or host.
+To make the tree again, mount EESSI's CernVM-FS repository, put =eb-keep-logs= on =PATH=, and run each case as a run of its own, in UTC as eb-pipeline names its runs:
+
+#+begin_src bash
+export TZ=UTC
+for c in checksum patch missing-dep configure; do tests/corpus/run.sh sapphirerapids "$c"; done
+EB_KEEP_LOGS_NOW=$(($(date +%s) + 86400)) eb-keep-logs rotate ~/build-logs --compress-after 1
+for c in compile link; do tests/corpus/run.sh sapphirerapids "$c"; done
+export STAMP=$(date +%Y%m%d_%H%M%S)
+tests/corpus/run.sh sapphirerapids test sanity
+tests/corpus/run.sh generic pass
+unset STAMP
+tests/corpus/run.sh sapphirerapids pass pass-13
+tests/corpus/make-fixtures.sh ~/build-logs tests/fixtures/build-logs "$(command -v eb-keep-logs)"
+#+end_src
+
+=make-fixtures.sh= drops lines and never edits one.
+Of each kept session log it keeps EasyBuild's warnings and errors and the records of its messages, steps and shell commands, without the output of the commands that succeeded or the middle of a failed command's output longer than 160 lines; EasyBuild's own copies of its logs stay out.
+
 ** Build the documentation
 
 The documentation toolchain is pinned in =pixi.lock=: Emacs, Sphinx, lychee, and the tools that read the code.
@@ -66,6 +91,8 @@ pixi run -e docs linkcheck
 | =docs/source/_ext/=        | the Sphinx domain for Zig declarations             |
 | =docs/tools/zig_api.zig=   | writes the Zig API pages from the doc comments     |
 | =docs/tools/check_site.py= | checks internal links, anchors and forbidden names |
+| =tests/corpus/=            | the builds the log corpus comes from               |
+| =tests/fixtures/=          | the log corpus                                     |
 
 The =.rst= files under =docs/source/= and everything under =docs/source/reference/api/= are generated and not committed.
 

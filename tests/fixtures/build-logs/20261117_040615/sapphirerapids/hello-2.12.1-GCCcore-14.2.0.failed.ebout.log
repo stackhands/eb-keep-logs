@@ -1,0 +1,332 @@
+== 2026-11-17 04:06:17,064 build_log.py:291 INFO This is EasyBuild 5.4.2 (framework: 5.4.2, easyblocks: 5.4.2) on host node1.
+== 2026-11-17 04:06:17,064 build_log.py:294 INFO Command line: --allow-loaded-modules='EasyBuild,EESSI-extend' --buildpath='/tmp/alice/easybuild/build' --bwrap-installpath='/tmp/alice/easybuild/bwrap' --containerpath='/tmp/alice/easybuild/containers' --cuda-sanity-check-error-on-failed-checks --debug --experimental --fail-on-mod-files-gcccore --filter-deps='binutils,bzip2,DBus,flex,gettext,gperf,help2man,intltool,libreadline,makeinfo,ncurses,NVPL,ParMETIS,util-linux,XZ,zlib' --filter-env-vars='LD_LIBRARY_PATH' --hooks='/cvmfs/software.eessi.io/versions/2025.06/init/easybuild/eb_hooks.py' --ignore-osdeps --installpath='/home/alice/eessi/versions/2025.06/software/linux/x86_64/intel/sapphirerapids' --local-var-naming-check='error' --module-search-path-headers='include_paths' --packagepath='/tmp/alice/easybuild/packages' --parallel-extensions-install --prefer-python-search-path='EBPYTHONPREFIXES' --prefix='/tmp/alice/easybuild' --read-only-installdir --repositorypath='/tmp/alice/easybuild/ebfiles_repo' --robot='/cvmfs/software.eessi.io/versions/2025.06/software/linux/x86_64/intel/sapphirerapids/software/EasyBuild/5.4.2/easybuild/easyconfigs' --sourcepath='/home/alice/sources' --sourcepath-data='/tmp/alice/easybuild/sources' --sticky-bit --strict-rpath-sanity-check --sysroot='/cvmfs/software.eessi.io/versions/2025.06/compat/linux/x86_64' --tmp-logdir='/home/alice/build-logs/20261117_040615/sapphirerapids/easybuild-logs/hello-2.12.1-GCCcore-14.2.0' --tmpdir='/tmp/alice/easybuild' --umask='077' --zip-logs='bzip2' /home/alice/corpus/cases/compile/hello-2.12.1-GCCcore-14.2.0.eb
+== 2026-11-17 04:06:17,064 build_log.py:296 INFO Using /tmp/alice/easybuild/eb-n5ccgtjd as temporary directory
+== 2026-11-17 04:06:17,105 run.py:518 INFO Path to bash that will be used to run shell commands: /cvmfs/software.eessi.io/versions/2025.06/compat/linux/x86_64/bin/bash
+== 2026-11-17 04:06:17,105 run.py:532 INFO Running shell command in /tmp/eb-stack-0418d85a/src:
+	type module
+== 2026-11-17 04:06:17,107 run.py:650 INFO Shell command completed successfully
+== 2026-11-17 04:06:17,107 run.py:532 INFO Running command in /tmp/eb-stack-0418d85a/src:
+	/cvmfs/software.eessi.io/versions/2025.06/compat/linux/x86_64/usr/share/Lmod/libexec/lmod python --version
+== 2026-11-17 04:06:17,148 run.py:650 INFO Command completed successfully
+== 2026-11-17 04:06:17,165 run.py:532 INFO Running command in /tmp/eb-stack-0418d85a/src:
+	/cvmfs/software.eessi.io/versions/2025.06/compat/linux/x86_64/usr/share/Lmod/libexec/lmod python --terse list
+== 2026-11-17 04:06:17,221 run.py:650 INFO Command completed successfully
+== 2026-11-17 04:06:17,448 run.py:532 INFO Running command in /tmp/eb-stack-0418d85a/src:
+	/cvmfs/software.eessi.io/versions/2025.06/compat/linux/x86_64/usr/share/Lmod/libexec/lmod python --terse --show-hidden avail hello/2.12.1-GCCcore-14.2.0
+== 2026-11-17 04:06:17,846 run.py:650 INFO Command completed successfully
+== 2026-11-17 04:06:17,847 build_log.py:330 INFO resolving dependencies ...
+== 2026-11-17 04:06:17,848 run.py:532 INFO Running command in /tmp/eb-stack-0418d85a/src:
+	/cvmfs/software.eessi.io/versions/2025.06/compat/linux/x86_64/usr/share/Lmod/libexec/lmod python --terse --show-hidden avail 
+== 2026-11-17 04:06:18,243 run.py:650 INFO Command completed successfully
+== 2026-11-17 04:06:19,242 build_log.py:330 INFO processing EasyBuild easyconfig /home/alice/corpus/cases/compile/hello-2.12.1-GCCcore-14.2.0.eb
+== 2026-11-17 04:06:19,243 easyblock.py:5381 INFO Resetting environment
+== 2026-11-17 04:06:19,245 easyblock.py:392 INFO This is EasyBuild 5.4.2 (framework: 5.4.2, easyblocks: 5.4.2) on host node1.
+== 2026-11-17 04:06:19,245 easyblock.py:398 INFO This is easyblock ConfigureMake from module easybuild.easyblocks.generic.configuremake (/cvmfs/software.eessi.io/versions/2025.06/software/linux/x86_64/intel/sapphirerapids/software/EasyBuild/5.4.2/lib/python3.13/site-packages/easybuild/easyblocks/generic/configuremake.py)
+== 2026-11-17 04:06:19,245 easyblock.py:1242 INFO Build dir set to /tmp/alice/easybuild/build/hello/2.12.1/GCCcore-14.2.0
+== 2026-11-17 04:06:19,245 easyblock.py:1305 INFO Software install dir set to /home/alice/eessi/versions/2025.06/software/linux/x86_64/intel/sapphirerapids/software/hello/2.12.1-GCCcore-14.2.0
+== 2026-11-17 04:06:19,245 easyblock.py:1310 INFO Module install dir set to /home/alice/eessi/versions/2025.06/software/linux/x86_64/intel/sapphirerapids/modules/all
+== 2026-11-17 04:06:19,245 easyblock.py:360 INFO Init completed for application name hello version 2.12.1
+== 2026-11-17 04:06:19,245 easyblock.py:5400 INFO Obtained application instance for hello (easyblock: ConfigureMake)
+== 2026-11-17 04:06:19,248 easyblock.py:5681 INFO Dumped easyconfig instance to /home/alice/build-logs/20261117_040615/sapphirerapids/easybuild-logs/hello-2.12.1-GCCcore-14.2.0/reprod_20261117040619_11912/hello-2.12.1-GCCcore-14.2.0.eb
+== 2026-11-17 04:06:19,249 easyblock.py:5661 INFO Dumped easyblock configuremake.py required for reproduction to /home/alice/build-logs/20261117_040615/sapphirerapids/easybuild-logs/hello-2.12.1-GCCcore-14.2.0/reprod_20261117040619_11912/easyblocks
+== 2026-11-17 04:06:19,249 easyblock.py:5693 INFO Dumped hooks file /cvmfs/software.eessi.io/versions/2025.06/init/easybuild/eb_hooks.py which is (potentially) required for reproduction to /home/alice/build-logs/20261117_040615/sapphirerapids/easybuild-logs/hello-2.12.1-GCCcore-14.2.0/reprod_20261117040619_11912/hooks/eb_hooks.py
+== 2026-11-17 04:06:19,250 easyblock.py:2756 INFO Number of iterations to perform for central part of installation procedure: 1
+== 2026-11-17 04:06:19,250 build_log.py:330 INFO building and installing hello/2.12.1-GCCcore-14.2.0...
+== 2026-11-17 04:06:19,254 run.py:518 INFO Path to bash that will be used to run shell commands: /cvmfs/software.eessi.io/versions/2025.06/compat/linux/x86_64/bin/bash
+== 2026-11-17 04:06:19,254 run.py:532 INFO Running shell command in /tmp/eb-stack-0418d85a/src:
+	ulimit -u
+== 2026-11-17 04:06:19,256 run.py:650 INFO Shell command completed successfully
+== 2026-11-17 04:06:19,256 easyblock.py:2792 INFO Setting parallelism: 8
+== 2026-11-17 04:06:19,256 build_log.py:330 INFO fetching files and verifying checksums...
+== 2026-11-17 04:06:19,257 easyblock.py:5068 INFO Starting fetch step
+== 2026-11-17 04:06:19,258 easyblock.py:5079 INFO Running method fetch_step part of step fetch
+== 2026-11-17 04:06:19,258 easyblock.py:2893 WARNING Easyconfig does not specify an EasyBuild-version (key 'easybuild_version')! Assuming the latest version
+== 2026-11-17 04:06:19,258 easyblock.py:971 INFO Considering directory in which easyconfig file is located when searching for hello-2.12.1.tar.gz: /home/alice/corpus/cases/compile
+== 2026-11-17 04:06:19,259 easyblock.py:1013 INFO Found file hello-2.12.1.tar.gz at /home/alice/sources/h/hello/hello-2.12.1.tar.gz
+== 2026-11-17 04:06:19,259 easyblock.py:602 INFO Added sources: [{'name': 'hello-2.12.1.tar.gz', 'path': '/home/alice/sources/h/hello/hello-2.12.1.tar.gz', 'cmd': None, 'checksum': {'hello-2.12.1.tar.gz': '8d99142afd92576f30b0cd7cb42a8dc6809998bc5d607d88761f512e26c7db20'}, 'finalpath': '/tmp/alice/easybuild/build/hello/2.12.1/GCCcore-14.2.0'}]
+== 2026-11-17 04:06:19,259 easyblock.py:971 INFO Considering directory in which easyconfig file is located when searching for hello-2.12.1_site-greeting.patch: /home/alice/corpus/cases/compile
+== 2026-11-17 04:06:19,260 easyblock.py:1013 INFO Found file hello-2.12.1_site-greeting.patch at /home/alice/corpus/cases/compile/hello-2.12.1_site-greeting.patch
+== 2026-11-17 04:06:19,260 easyblock.py:648 INFO Added patches: [{'name': 'hello-2.12.1_site-greeting.patch', 'postinstall': False, 'path': '/home/alice/corpus/cases/compile/hello-2.12.1_site-greeting.patch', 'checksum': {'hello-2.12.1_site-greeting.patch': '78c8296b0edd563ad11fde7a548ac9f8644cefbbd5034bd8e42bcac668d1616e'}}]
+== 2026-11-17 04:06:19,261 easyblock.py:2965 INFO sha256 checksum for /home/alice/sources/h/hello/hello-2.12.1.tar.gz: 8d99142afd92576f30b0cd7cb42a8dc6809998bc5d607d88761f512e26c7db20
+== 2026-11-17 04:06:19,261 easyblock.py:2965 INFO sha256 checksum for /home/alice/corpus/cases/compile/hello-2.12.1_site-greeting.patch: 78c8296b0edd563ad11fde7a548ac9f8644cefbbd5034bd8e42bcac668d1616e
+== 2026-11-17 04:06:19,263 easyblock.py:3000 INFO Checking dirs that need to be created: ['/home/alice/eessi/versions/2025.06/software/linux/x86_64/intel/sapphirerapids/software/hello/2.12.1-GCCcore-14.2.0', '/home/alice/eessi/versions/2025.06/software/linux/x86_64/intel/sapphirerapids/modules/all/hello', '/home/alice/eessi/versions/2025.06/software/linux/x86_64/intel/sapphirerapids/modules/tools/hello']
+== 2026-11-17 04:06:29,284 filetools.py:928 WARNING IOError occurred while trying to download https://git.savannah.gnu.org/cgit/config.git/plain/config.guess?id=28ea239c53a2d5d8800c472bc2452eaa16e37af2 to /home/alice/sources/generic/eb_v5.4.2/ConfigureMake/config.guess: <urlopen error _ssl.c:1015: The handshake operation timed out>
+== 2026-11-17 04:06:39,297 filetools.py:928 WARNING IOError occurred while trying to download https://git.savannah.gnu.org/cgit/config.git/plain/config.guess?id=28ea239c53a2d5d8800c472bc2452eaa16e37af2 to /home/alice/sources/generic/eb_v5.4.2/ConfigureMake/config.guess: <urlopen error _ssl.c:1015: The handshake operation timed out>
+== 2026-11-17 04:06:49,309 filetools.py:928 WARNING IOError occurred while trying to download https://git.savannah.gnu.org/cgit/config.git/plain/config.guess?id=28ea239c53a2d5d8800c472bc2452eaa16e37af2 to /home/alice/sources/generic/eb_v5.4.2/ConfigureMake/config.guess: <urlopen error _ssl.c:1015: The handshake operation timed out>
+== 2026-11-17 04:06:52,871 filetools.py:925 WARNING HTTPError occurred while trying to download https://git.savannah.gnu.org/cgit/config.git/plain/config.guess?id=28ea239c53a2d5d8800c472bc2452eaa16e37af2 to /home/alice/sources/generic/eb_v5.4.2/ConfigureMake/config.guess: HTTP Error 502: Bad Gateway
+== 2026-11-17 04:07:02,884 filetools.py:928 WARNING IOError occurred while trying to download https://git.savannah.gnu.org/cgit/config.git/plain/config.guess?id=28ea239c53a2d5d8800c472bc2452eaa16e37af2 to /home/alice/sources/generic/eb_v5.4.2/ConfigureMake/config.guess: <urlopen error _ssl.c:1015: The handshake operation timed out>
+== 2026-11-17 04:07:12,896 filetools.py:928 WARNING IOError occurred while trying to download https://git.savannah.gnu.org/cgit/config.git/plain/config.guess?id=28ea239c53a2d5d8800c472bc2452eaa16e37af2 to /home/alice/sources/generic/eb_v5.4.2/ConfigureMake/config.guess: <urlopen error _ssl.c:1015: The handshake operation timed out>
+== 2026-11-17 04:07:12,896 filetools.py:967 WARNING Download of https://git.savannah.gnu.org/cgit/config.git/plain/config.guess?id=28ea239c53a2d5d8800c472bc2452eaa16e37af2 to /home/alice/sources/generic/eb_v5.4.2/ConfigureMake/config.guess failed, done trying
+== 2026-11-17 04:07:12,897 build_log.py:465 WARNING Failed to download recent config.guess to /home/alice/sources/generic/eb_v5.4.2/ConfigureMake/config.guess
+== 2026-11-17 04:07:12,897 easyblock.py:5079 INFO Running method checksum_step part of step fetch
+== 2026-11-17 04:07:12,898 easyblock.py:3022 INFO Checksum verification for /home/alice/sources/h/hello/hello-2.12.1.tar.gz using {'hello-2.12.1.tar.gz': '8d99142afd92576f30b0cd7cb42a8dc6809998bc5d607d88761f512e26c7db20'} passed.
+== 2026-11-17 04:07:12,898 easyblock.py:3022 INFO Checksum verification for /home/alice/corpus/cases/compile/hello-2.12.1_site-greeting.patch using {'hello-2.12.1_site-greeting.patch': '78c8296b0edd563ad11fde7a548ac9f8644cefbbd5034bd8e42bcac668d1616e'} passed.
+== 2026-11-17 04:07:12,898 build_log.py:330 INFO ... (took 53 secs)
+== 2026-11-17 04:07:12,899 build_log.py:330 INFO creating build dir, resetting environment...
+== 2026-11-17 04:07:12,899 easyblock.py:5068 INFO Starting ready step
+== 2026-11-17 04:07:12,900 easyblock.py:5079 INFO Running method check_readiness_step part of step ready
+== 2026-11-17 04:07:12,900 run.py:532 INFO Running command in /tmp/eb-stack-0418d85a/src:
+	/cvmfs/software.eessi.io/versions/2025.06/compat/linux/x86_64/usr/share/Lmod/libexec/lmod python --terse list
+== 2026-11-17 04:07:12,964 run.py:650 INFO Command completed successfully
+== 2026-11-17 04:07:12,965 easyblock.py:2842 WARNING Loaded modules detected: ['EasyBuild/5.4.2', 'EESSI-extend/2025.06-easybuild']
+== 2026-11-17 04:07:12,965 easyblock.py:5079 INFO Running method make_builddir part of step ready
+== 2026-11-17 04:07:12,965 easyblock.py:1331 INFO Found old directory /tmp/alice/easybuild/build/hello/2.12.1/GCCcore-14.2.0
+== 2026-11-17 04:07:12,973 easyblock.py:1354 INFO Removed old directory /tmp/alice/easybuild/build/hello/2.12.1/GCCcore-14.2.0
+== 2026-11-17 04:07:12,974 easyblock.py:5079 INFO Running method reset_env part of step ready
+== 2026-11-17 04:07:12,974 easyblock.py:5079 INFO Running method handle_iterate_opts part of step ready
+== 2026-11-17 04:07:12,975 build_log.py:202 WARNING Deprecated functionality, will no longer work in EasyBuild v6.0: Easyconfig parameter 'parallel' is deprecated, use 'max_parallel' or the parallel property instead.; see https://docs.easybuild.io/deprecated-functionality/ for more information
+== 2026-11-17 04:07:12,975 build_log.py:330 INFO ... (took < 1 sec)
+== 2026-11-17 04:07:12,975 build_log.py:330 INFO unpacking...
+== 2026-11-17 04:07:12,975 easyblock.py:5068 INFO Starting extract step
+== 2026-11-17 04:07:12,976 easyblock.py:5079 INFO Running method extract_step part of step extract
+== 2026-11-17 04:07:12,976 easyblock.py:3152 INFO Unpacking source hello-2.12.1.tar.gz
+== 2026-11-17 04:07:12,980 run.py:492 INFO run_shell_cmd: Script to start debug shell for shell command 'tar ...'
+	will be saved to /tmp/alice/easybuild/eb-n5ccgtjd/run-shell-cmd-output/tar-tc_tyl_u/cmd.sh
+	output will be logged to /tmp/alice/easybuild/eb-n5ccgtjd/run-shell-cmd-output/tar-tc_tyl_u/out.txt
+== 2026-11-17 04:07:12,981 run.py:518 INFO Path to bash that will be used to run shell commands: /cvmfs/software.eessi.io/versions/2025.06/compat/linux/x86_64/bin/bash
+== 2026-11-17 04:07:12,981 run.py:532 INFO Running shell command in /tmp/alice/easybuild/build/hello/2.12.1/GCCcore-14.2.0:
+	tar xzf /home/alice/sources/h/hello/hello-2.12.1.tar.gz
+== 2026-11-17 04:07:13,005 run.py:650 INFO Shell command completed successfully
+== 2026-11-17 04:07:13,006 build_log.py:330 INFO ... (took < 1 sec)
+== 2026-11-17 04:07:13,006 build_log.py:330 INFO patching...
+== 2026-11-17 04:07:13,006 easyblock.py:5068 INFO Starting patch step
+== 2026-11-17 04:07:13,007 easyblock.py:5079 INFO Running method patch_step part of step patch
+== 2026-11-17 04:07:13,007 easyblock.py:3170 INFO Applying patch hello-2.12.1_site-greeting.patch
+== 2026-11-17 04:07:13,011 run.py:492 INFO run_shell_cmd: Script to start debug shell for shell command 'patch ...'
+	will be saved to /tmp/alice/easybuild/eb-n5ccgtjd/run-shell-cmd-output/patch-f_erg4_i/cmd.sh
+	output will be logged to /tmp/alice/easybuild/eb-n5ccgtjd/run-shell-cmd-output/patch-f_erg4_i/out.txt
+== 2026-11-17 04:07:13,011 run.py:518 INFO Path to bash that will be used to run shell commands: /cvmfs/software.eessi.io/versions/2025.06/compat/linux/x86_64/bin/bash
+== 2026-11-17 04:07:13,011 run.py:532 INFO Running shell command in /tmp/alice/easybuild/build/hello/2.12.1/GCCcore-14.2.0/hello-2.12.1:
+	patch  -p1 -i /home/alice/corpus/cases/compile/hello-2.12.1_site-greeting.patch
+== 2026-11-17 04:07:13,018 run.py:650 INFO Shell command completed successfully
+== 2026-11-17 04:07:13,019 build_log.py:330 INFO ... (took < 1 sec)
+== 2026-11-17 04:07:13,019 build_log.py:330 INFO preparing...
+== 2026-11-17 04:07:13,020 easyblock.py:5068 INFO Starting prepare step
+== 2026-11-17 04:07:13,021 easyblock.py:5079 INFO Running method prepare_step part of step prepare
+== 2026-11-17 04:07:13,024 run.py:532 INFO Running command in /tmp/alice/easybuild/build/hello/2.12.1/GCCcore-14.2.0/hello-2.12.1:
+	/cvmfs/software.eessi.io/versions/2025.06/compat/linux/x86_64/usr/share/Lmod/libexec/lmod python show GCCcore/14.2.0
+== 2026-11-17 04:07:13,255 run.py:650 INFO Command completed successfully
+== 2026-11-17 04:07:13,257 run.py:532 INFO Running command in /tmp/alice/easybuild/build/hello/2.12.1/GCCcore-14.2.0/hello-2.12.1:
+	/cvmfs/software.eessi.io/versions/2025.06/compat/linux/x86_64/usr/share/Lmod/libexec/lmod python load GCCcore/14.2.0
+== 2026-11-17 04:07:13,504 run.py:650 INFO Command completed successfully
+== 2026-11-17 04:07:13,522 easyblock.py:2653 INFO Using /tmp/alice/easybuild/build/hello/2.12.1/GCCcore-14.2.0/hello-2.12.1 as start dir
+== 2026-11-17 04:07:13,523 build_log.py:330 INFO ... (took < 1 sec)
+== 2026-11-17 04:07:13,523 build_log.py:330 INFO configuring...
+== 2026-11-17 04:07:13,523 easyblock.py:5068 INFO Starting configure step
+== 2026-11-17 04:07:13,563 easyblock.py:5079 INFO Running method configure_step part of step configure
+== 2026-11-17 04:07:23,576 filetools.py:928 WARNING IOError occurred while trying to download https://git.savannah.gnu.org/cgit/config.git/plain/config.guess?id=28ea239c53a2d5d8800c472bc2452eaa16e37af2 to /home/alice/sources/generic/eb_v5.4.2/ConfigureMake/config.guess: <urlopen error _ssl.c:1015: The handshake operation timed out>
+== 2026-11-17 04:07:24,087 filetools.py:925 WARNING HTTPError occurred while trying to download https://git.savannah.gnu.org/cgit/config.git/plain/config.guess?id=28ea239c53a2d5d8800c472bc2452eaa16e37af2 to /home/alice/sources/generic/eb_v5.4.2/ConfigureMake/config.guess: HTTP Error 502: Bad Gateway
+== 2026-11-17 04:07:34,095 filetools.py:928 WARNING IOError occurred while trying to download https://git.savannah.gnu.org/cgit/config.git/plain/config.guess?id=28ea239c53a2d5d8800c472bc2452eaa16e37af2 to /home/alice/sources/generic/eb_v5.4.2/ConfigureMake/config.guess: <urlopen error _ssl.c:1015: The handshake operation timed out>
+== 2026-11-17 04:07:44,985 filetools.py:928 WARNING IOError occurred while trying to download https://git.savannah.gnu.org/cgit/config.git/plain/config.guess?id=28ea239c53a2d5d8800c472bc2452eaa16e37af2 to /home/alice/sources/generic/eb_v5.4.2/ConfigureMake/config.guess: The read operation timed out
+== 2026-11-17 04:07:54,997 filetools.py:928 WARNING IOError occurred while trying to download https://git.savannah.gnu.org/cgit/config.git/plain/config.guess?id=28ea239c53a2d5d8800c472bc2452eaa16e37af2 to /home/alice/sources/generic/eb_v5.4.2/ConfigureMake/config.guess: <urlopen error _ssl.c:1015: The handshake operation timed out>
+== 2026-11-17 04:07:55,533 filetools.py:925 WARNING HTTPError occurred while trying to download https://git.savannah.gnu.org/cgit/config.git/plain/config.guess?id=28ea239c53a2d5d8800c472bc2452eaa16e37af2 to /home/alice/sources/generic/eb_v5.4.2/ConfigureMake/config.guess: HTTP Error 502: Bad Gateway
+== 2026-11-17 04:07:55,534 filetools.py:967 WARNING Download of https://git.savannah.gnu.org/cgit/config.git/plain/config.guess?id=28ea239c53a2d5d8800c472bc2452eaa16e37af2 to /home/alice/sources/generic/eb_v5.4.2/ConfigureMake/config.guess failed, done trying
+== 2026-11-17 04:07:55,534 build_log.py:465 WARNING Failed to download recent config.guess to /home/alice/sources/generic/eb_v5.4.2/ConfigureMake/config.guess
+== 2026-11-17 04:07:55,538 run.py:492 INFO run_shell_cmd: Script to start debug shell for shell command './configure ...'
+	will be saved to /tmp/alice/easybuild/eb-n5ccgtjd/run-shell-cmd-output/configure-a8rx4w8t/cmd.sh
+	output will be logged to /tmp/alice/easybuild/eb-n5ccgtjd/run-shell-cmd-output/configure-a8rx4w8t/out.txt
+== 2026-11-17 04:07:55,539 run.py:518 INFO Path to bash that will be used to run shell commands: /cvmfs/software.eessi.io/versions/2025.06/compat/linux/x86_64/bin/bash
+== 2026-11-17 04:07:55,539 run.py:532 INFO Running shell command in /tmp/alice/easybuild/build/hello/2.12.1/GCCcore-14.2.0/hello-2.12.1:
+	./configure --prefix=/home/alice/eessi/versions/2025.06/software/linux/x86_64/intel/sapphirerapids/software/hello/2.12.1-GCCcore-14.2.0
+== 2026-11-17 04:09:25,310 run.py:650 INFO Shell command completed successfully
+== 2026-11-17 04:09:25,311 build_log.py:330 INFO ... (took 2 mins 11 secs)
+== 2026-11-17 04:09:25,311 build_log.py:330 INFO building...
+== 2026-11-17 04:09:25,312 easyblock.py:5068 INFO Starting build step
+== 2026-11-17 04:09:25,312 easyblock.py:5079 INFO Running method build_step part of step build
+== 2026-11-17 04:09:25,316 run.py:492 INFO run_shell_cmd: Script to start debug shell for shell command 'make ...'
+	will be saved to /tmp/alice/easybuild/eb-n5ccgtjd/run-shell-cmd-output/make-lv1eoqiy/cmd.sh
+	output will be logged to /tmp/alice/easybuild/eb-n5ccgtjd/run-shell-cmd-output/make-lv1eoqiy/out.txt
+== 2026-11-17 04:09:25,317 run.py:518 INFO Path to bash that will be used to run shell commands: /cvmfs/software.eessi.io/versions/2025.06/compat/linux/x86_64/bin/bash
+== 2026-11-17 04:09:25,317 run.py:532 INFO Running shell command in /tmp/alice/easybuild/build/hello/2.12.1/GCCcore-14.2.0/hello-2.12.1:
+	make  -j 8
+== 2026-11-17 04:09:25,709 run.py:652 WARNING Shell command FAILED (exit code 2)
+Output (stdout + stderr):
+rm -f lib/alloca.h-t lib/alloca.h && \
+{ echo '/* DO NOT EDIT! GENERATED AUTOMATICALLY! */'; \
+  sed -e 's|@''HAVE_ALLOCA_H''@|1|g' < ./lib/alloca.in.h; \
+} > lib/alloca.h-t && \
+mv -f lib/alloca.h-t lib/alloca.h
+rm -f lib/configmake.h-t && \
+{ echo '/* DO NOT EDIT! GENERATED AUTOMATICALLY! */'; \
+  echo '#if HAVE_WINSOCK2_H'; \
+  echo '# include <winsock2.h> /* avoid mingw pollution on DATADIR */'; \
+      -e 's|@''HAVE_MBSNRTOWCS''@|1|g' \
+      -e 's|@''HAVE_WCRTOMB''@|1|g' \
+      -e 's|@''HAVE_WCSRTOMBS''@|1|g' \
+      -e 's|@''HAVE_WCSNRTOMBS''@|1|g' \
+      -e 's|@''HAVE_WMEMCHR''@|1|g' \
+      -e 's|@''HAVE_WMEMCMP''@|1|g' \
+      -e 's|@''HAVE_WMEMCPY''@|1|g' \
+      -e 's|@''HAVE_WMEMMOVE''@|1|g' \
+      -e 's|@''HAVE_WMEMPCPY''@|1|g' \
+      -e 's|@''HAVE_WMEMSET''@|1|g' \
+      -e 's|@''HAVE_WCSLEN''@|1|g' \
+      -e 's|@''HAVE_WCSNLEN''@|1|g' \
+      -e 's|@''HAVE_WCSCPY''@|1|g' \
+      -e 's|@''HAVE_WCPCPY''@|1|g' \
+      -e 's|@''HAVE_WCSNCPY''@|1|g' \
+      -e 's|@''HAVE_WCPNCPY''@|1|g' \
+      -e 's|@''HAVE_WCSCAT''@|1|g' \
+      -e 's|@''HAVE_WCSNCAT''@|1|g' \
+      -e 's|@''HAVE_WCSCMP''@|1|g' \
+      -e 's|@''HAVE_WCSNCMP''@|1|g' \
+      -e 's|@''HAVE_WCSCASECMP''@|1|g' \
+      -e 's|@''HAVE_WCSNCASECMP''@|1|g' \
+      -e 's|@''HAVE_WCSCOLL''@|1|g' \
+      -e 's|@''HAVE_WCSXFRM''@|1|g' \
+      -e 's|@''HAVE_WCSDUP''@|1|g' \
+      -e 's|@''HAVE_WCSCHR''@|1|g' \
+      -e 's|@''HAVE_WCSRCHR''@|1|g' \
+      -e 's|@''HAVE_WCSCSPN''@|1|g' \
+      -e 's|@''HAVE_WCSSPN''@|1|g' \
+      -e 's|@''HAVE_WCSPBRK''@|1|g' \
+      -e 's|@''HAVE_WCSSTR''@|1|g' \
+      -e 's|@''HAVE_WCSTOK''@|1|g' \
+      -e 's|@''HAVE_WCSWIDTH''@|1|g' \
+      -e 's|@''HAVE_WCSFTIME''@|1|g' \
+      -e 's|@''HAVE_DECL_WCTOB''@|1|g' \
+      -e 's|@''HAVE_DECL_WCSDUP''@|1|g' \
+      -e 's|@''HAVE_DECL_WCWIDTH''@|1|g' \
+  | \
+  sed -e 's|@''REPLACE_MBSTATE_T''@|0|g' \
+      -e 's|@''REPLACE_BTOWC''@|0|g' \
+      -e 's|@''REPLACE_WCTOB''@|0|g' \
+      -e 's|@''REPLACE_MBSINIT''@|0|g' \
+      -e 's|@''REPLACE_MBRTOWC''@|1|g' \
+      -e 's|@''REPLACE_MBRLEN''@|0|g' \
+      -e 's|@''REPLACE_MBSRTOWCS''@|0|g' \
+      -e 's|@''REPLACE_MBSNRTOWCS''@|0|g' \
+      -e 's|@''REPLACE_WCRTOMB''@|0|g' \
+      -e 's|@''REPLACE_WCSRTOMBS''@|0|g' \
+      -e 's|@''REPLACE_WCSNRTOMBS''@|0|g' \
+      -e 's|@''REPLACE_WCWIDTH''@|0|g' \
+      -e 's|@''REPLACE_WCSWIDTH''@|0|g' \
+      -e 's|@''REPLACE_WCSFTIME''@|0|g' \
+      -e 's|@''REPLACE_WCSTOK''@|0|g' \
+      -e '/definitions of _GL_FUNCDECL_RPL/r ./lib/c++defs.h' \
+      -e '/definition of _GL_ARG_NONNULL/r ./lib/arg-nonnull.h' \
+      -e '/definition of _GL_WARN_ON_USE/r ./lib/warn-on-use.h'; \
+} > lib/wchar.h-t && \
+mv lib/wchar.h-t lib/wchar.h
+rm -f lib/wctype.h-t lib/wctype.h && \
+{ echo '/* DO NOT EDIT! GENERATED AUTOMATICALLY! */'; \
+  sed -e 's|@''GUARD_PREFIX''@|GL|g' \
+      -e 's/@''HAVE_WCTYPE_H''@/1/g' \
+      -e 's|@''INCLUDE_NEXT''@|include_next|g' \
+      -e 's|@''PRAGMA_SYSTEM_HEADER''@|#pragma GCC system_header|g' \
+      -e 's|@''PRAGMA_COLUMNS''@||g' \
+      -e 's|@''NEXT_WCTYPE_H''@|<wctype.h>|g' \
+      -e 's/@''HAVE_CRTDEFS_H''@/0/g' \
+      -e 's/@''GNULIB_OVERRIDES_WINT_T''@/0/g' \
+      -e 's/@''GNULIB_ISWBLANK''@/1/g' \
+      -e 's/@''GNULIB_ISWDIGIT''@/1/g' \
+      -e 's/@''GNULIB_ISWXDIGIT''@/1/g' \
+      -e 's/@''GNULIB_WCTYPE''@/0/g' \
+      -e 's/@''GNULIB_ISWCTYPE''@/0/g' \
+      -e 's/@''GNULIB_WCTRANS''@/0/g' \
+      -e 's/@''GNULIB_TOWCTRANS''@/0/g' \
+      -e 's/@''HAVE_ISWBLANK''@/1/g' \
+      -e 's/@''HAVE_ISWCNTRL''@/1/g' \
+      -e 's/@''HAVE_WCTYPE_T''@/1/g' \
+      -e 's/@''HAVE_WCTRANS_T''@/1/g' \
+      -e 's/@''HAVE_WINT_T''@/1/g' \
+      -e 's/@''REPLACE_ISWBLANK''@/0/g' \
+      -e 's/@''REPLACE_ISWDIGIT''@/0/g' \
+      -e 's/@''REPLACE_ISWXDIGIT''@/0/g' \
+      -e 's/@''REPLACE_ISWCNTRL''@/0/g' \
+      -e 's/@''REPLACE_TOWLOWER''@/0/g' \
+      -e '/definitions of _GL_FUNCDECL_RPL/r ./lib/c++defs.h' \
+      -e '/definition of _GL_WARN_ON_USE/r ./lib/warn-on-use.h' \
+      < ./lib/wctype.in.h; \
+} > lib/wctype.h-t && \
+mv lib/wctype.h-t lib/wctype.h
+make  all-recursive
+make[1]: Entering directory '/tmp/alice/easybuild/build/hello/2.12.1/GCCcore-14.2.0/hello-2.12.1'
+Making all in po
+make[2]: Entering directory '/tmp/alice/easybuild/build/hello/2.12.1/GCCcore-14.2.0/hello-2.12.1/po'
+Makefile:170: warning: ignoring prerequisites on suffix rule definition
+make[2]: Nothing to be done for 'all'.
+make[2]: Leaving directory '/tmp/alice/easybuild/build/hello/2.12.1/GCCcore-14.2.0/hello-2.12.1/po'
+make[2]: Entering directory '/tmp/alice/easybuild/build/hello/2.12.1/GCCcore-14.2.0/hello-2.12.1'
+depbase=`echo src/hello.o | sed 's|[^/]*$|.deps/&|;s|\.o$||'`;\
+gcc -DLOCALEDIR=\"/home/alice/eessi/versions/2025.06/software/linux/x86_64/intel/sapphirerapids/software/hello/2.12.1-GCCcore-14.2.0/share/locale\" -DHAVE_CONFIG_H -I.  -Ilib -I./lib -Isrc -I./src   -O2 -ftree-vectorize -march=native -fno-math-errno -MT src/hello.o -MD -MP -MF $depbase.Tpo -c -o src/hello.o src/hello.c &&\
+mv -f $depbase.Tpo $depbase.Po
+depbase=`echo lib/basename-lgpl.o | sed 's|[^/]*$|.deps/&|;s|\.o$||'`;\
+gcc -DLOCALEDIR=\"/home/alice/eessi/versions/2025.06/software/linux/x86_64/intel/sapphirerapids/software/hello/2.12.1-GCCcore-14.2.0/share/locale\" -DHAVE_CONFIG_H -I.  -Ilib -I./lib -Isrc -I./src   -O2 -ftree-vectorize -march=native -fno-math-errno -MT lib/basename-lgpl.o -MD -MP -MF $depbase.Tpo -c -o lib/basename-lgpl.o lib/basename-lgpl.c &&\
+mv -f $depbase.Tpo $depbase.Po
+depbase=`echo lib/c-ctype.o | sed 's|[^/]*$|.deps/&|;s|\.o$||'`;\
+gcc -DLOCALEDIR=\"/home/alice/eessi/versions/2025.06/software/linux/x86_64/intel/sapphirerapids/software/hello/2.12.1-GCCcore-14.2.0/share/locale\" -DHAVE_CONFIG_H -I.  -Ilib -I./lib -Isrc -I./src   -O2 -ftree-vectorize -march=native -fno-math-errno -MT lib/c-ctype.o -MD -MP -MF $depbase.Tpo -c -o lib/c-ctype.o lib/c-ctype.c &&\
+mv -f $depbase.Tpo $depbase.Po
+depbase=`echo lib/c-strcasecmp.o | sed 's|[^/]*$|.deps/&|;s|\.o$||'`;\
+gcc -DLOCALEDIR=\"/home/alice/eessi/versions/2025.06/software/linux/x86_64/intel/sapphirerapids/software/hello/2.12.1-GCCcore-14.2.0/share/locale\" -DHAVE_CONFIG_H -I.  -Ilib -I./lib -Isrc -I./src   -O2 -ftree-vectorize -march=native -fno-math-errno -MT lib/c-strcasecmp.o -MD -MP -MF $depbase.Tpo -c -o lib/c-strcasecmp.o lib/c-strcasecmp.c &&\
+mv -f $depbase.Tpo $depbase.Po
+depbase=`echo lib/c-strncasecmp.o | sed 's|[^/]*$|.deps/&|;s|\.o$||'`;\
+gcc -DLOCALEDIR=\"/home/alice/eessi/versions/2025.06/software/linux/x86_64/intel/sapphirerapids/software/hello/2.12.1-GCCcore-14.2.0/share/locale\" -DHAVE_CONFIG_H -I.  -Ilib -I./lib -Isrc -I./src   -O2 -ftree-vectorize -march=native -fno-math-errno -MT lib/c-strncasecmp.o -MD -MP -MF $depbase.Tpo -c -o lib/c-strncasecmp.o lib/c-strncasecmp.c &&\
+mv -f $depbase.Tpo $depbase.Po
+depbase=`echo lib/cloexec.o | sed 's|[^/]*$|.deps/&|;s|\.o$||'`;\
+gcc -DLOCALEDIR=\"/home/alice/eessi/versions/2025.06/software/linux/x86_64/intel/sapphirerapids/software/hello/2.12.1-GCCcore-14.2.0/share/locale\" -DHAVE_CONFIG_H -I.  -Ilib -I./lib -Isrc -I./src   -O2 -ftree-vectorize -march=native -fno-math-errno -MT lib/cloexec.o -MD -MP -MF $depbase.Tpo -c -o lib/cloexec.o lib/cloexec.c &&\
+mv -f $depbase.Tpo $depbase.Po
+depbase=`echo lib/close-stream.o | sed 's|[^/]*$|.deps/&|;s|\.o$||'`;\
+gcc -DLOCALEDIR=\"/home/alice/eessi/versions/2025.06/software/linux/x86_64/intel/sapphirerapids/software/hello/2.12.1-GCCcore-14.2.0/share/locale\" -DHAVE_CONFIG_H -I.  -Ilib -I./lib -Isrc -I./src   -O2 -ftree-vectorize -march=native -fno-math-errno -MT lib/close-stream.o -MD -MP -MF $depbase.Tpo -c -o lib/close-stream.o lib/close-stream.c &&\
+mv -f $depbase.Tpo $depbase.Po
+depbase=`echo lib/closeout.o | sed 's|[^/]*$|.deps/&|;s|\.o$||'`;\
+gcc -DLOCALEDIR=\"/home/alice/eessi/versions/2025.06/software/linux/x86_64/intel/sapphirerapids/software/hello/2.12.1-GCCcore-14.2.0/share/locale\" -DHAVE_CONFIG_H -I.  -Ilib -I./lib -Isrc -I./src   -O2 -ftree-vectorize -march=native -fno-math-errno -MT lib/closeout.o -MD -MP -MF $depbase.Tpo -c -o lib/closeout.o lib/closeout.c &&\
+mv -f $depbase.Tpo $depbase.Po
+depbase=`echo lib/dirname.o | sed 's|[^/]*$|.deps/&|;s|\.o$||'`;\
+gcc -DLOCALEDIR=\"/home/alice/eessi/versions/2025.06/software/linux/x86_64/intel/sapphirerapids/software/hello/2.12.1-GCCcore-14.2.0/share/locale\" -DHAVE_CONFIG_H -I.  -Ilib -I./lib -Isrc -I./src   -O2 -ftree-vectorize -march=native -fno-math-errno -MT lib/dirname.o -MD -MP -MF $depbase.Tpo -c -o lib/dirname.o lib/dirname.c &&\
+mv -f $depbase.Tpo $depbase.Po
+depbase=`echo lib/basename.o | sed 's|[^/]*$|.deps/&|;s|\.o$||'`;\
+gcc -DLOCALEDIR=\"/home/alice/eessi/versions/2025.06/software/linux/x86_64/intel/sapphirerapids/software/hello/2.12.1-GCCcore-14.2.0/share/locale\" -DHAVE_CONFIG_H -I.  -Ilib -I./lib -Isrc -I./src   -O2 -ftree-vectorize -march=native -fno-math-errno -MT lib/basename.o -MD -MP -MF $depbase.Tpo -c -o lib/basename.o lib/basename.c &&\
+mv -f $depbase.Tpo $depbase.Po
+depbase=`echo lib/dirname-lgpl.o | sed 's|[^/]*$|.deps/&|;s|\.o$||'`;\
+gcc -DLOCALEDIR=\"/home/alice/eessi/versions/2025.06/software/linux/x86_64/intel/sapphirerapids/software/hello/2.12.1-GCCcore-14.2.0/share/locale\" -DHAVE_CONFIG_H -I.  -Ilib -I./lib -Isrc -I./src   -O2 -ftree-vectorize -march=native -fno-math-errno -MT lib/dirname-lgpl.o -MD -MP -MF $depbase.Tpo -c -o lib/dirname-lgpl.o lib/dirname-lgpl.c &&\
+mv -f $depbase.Tpo $depbase.Po
+depbase=`echo lib/stripslash.o | sed 's|[^/]*$|.deps/&|;s|\.o$||'`;\
+gcc -DLOCALEDIR=\"/home/alice/eessi/versions/2025.06/software/linux/x86_64/intel/sapphirerapids/software/hello/2.12.1-GCCcore-14.2.0/share/locale\" -DHAVE_CONFIG_H -I.  -Ilib -I./lib -Isrc -I./src   -O2 -ftree-vectorize -march=native -fno-math-errno -MT lib/stripslash.o -MD -MP -MF $depbase.Tpo -c -o lib/stripslash.o lib/stripslash.c &&\
+mv -f $depbase.Tpo $depbase.Po
+depbase=`echo lib/exitfail.o | sed 's|[^/]*$|.deps/&|;s|\.o$||'`;\
+gcc -DLOCALEDIR=\"/home/alice/eessi/versions/2025.06/software/linux/x86_64/intel/sapphirerapids/software/hello/2.12.1-GCCcore-14.2.0/share/locale\" -DHAVE_CONFIG_H -I.  -Ilib -I./lib -Isrc -I./src   -O2 -ftree-vectorize -march=native -fno-math-errno -MT lib/exitfail.o -MD -MP -MF $depbase.Tpo -c -o lib/exitfail.o lib/exitfail.c &&\
+mv -f $depbase.Tpo $depbase.Po
+src/hello.c: In function 'main':
+src/hello.c:149:18: error: 'site_greeting' undeclared (first use in this function); did you mean 'mb_greeting'?
+  149 |   greeting_msg = site_greeting;
+      |                  ^~~~~~~~~~~~~
+      |                  mb_greeting
+src/hello.c:149:18: note: each undeclared identifier is reported only once for each function it appears in
+make[2]: *** [Makefile:2270: src/hello.o] Error 1
+make[2]: *** Waiting for unfinished jobs....
+make[2]: Leaving directory '/tmp/alice/easybuild/build/hello/2.12.1/GCCcore-14.2.0/hello-2.12.1'
+make[1]: *** [Makefile:2496: all-recursive] Error 1
+make[1]: Leaving directory '/tmp/alice/easybuild/build/hello/2.12.1/GCCcore-14.2.0/hello-2.12.1'
+make: *** [Makefile:1899: all] Error 2
+
+== 2026-11-17 04:09:25,753 easyblock.py:5261 WARNING shell command 'make  -j 8' failed with exit code 2 in build step for hello-2.12.1-GCCcore-14.2.0.eb
+== 2026-11-17 04:09:25,758 build_log.py:233 ERROR EasyBuild encountered an error: shell command 'make ...' failed with exit code 2 in build step for hello-2.12.1-GCCcore-14.2.0.eb (at easybuild/framework/easyblock.py:5266 in run_all_steps)
+Callstack:
+	easybuild/framework/easyblock.py:5266 in run_all_steps
+	easybuild/framework/easyblock.py:5444 in build_and_install_one
+	easybuild/main.py:184 in build_and_install_software
+	easybuild/main.py:632 in process_eb_args
+	easybuild/main.py:816 in main
+	easybuild/main.py:874 in main_with_hooks
+	easybuild/main.py:893 in <module>
+== 2026-11-17 04:09:25,758 build_log.py:330 INFO ... (took < 1 sec)
+== 2026-11-17 04:09:25,759 easyblock.py:410 INFO Closing log for application name hello version 2.12.1
+== 2026-11-17 04:09:25,759 build_log.py:330 INFO FAILED: Installation ended unsuccessfully: shell command 'make ...' failed with exit code 2 in build step for hello-2.12.1-GCCcore-14.2.0.eb (took 3 mins 6 secs)
+== 2026-11-17 04:09:25,759 build_log.py:330 INFO Results of the build can be found in the log file(s) /home/alice/build-logs/20261117_040615/sapphirerapids/easybuild-logs/hello-2.12.1-GCCcore-14.2.0/easybuild-hello-2.12.1-20261117.040619.EHXaR.log
+== 2026-11-17 04:09:25,764 build_log.py:233 ERROR EasyBuild encountered an error: shell command 'make ...' failed with exit code 2 in build step for hello-2.12.1-GCCcore-14.2.0.eb (at easybuild/main.py:187 in build_and_install_software)
+Callstack:
+	easybuild/main.py:187 in build_and_install_software
+	easybuild/main.py:632 in process_eb_args
+	easybuild/main.py:816 in main
+	easybuild/main.py:874 in main_with_hooks
+	easybuild/main.py:893 in <module>
+== 2026-11-17 04:09:25,768 build_log.py:330 INFO Summary:
+   * [FAILED]  hello/2.12.1-GCCcore-14.2.0
+== 2026-11-17 04:09:25,772 build_log.py:233 ERROR EasyBuild encountered an error: Installation of hello-2.12.1-GCCcore-14.2.0.eb failed: shell command 'make ...' failed with exit code 2 in build step for hello-2.12.1-GCCcore-14.2.0.eb (at easybuild/main.py:231 in build_and_install_software)
+Callstack:
+	easybuild/main.py:231 in build_and_install_software
+	easybuild/main.py:632 in process_eb_args
+	easybuild/main.py:816 in main
+	easybuild/main.py:874 in main_with_hooks
+	easybuild/main.py:893 in <module>

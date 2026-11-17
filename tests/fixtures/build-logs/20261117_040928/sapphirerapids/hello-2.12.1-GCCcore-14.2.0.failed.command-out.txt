@@ -1,0 +1,160 @@
+rm -f lib/alloca.h-t lib/alloca.h && \
+{ echo '/* DO NOT EDIT! GENERATED AUTOMATICALLY! */'; \
+  sed -e 's|@''HAVE_ALLOCA_H''@|1|g' < ./lib/alloca.in.h; \
+} > lib/alloca.h-t && \
+mv -f lib/alloca.h-t lib/alloca.h
+rm -f lib/configmake.h-t && \
+{ echo '/* DO NOT EDIT! GENERATED AUTOMATICALLY! */'; \
+  echo '#if HAVE_WINSOCK2_H'; \
+  echo '# include <winsock2.h> /* avoid mingw pollution on DATADIR */'; \
+  echo '#endif'; \
+make[2]: Nothing to be done for 'all'.
+make[2]: Leaving directory '/tmp/alice/easybuild/build/hello/2.12.1/GCCcore-14.2.0/hello-2.12.1/po'
+make[2]: Entering directory '/tmp/alice/easybuild/build/hello/2.12.1/GCCcore-14.2.0/hello-2.12.1'
+depbase=`echo src/hello.o | sed 's|[^/]*$|.deps/&|;s|\.o$||'`;\
+gcc -DLOCALEDIR=\"/home/alice/eessi/versions/2025.06/software/linux/x86_64/intel/sapphirerapids/software/hello/2.12.1-GCCcore-14.2.0/share/locale\" -DHAVE_CONFIG_H -I.  -Ilib -I./lib -Isrc -I./src   -O2 -ftree-vectorize -march=native -fno-math-errno -MT src/hello.o -MD -MP -MF $depbase.Tpo -c -o src/hello.o src/hello.c &&\
+mv -f $depbase.Tpo $depbase.Po
+depbase=`echo lib/basename-lgpl.o | sed 's|[^/]*$|.deps/&|;s|\.o$||'`;\
+gcc -DLOCALEDIR=\"/home/alice/eessi/versions/2025.06/software/linux/x86_64/intel/sapphirerapids/software/hello/2.12.1-GCCcore-14.2.0/share/locale\" -DHAVE_CONFIG_H -I.  -Ilib -I./lib -Isrc -I./src   -O2 -ftree-vectorize -march=native -fno-math-errno -MT lib/basename-lgpl.o -MD -MP -MF $depbase.Tpo -c -o lib/basename-lgpl.o lib/basename-lgpl.c &&\
+mv -f $depbase.Tpo $depbase.Po
+depbase=`echo lib/c-ctype.o | sed 's|[^/]*$|.deps/&|;s|\.o$||'`;\
+gcc -DLOCALEDIR=\"/home/alice/eessi/versions/2025.06/software/linux/x86_64/intel/sapphirerapids/software/hello/2.12.1-GCCcore-14.2.0/share/locale\" -DHAVE_CONFIG_H -I.  -Ilib -I./lib -Isrc -I./src   -O2 -ftree-vectorize -march=native -fno-math-errno -MT lib/c-ctype.o -MD -MP -MF $depbase.Tpo -c -o lib/c-ctype.o lib/c-ctype.c &&\
+mv -f $depbase.Tpo $depbase.Po
+depbase=`echo lib/c-strcasecmp.o | sed 's|[^/]*$|.deps/&|;s|\.o$||'`;\
+gcc -DLOCALEDIR=\"/home/alice/eessi/versions/2025.06/software/linux/x86_64/intel/sapphirerapids/software/hello/2.12.1-GCCcore-14.2.0/share/locale\" -DHAVE_CONFIG_H -I.  -Ilib -I./lib -Isrc -I./src   -O2 -ftree-vectorize -march=native -fno-math-errno -MT lib/c-strcasecmp.o -MD -MP -MF $depbase.Tpo -c -o lib/c-strcasecmp.o lib/c-strcasecmp.c &&\
+mv -f $depbase.Tpo $depbase.Po
+depbase=`echo lib/c-strncasecmp.o | sed 's|[^/]*$|.deps/&|;s|\.o$||'`;\
+gcc -DLOCALEDIR=\"/home/alice/eessi/versions/2025.06/software/linux/x86_64/intel/sapphirerapids/software/hello/2.12.1-GCCcore-14.2.0/share/locale\" -DHAVE_CONFIG_H -I.  -Ilib -I./lib -Isrc -I./src   -O2 -ftree-vectorize -march=native -fno-math-errno -MT lib/c-strncasecmp.o -MD -MP -MF $depbase.Tpo -c -o lib/c-strncasecmp.o lib/c-strncasecmp.c &&\
+mv -f $depbase.Tpo $depbase.Po
+depbase=`echo lib/cloexec.o | sed 's|[^/]*$|.deps/&|;s|\.o$||'`;\
+gcc -DLOCALEDIR=\"/home/alice/eessi/versions/2025.06/software/linux/x86_64/intel/sapphirerapids/software/hello/2.12.1-GCCcore-14.2.0/share/locale\" -DHAVE_CONFIG_H -I.  -Ilib -I./lib -Isrc -I./src   -O2 -ftree-vectorize -march=native -fno-math-errno -MT lib/cloexec.o -MD -MP -MF $depbase.Tpo -c -o lib/cloexec.o lib/cloexec.c &&\
+mv -f $depbase.Tpo $depbase.Po
+depbase=`echo lib/close-stream.o | sed 's|[^/]*$|.deps/&|;s|\.o$||'`;\
+gcc -DLOCALEDIR=\"/home/alice/eessi/versions/2025.06/software/linux/x86_64/intel/sapphirerapids/software/hello/2.12.1-GCCcore-14.2.0/share/locale\" -DHAVE_CONFIG_H -I.  -Ilib -I./lib -Isrc -I./src   -O2 -ftree-vectorize -march=native -fno-math-errno -MT lib/close-stream.o -MD -MP -MF $depbase.Tpo -c -o lib/close-stream.o lib/close-stream.c &&\
+mv -f $depbase.Tpo $depbase.Po
+depbase=`echo lib/closeout.o | sed 's|[^/]*$|.deps/&|;s|\.o$||'`;\
+gcc -DLOCALEDIR=\"/home/alice/eessi/versions/2025.06/software/linux/x86_64/intel/sapphirerapids/software/hello/2.12.1-GCCcore-14.2.0/share/locale\" -DHAVE_CONFIG_H -I.  -Ilib -I./lib -Isrc -I./src   -O2 -ftree-vectorize -march=native -fno-math-errno -MT lib/closeout.o -MD -MP -MF $depbase.Tpo -c -o lib/closeout.o lib/closeout.c &&\
+mv -f $depbase.Tpo $depbase.Po
+depbase=`echo lib/dirname.o | sed 's|[^/]*$|.deps/&|;s|\.o$||'`;\
+gcc -DLOCALEDIR=\"/home/alice/eessi/versions/2025.06/software/linux/x86_64/intel/sapphirerapids/software/hello/2.12.1-GCCcore-14.2.0/share/locale\" -DHAVE_CONFIG_H -I.  -Ilib -I./lib -Isrc -I./src   -O2 -ftree-vectorize -march=native -fno-math-errno -MT lib/dirname.o -MD -MP -MF $depbase.Tpo -c -o lib/dirname.o lib/dirname.c &&\
+mv -f $depbase.Tpo $depbase.Po
+depbase=`echo lib/basename.o | sed 's|[^/]*$|.deps/&|;s|\.o$||'`;\
+gcc -DLOCALEDIR=\"/home/alice/eessi/versions/2025.06/software/linux/x86_64/intel/sapphirerapids/software/hello/2.12.1-GCCcore-14.2.0/share/locale\" -DHAVE_CONFIG_H -I.  -Ilib -I./lib -Isrc -I./src   -O2 -ftree-vectorize -march=native -fno-math-errno -MT lib/basename.o -MD -MP -MF $depbase.Tpo -c -o lib/basename.o lib/basename.c &&\
+mv -f $depbase.Tpo $depbase.Po
+depbase=`echo lib/dirname-lgpl.o | sed 's|[^/]*$|.deps/&|;s|\.o$||'`;\
+gcc -DLOCALEDIR=\"/home/alice/eessi/versions/2025.06/software/linux/x86_64/intel/sapphirerapids/software/hello/2.12.1-GCCcore-14.2.0/share/locale\" -DHAVE_CONFIG_H -I.  -Ilib -I./lib -Isrc -I./src   -O2 -ftree-vectorize -march=native -fno-math-errno -MT lib/dirname-lgpl.o -MD -MP -MF $depbase.Tpo -c -o lib/dirname-lgpl.o lib/dirname-lgpl.c &&\
+mv -f $depbase.Tpo $depbase.Po
+depbase=`echo lib/stripslash.o | sed 's|[^/]*$|.deps/&|;s|\.o$||'`;\
+gcc -DLOCALEDIR=\"/home/alice/eessi/versions/2025.06/software/linux/x86_64/intel/sapphirerapids/software/hello/2.12.1-GCCcore-14.2.0/share/locale\" -DHAVE_CONFIG_H -I.  -Ilib -I./lib -Isrc -I./src   -O2 -ftree-vectorize -march=native -fno-math-errno -MT lib/stripslash.o -MD -MP -MF $depbase.Tpo -c -o lib/stripslash.o lib/stripslash.c &&\
+mv -f $depbase.Tpo $depbase.Po
+depbase=`echo lib/exitfail.o | sed 's|[^/]*$|.deps/&|;s|\.o$||'`;\
+gcc -DLOCALEDIR=\"/home/alice/eessi/versions/2025.06/software/linux/x86_64/intel/sapphirerapids/software/hello/2.12.1-GCCcore-14.2.0/share/locale\" -DHAVE_CONFIG_H -I.  -Ilib -I./lib -Isrc -I./src   -O2 -ftree-vectorize -march=native -fno-math-errno -MT lib/exitfail.o -MD -MP -MF $depbase.Tpo -c -o lib/exitfail.o lib/exitfail.c &&\
+mv -f $depbase.Tpo $depbase.Po
+depbase=`echo lib/fd-hook.o | sed 's|[^/]*$|.deps/&|;s|\.o$||'`;\
+gcc -DLOCALEDIR=\"/home/alice/eessi/versions/2025.06/software/linux/x86_64/intel/sapphirerapids/software/hello/2.12.1-GCCcore-14.2.0/share/locale\" -DHAVE_CONFIG_H -I.  -Ilib -I./lib -Isrc -I./src   -O2 -ftree-vectorize -march=native -fno-math-errno -MT lib/fd-hook.o -MD -MP -MF $depbase.Tpo -c -o lib/fd-hook.o lib/fd-hook.c &&\
+mv -f $depbase.Tpo $depbase.Po
+depbase=`echo lib/getprogname.o | sed 's|[^/]*$|.deps/&|;s|\.o$||'`;\
+gcc -DLOCALEDIR=\"/home/alice/eessi/versions/2025.06/software/linux/x86_64/intel/sapphirerapids/software/hello/2.12.1-GCCcore-14.2.0/share/locale\" -DHAVE_CONFIG_H -I.  -Ilib -I./lib -Isrc -I./src   -O2 -ftree-vectorize -march=native -fno-math-errno -MT lib/getprogname.o -MD -MP -MF $depbase.Tpo -c -o lib/getprogname.o lib/getprogname.c &&\
+mv -f $depbase.Tpo $depbase.Po
+depbase=`echo lib/hard-locale.o | sed 's|[^/]*$|.deps/&|;s|\.o$||'`;\
+gcc -DLOCALEDIR=\"/home/alice/eessi/versions/2025.06/software/linux/x86_64/intel/sapphirerapids/software/hello/2.12.1-GCCcore-14.2.0/share/locale\" -DHAVE_CONFIG_H -I.  -Ilib -I./lib -Isrc -I./src   -O2 -ftree-vectorize -march=native -fno-math-errno -MT lib/hard-locale.o -MD -MP -MF $depbase.Tpo -c -o lib/hard-locale.o lib/hard-locale.c &&\
+mv -f $depbase.Tpo $depbase.Po
+depbase=`echo lib/localcharset.o | sed 's|[^/]*$|.deps/&|;s|\.o$||'`;\
+gcc -DLOCALEDIR=\"/home/alice/eessi/versions/2025.06/software/linux/x86_64/intel/sapphirerapids/software/hello/2.12.1-GCCcore-14.2.0/share/locale\" -DHAVE_CONFIG_H -I.  -Ilib -I./lib -Isrc -I./src   -O2 -ftree-vectorize -march=native -fno-math-errno -MT lib/localcharset.o -MD -MP -MF $depbase.Tpo -c -o lib/localcharset.o lib/localcharset.c &&\
+mv -f $depbase.Tpo $depbase.Po
+depbase=`echo lib/malloca.o | sed 's|[^/]*$|.deps/&|;s|\.o$||'`;\
+gcc -DLOCALEDIR=\"/home/alice/eessi/versions/2025.06/software/linux/x86_64/intel/sapphirerapids/software/hello/2.12.1-GCCcore-14.2.0/share/locale\" -DHAVE_CONFIG_H -I.  -Ilib -I./lib -Isrc -I./src   -O2 -ftree-vectorize -march=native -fno-math-errno -MT lib/malloca.o -MD -MP -MF $depbase.Tpo -c -o lib/malloca.o lib/malloca.c &&\
+mv -f $depbase.Tpo $depbase.Po
+depbase=`echo lib/mbchar.o | sed 's|[^/]*$|.deps/&|;s|\.o$||'`;\
+gcc -DLOCALEDIR=\"/home/alice/eessi/versions/2025.06/software/linux/x86_64/intel/sapphirerapids/software/hello/2.12.1-GCCcore-14.2.0/share/locale\" -DHAVE_CONFIG_H -I.  -Ilib -I./lib -Isrc -I./src   -O2 -ftree-vectorize -march=native -fno-math-errno -MT lib/mbchar.o -MD -MP -MF $depbase.Tpo -c -o lib/mbchar.o lib/mbchar.c &&\
+mv -f $depbase.Tpo $depbase.Po
+depbase=`echo lib/mbiter.o | sed 's|[^/]*$|.deps/&|;s|\.o$||'`;\
+gcc -DLOCALEDIR=\"/home/alice/eessi/versions/2025.06/software/linux/x86_64/intel/sapphirerapids/software/hello/2.12.1-GCCcore-14.2.0/share/locale\" -DHAVE_CONFIG_H -I.  -Ilib -I./lib -Isrc -I./src   -O2 -ftree-vectorize -march=native -fno-math-errno -MT lib/mbiter.o -MD -MP -MF $depbase.Tpo -c -o lib/mbiter.o lib/mbiter.c &&\
+mv -f $depbase.Tpo $depbase.Po
+depbase=`echo lib/mbslen.o | sed 's|[^/]*$|.deps/&|;s|\.o$||'`;\
+gcc -DLOCALEDIR=\"/home/alice/eessi/versions/2025.06/software/linux/x86_64/intel/sapphirerapids/software/hello/2.12.1-GCCcore-14.2.0/share/locale\" -DHAVE_CONFIG_H -I.  -Ilib -I./lib -Isrc -I./src   -O2 -ftree-vectorize -march=native -fno-math-errno -MT lib/mbslen.o -MD -MP -MF $depbase.Tpo -c -o lib/mbslen.o lib/mbslen.c &&\
+mv -f $depbase.Tpo $depbase.Po
+depbase=`echo lib/mbsstr.o | sed 's|[^/]*$|.deps/&|;s|\.o$||'`;\
+gcc -DLOCALEDIR=\"/home/alice/eessi/versions/2025.06/software/linux/x86_64/intel/sapphirerapids/software/hello/2.12.1-GCCcore-14.2.0/share/locale\" -DHAVE_CONFIG_H -I.  -Ilib -I./lib -Isrc -I./src   -O2 -ftree-vectorize -march=native -fno-math-errno -MT lib/mbsstr.o -MD -MP -MF $depbase.Tpo -c -o lib/mbsstr.o lib/mbsstr.c &&\
+mv -f $depbase.Tpo $depbase.Po
+depbase=`echo lib/mbuiter.o | sed 's|[^/]*$|.deps/&|;s|\.o$||'`;\
+gcc -DLOCALEDIR=\"/home/alice/eessi/versions/2025.06/software/linux/x86_64/intel/sapphirerapids/software/hello/2.12.1-GCCcore-14.2.0/share/locale\" -DHAVE_CONFIG_H -I.  -Ilib -I./lib -Isrc -I./src   -O2 -ftree-vectorize -march=native -fno-math-errno -MT lib/mbuiter.o -MD -MP -MF $depbase.Tpo -c -o lib/mbuiter.o lib/mbuiter.c &&\
+mv -f $depbase.Tpo $depbase.Po
+depbase=`echo lib/progname.o | sed 's|[^/]*$|.deps/&|;s|\.o$||'`;\
+gcc -DLOCALEDIR=\"/home/alice/eessi/versions/2025.06/software/linux/x86_64/intel/sapphirerapids/software/hello/2.12.1-GCCcore-14.2.0/share/locale\" -DHAVE_CONFIG_H -I.  -Ilib -I./lib -Isrc -I./src   -O2 -ftree-vectorize -march=native -fno-math-errno -MT lib/progname.o -MD -MP -MF $depbase.Tpo -c -o lib/progname.o lib/progname.c &&\
+mv -f $depbase.Tpo $depbase.Po
+depbase=`echo lib/propername.o | sed 's|[^/]*$|.deps/&|;s|\.o$||'`;\
+gcc -DLOCALEDIR=\"/home/alice/eessi/versions/2025.06/software/linux/x86_64/intel/sapphirerapids/software/hello/2.12.1-GCCcore-14.2.0/share/locale\" -DHAVE_CONFIG_H -I.  -Ilib -I./lib -Isrc -I./src   -O2 -ftree-vectorize -march=native -fno-math-errno -MT lib/propername.o -MD -MP -MF $depbase.Tpo -c -o lib/propername.o lib/propername.c &&\
+mv -f $depbase.Tpo $depbase.Po
+depbase=`echo lib/quotearg.o | sed 's|[^/]*$|.deps/&|;s|\.o$||'`;\
+gcc -DLOCALEDIR=\"/home/alice/eessi/versions/2025.06/software/linux/x86_64/intel/sapphirerapids/software/hello/2.12.1-GCCcore-14.2.0/share/locale\" -DHAVE_CONFIG_H -I.  -Ilib -I./lib -Isrc -I./src   -O2 -ftree-vectorize -march=native -fno-math-errno -MT lib/quotearg.o -MD -MP -MF $depbase.Tpo -c -o lib/quotearg.o lib/quotearg.c &&\
+mv -f $depbase.Tpo $depbase.Po
+depbase=`echo lib/setlocale_null.o | sed 's|[^/]*$|.deps/&|;s|\.o$||'`;\
+gcc -DLOCALEDIR=\"/home/alice/eessi/versions/2025.06/software/linux/x86_64/intel/sapphirerapids/software/hello/2.12.1-GCCcore-14.2.0/share/locale\" -DHAVE_CONFIG_H -I.  -Ilib -I./lib -Isrc -I./src   -O2 -ftree-vectorize -march=native -fno-math-errno -MT lib/setlocale_null.o -MD -MP -MF $depbase.Tpo -c -o lib/setlocale_null.o lib/setlocale_null.c &&\
+mv -f $depbase.Tpo $depbase.Po
+depbase=`echo lib/stat-time.o | sed 's|[^/]*$|.deps/&|;s|\.o$||'`;\
+gcc -DLOCALEDIR=\"/home/alice/eessi/versions/2025.06/software/linux/x86_64/intel/sapphirerapids/software/hello/2.12.1-GCCcore-14.2.0/share/locale\" -DHAVE_CONFIG_H -I.  -Ilib -I./lib -Isrc -I./src   -O2 -ftree-vectorize -march=native -fno-math-errno -MT lib/stat-time.o -MD -MP -MF $depbase.Tpo -c -o lib/stat-time.o lib/stat-time.c &&\
+mv -f $depbase.Tpo $depbase.Po
+depbase=`echo lib/striconv.o | sed 's|[^/]*$|.deps/&|;s|\.o$||'`;\
+gcc -DLOCALEDIR=\"/home/alice/eessi/versions/2025.06/software/linux/x86_64/intel/sapphirerapids/software/hello/2.12.1-GCCcore-14.2.0/share/locale\" -DHAVE_CONFIG_H -I.  -Ilib -I./lib -Isrc -I./src   -O2 -ftree-vectorize -march=native -fno-math-errno -MT lib/striconv.o -MD -MP -MF $depbase.Tpo -c -o lib/striconv.o lib/striconv.c &&\
+mv -f $depbase.Tpo $depbase.Po
+depbase=`echo lib/strnlen1.o | sed 's|[^/]*$|.deps/&|;s|\.o$||'`;\
+gcc -DLOCALEDIR=\"/home/alice/eessi/versions/2025.06/software/linux/x86_64/intel/sapphirerapids/software/hello/2.12.1-GCCcore-14.2.0/share/locale\" -DHAVE_CONFIG_H -I.  -Ilib -I./lib -Isrc -I./src   -O2 -ftree-vectorize -march=native -fno-math-errno -MT lib/strnlen1.o -MD -MP -MF $depbase.Tpo -c -o lib/strnlen1.o lib/strnlen1.c &&\
+mv -f $depbase.Tpo $depbase.Po
+depbase=`echo lib/trim.o | sed 's|[^/]*$|.deps/&|;s|\.o$||'`;\
+gcc -DLOCALEDIR=\"/home/alice/eessi/versions/2025.06/software/linux/x86_64/intel/sapphirerapids/software/hello/2.12.1-GCCcore-14.2.0/share/locale\" -DHAVE_CONFIG_H -I.  -Ilib -I./lib -Isrc -I./src   -O2 -ftree-vectorize -march=native -fno-math-errno -MT lib/trim.o -MD -MP -MF $depbase.Tpo -c -o lib/trim.o lib/trim.c &&\
+mv -f $depbase.Tpo $depbase.Po
+depbase=`echo lib/unistd.o | sed 's|[^/]*$|.deps/&|;s|\.o$||'`;\
+gcc -DLOCALEDIR=\"/home/alice/eessi/versions/2025.06/software/linux/x86_64/intel/sapphirerapids/software/hello/2.12.1-GCCcore-14.2.0/share/locale\" -DHAVE_CONFIG_H -I.  -Ilib -I./lib -Isrc -I./src   -O2 -ftree-vectorize -march=native -fno-math-errno -MT lib/unistd.o -MD -MP -MF $depbase.Tpo -c -o lib/unistd.o lib/unistd.c &&\
+mv -f $depbase.Tpo $depbase.Po
+depbase=`echo lib/unistr/u8-mbtoucr.o | sed 's|[^/]*$|.deps/&|;s|\.o$||'`;\
+gcc -DLOCALEDIR=\"/home/alice/eessi/versions/2025.06/software/linux/x86_64/intel/sapphirerapids/software/hello/2.12.1-GCCcore-14.2.0/share/locale\" -DHAVE_CONFIG_H -I.  -Ilib -I./lib -Isrc -I./src   -O2 -ftree-vectorize -march=native -fno-math-errno -MT lib/unistr/u8-mbtoucr.o -MD -MP -MF $depbase.Tpo -c -o lib/unistr/u8-mbtoucr.o lib/unistr/u8-mbtoucr.c &&\
+mv -f $depbase.Tpo $depbase.Po
+depbase=`echo lib/unistr/u8-uctomb.o | sed 's|[^/]*$|.deps/&|;s|\.o$||'`;\
+gcc -DLOCALEDIR=\"/home/alice/eessi/versions/2025.06/software/linux/x86_64/intel/sapphirerapids/software/hello/2.12.1-GCCcore-14.2.0/share/locale\" -DHAVE_CONFIG_H -I.  -Ilib -I./lib -Isrc -I./src   -O2 -ftree-vectorize -march=native -fno-math-errno -MT lib/unistr/u8-uctomb.o -MD -MP -MF $depbase.Tpo -c -o lib/unistr/u8-uctomb.o lib/unistr/u8-uctomb.c &&\
+mv -f $depbase.Tpo $depbase.Po
+depbase=`echo lib/unistr/u8-uctomb-aux.o | sed 's|[^/]*$|.deps/&|;s|\.o$||'`;\
+gcc -DLOCALEDIR=\"/home/alice/eessi/versions/2025.06/software/linux/x86_64/intel/sapphirerapids/software/hello/2.12.1-GCCcore-14.2.0/share/locale\" -DHAVE_CONFIG_H -I.  -Ilib -I./lib -Isrc -I./src   -O2 -ftree-vectorize -march=native -fno-math-errno -MT lib/unistr/u8-uctomb-aux.o -MD -MP -MF $depbase.Tpo -c -o lib/unistr/u8-uctomb-aux.o lib/unistr/u8-uctomb-aux.c &&\
+mv -f $depbase.Tpo $depbase.Po
+depbase=`echo lib/uniwidth/width.o | sed 's|[^/]*$|.deps/&|;s|\.o$||'`;\
+gcc -DLOCALEDIR=\"/home/alice/eessi/versions/2025.06/software/linux/x86_64/intel/sapphirerapids/software/hello/2.12.1-GCCcore-14.2.0/share/locale\" -DHAVE_CONFIG_H -I.  -Ilib -I./lib -Isrc -I./src   -O2 -ftree-vectorize -march=native -fno-math-errno -MT lib/uniwidth/width.o -MD -MP -MF $depbase.Tpo -c -o lib/uniwidth/width.o lib/uniwidth/width.c &&\
+mv -f $depbase.Tpo $depbase.Po
+depbase=`echo lib/version-etc.o | sed 's|[^/]*$|.deps/&|;s|\.o$||'`;\
+gcc -DLOCALEDIR=\"/home/alice/eessi/versions/2025.06/software/linux/x86_64/intel/sapphirerapids/software/hello/2.12.1-GCCcore-14.2.0/share/locale\" -DHAVE_CONFIG_H -I.  -Ilib -I./lib -Isrc -I./src   -O2 -ftree-vectorize -march=native -fno-math-errno -MT lib/version-etc.o -MD -MP -MF $depbase.Tpo -c -o lib/version-etc.o lib/version-etc.c &&\
+mv -f $depbase.Tpo $depbase.Po
+depbase=`echo lib/version-etc-fsf.o | sed 's|[^/]*$|.deps/&|;s|\.o$||'`;\
+gcc -DLOCALEDIR=\"/home/alice/eessi/versions/2025.06/software/linux/x86_64/intel/sapphirerapids/software/hello/2.12.1-GCCcore-14.2.0/share/locale\" -DHAVE_CONFIG_H -I.  -Ilib -I./lib -Isrc -I./src   -O2 -ftree-vectorize -march=native -fno-math-errno -MT lib/version-etc-fsf.o -MD -MP -MF $depbase.Tpo -c -o lib/version-etc-fsf.o lib/version-etc-fsf.c &&\
+mv -f $depbase.Tpo $depbase.Po
+depbase=`echo lib/wctype-h.o | sed 's|[^/]*$|.deps/&|;s|\.o$||'`;\
+gcc -DLOCALEDIR=\"/home/alice/eessi/versions/2025.06/software/linux/x86_64/intel/sapphirerapids/software/hello/2.12.1-GCCcore-14.2.0/share/locale\" -DHAVE_CONFIG_H -I.  -Ilib -I./lib -Isrc -I./src   -O2 -ftree-vectorize -march=native -fno-math-errno -MT lib/wctype-h.o -MD -MP -MF $depbase.Tpo -c -o lib/wctype-h.o lib/wctype-h.c &&\
+mv -f $depbase.Tpo $depbase.Po
+depbase=`echo lib/xmalloc.o | sed 's|[^/]*$|.deps/&|;s|\.o$||'`;\
+gcc -DLOCALEDIR=\"/home/alice/eessi/versions/2025.06/software/linux/x86_64/intel/sapphirerapids/software/hello/2.12.1-GCCcore-14.2.0/share/locale\" -DHAVE_CONFIG_H -I.  -Ilib -I./lib -Isrc -I./src   -O2 -ftree-vectorize -march=native -fno-math-errno -MT lib/xmalloc.o -MD -MP -MF $depbase.Tpo -c -o lib/xmalloc.o lib/xmalloc.c &&\
+mv -f $depbase.Tpo $depbase.Po
+depbase=`echo lib/xalloc-die.o | sed 's|[^/]*$|.deps/&|;s|\.o$||'`;\
+gcc -DLOCALEDIR=\"/home/alice/eessi/versions/2025.06/software/linux/x86_64/intel/sapphirerapids/software/hello/2.12.1-GCCcore-14.2.0/share/locale\" -DHAVE_CONFIG_H -I.  -Ilib -I./lib -Isrc -I./src   -O2 -ftree-vectorize -march=native -fno-math-errno -MT lib/xalloc-die.o -MD -MP -MF $depbase.Tpo -c -o lib/xalloc-die.o lib/xalloc-die.c &&\
+mv -f $depbase.Tpo $depbase.Po
+depbase=`echo lib/xstriconv.o | sed 's|[^/]*$|.deps/&|;s|\.o$||'`;\
+gcc -DLOCALEDIR=\"/home/alice/eessi/versions/2025.06/software/linux/x86_64/intel/sapphirerapids/software/hello/2.12.1-GCCcore-14.2.0/share/locale\" -DHAVE_CONFIG_H -I.  -Ilib -I./lib -Isrc -I./src   -O2 -ftree-vectorize -march=native -fno-math-errno -MT lib/xstriconv.o -MD -MP -MF $depbase.Tpo -c -o lib/xstriconv.o lib/xstriconv.c &&\
+mv -f $depbase.Tpo $depbase.Po
+depbase=`echo lib/xstrndup.o | sed 's|[^/]*$|.deps/&|;s|\.o$||'`;\
+gcc -DLOCALEDIR=\"/home/alice/eessi/versions/2025.06/software/linux/x86_64/intel/sapphirerapids/software/hello/2.12.1-GCCcore-14.2.0/share/locale\" -DHAVE_CONFIG_H -I.  -Ilib -I./lib -Isrc -I./src   -O2 -ftree-vectorize -march=native -fno-math-errno -MT lib/xstrndup.o -MD -MP -MF $depbase.Tpo -c -o lib/xstrndup.o lib/xstrndup.c &&\
+mv -f $depbase.Tpo $depbase.Po
+depbase=`echo lib/fcntl.o | sed 's|[^/]*$|.deps/&|;s|\.o$||'`;\
+gcc -DLOCALEDIR=\"/home/alice/eessi/versions/2025.06/software/linux/x86_64/intel/sapphirerapids/software/hello/2.12.1-GCCcore-14.2.0/share/locale\" -DHAVE_CONFIG_H -I.  -Ilib -I./lib -Isrc -I./src   -O2 -ftree-vectorize -march=native -fno-math-errno -MT lib/fcntl.o -MD -MP -MF $depbase.Tpo -c -o lib/fcntl.o lib/fcntl.c &&\
+mv -f $depbase.Tpo $depbase.Po
+depbase=`echo lib/mbrtowc.o | sed 's|[^/]*$|.deps/&|;s|\.o$||'`;\
+gcc -DLOCALEDIR=\"/home/alice/eessi/versions/2025.06/software/linux/x86_64/intel/sapphirerapids/software/hello/2.12.1-GCCcore-14.2.0/share/locale\" -DHAVE_CONFIG_H -I.  -Ilib -I./lib -Isrc -I./src   -O2 -ftree-vectorize -march=native -fno-math-errno -MT lib/mbrtowc.o -MD -MP -MF $depbase.Tpo -c -o lib/mbrtowc.o lib/mbrtowc.c &&\
+mv -f $depbase.Tpo $depbase.Po
+rm -f lib/libhello.a
+ar cr lib/libhello.a lib/basename-lgpl.o lib/c-ctype.o lib/c-strcasecmp.o lib/c-strncasecmp.o lib/cloexec.o lib/close-stream.o lib/closeout.o lib/dirname.o lib/basename.o lib/dirname-lgpl.o lib/stripslash.o lib/exitfail.o lib/fd-hook.o lib/getprogname.o lib/hard-locale.o lib/localcharset.o lib/malloca.o lib/mbchar.o lib/mbiter.o lib/mbslen.o lib/mbsstr.o lib/mbuiter.o lib/progname.o lib/propername.o lib/quotearg.o lib/setlocale_null.o lib/stat-time.o lib/striconv.o lib/strnlen1.o lib/trim.o lib/unistd.o lib/unistr/u8-mbtoucr.o lib/unistr/u8-uctomb.o lib/unistr/u8-uctomb-aux.o lib/uniwidth/width.o lib/version-etc.o lib/version-etc-fsf.o lib/wctype-h.o lib/xmalloc.o lib/xalloc-die.o lib/xstriconv.o lib/xstrndup.o lib/fcntl.o lib/mbrtowc.o
+ranlib lib/libhello.a
+gcc  -O2 -ftree-vectorize -march=native -fno-math-errno  -L/cvmfs/software.eessi.io/versions/2025.06/software/linux/x86_64/intel/sapphirerapids/software/GCCcore/14.2.0/lib64 -L/cvmfs/software.eessi.io/versions/2025.06/software/linux/x86_64/intel/sapphirerapids/software/GCCcore/14.2.0/lib -o hello src/hello.o  ./lib/libhello.a -lm -lpthread
+/cvmfs/software.eessi.io/versions/2025.06/compat/linux/x86_64/usr/bin/ld: src/hello.o: in function `main':
+hello.c:(.text.startup+0x4a): undefined reference to `site_greeting'
+collect2: error: ld returned 1 exit status
+make[2]: *** [Makefile:2173: hello] Error 1
+make[2]: Leaving directory '/tmp/alice/easybuild/build/hello/2.12.1/GCCcore-14.2.0/hello-2.12.1'
+make[1]: *** [Makefile:2496: all-recursive] Error 1
+make[1]: Leaving directory '/tmp/alice/easybuild/build/hello/2.12.1/GCCcore-14.2.0/hello-2.12.1'
+make: *** [Makefile:1899: all] Error 2
