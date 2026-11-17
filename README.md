@@ -12,9 +12,15 @@ Keep the logs of EasyBuild builds that a build pipeline would otherwise lose, an
 
 Documentation: <https://stackhands.github.io/eb-keep-logs/>
 
-A failed build's EasyBuild log stays in EasyBuild's tmpdir on the build node, which disappears with the job.
-Parsing EasyBuild's stdout for the log path is unreliable, because EasyBuild wraps the "Results of the build can be found in the log file(s)" line.
-`eb-keep-logs failed` asks `eb --last-log` for the path and keeps a copy.
+For the EasyBuild log alone you do not need this tool.
+Give `eb` a `--tmp-logdir` on durable storage and copy the file `eb --last-log` names, as EESSI's [`EESSI-install-software.sh`](https://github.com/EESSI/software-layer-scripts/blob/main/EESSI-install-software.sh) does after a failed build.
+
+What that leaves behind is the failing command's own output.
+EasyBuild 5 writes each shell command's `out.txt` and `err.txt` under `run-shell-cmd-output/` in its tmpdir.
+A failed meson test step leaves its full test log in the build directory.
+Both go with the job's node-local disk.
+`eb-keep-logs failed` keeps those beside the EasyBuild log, closed to other users, because a failed compile line of licensed software can print the licence number.
+It asks `eb --last-log` for the log's path rather than parsing stdout, where EasyBuild wraps the "Results of the build can be found in the log file(s)" line.
 It passes `--output-style=basic`, because EasyBuild 5.3 and later fold that path at the terminal width, 80 columns on a pipe; an `eb` older than 4.5 refuses the option and is asked again without it.
 
 ## Install
