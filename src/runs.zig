@@ -42,9 +42,10 @@ pub fn execMatches(path: []const u8, query: []const u8) bool {
     return std.mem.eql(u8, path[slash + 1 ..], query);
 }
 
-const Object = struct { slice: []const u8, end: usize };
+pub const Object = struct { slice: []const u8, end: usize };
 
-fn nextObject(text: []const u8, start: usize) error{BadJson}!?Object {
+/// The next concatenated JSON object in `text`.
+pub fn nextObject(text: []const u8, start: usize) error{BadJson}!?Object {
     var i = start;
     while (i < text.len and std.ascii.isWhitespace(text[i])) : (i += 1) {}
     if (i >= text.len) return null;

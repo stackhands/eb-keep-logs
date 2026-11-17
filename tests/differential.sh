@@ -26,6 +26,7 @@ declare -A deliberate=(
     ["loads"]="\`loads\`"
     ["runs"]="\`runs\`"
     ["used"]="\`used\`"
+    ["usage"]="\`usage\`"
     ["pending"]="\`pending\`"
 )
 compat_deliberate=$(sed -n '/^## Deliberate differences$/,/^## /p' "${repo_root}/COMPAT.md")
@@ -158,6 +159,8 @@ printf '%s\n' '{"userT":{"user":"a","exec_path":"/bin/gmx","syshost":"h","start_
 compare "runs" runs --exec gmx "${work}/runs.json"
 printf '%s\n' '{"userT":{"user":"a","exec_path":"/bin/gmx","syshost":"h","start_time":1}}' > "${work}/used.json"
 compare "used" used --prefix /opt "${work}/used.json"
+mkdir -p "${work}/software/GROMACS/1.0" "${work}/modules"
+compare "usage" usage --software "${work}/software" --modules "${work}/modules" "${work}/used.json"
 printf '%s\n' ' * [ ] flex-2.6.4.eb (module: flex/2.6.4)' > "${work}/dry.txt"
 compare "pending" pending "${work}/dry.txt"
 

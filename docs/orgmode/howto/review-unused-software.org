@@ -1,0 +1,61 @@
+#+TITLE: Review unused installed software
+#+OPTIONS: toc:nil todo:nil num:nil author:nil title:nil
+#+STARTUP: content
+
+* Review unused installed software
+
+Use =usage= to make a review list from an EasyBuild software tree and the XALT and Lmod records you retain.
+It reports candidates; it does not retire or uninstall anything.
+
+1. Identify the two install roots.
+   The software root has direct =Name/Version= directories, and the module root contains the module files named in Lmod's ModuleUsageTracking records:
+
+   #+begin_src text
+   /srv/easybuild/software/GROMACS/2026.1-foss-2026a/
+   /srv/easybuild/modules/all/GROMACS/2026.1-foss-2026a.lua
+   #+end_src
+
+2. List entries with no recorded hit.
+   Pass every retained XALT JSON and Lmod usage-log file in one invocation:
+
+   #+begin_src bash
+   eb-keep-logs usage \
+     --software /srv/easybuild/software \
+     --modules /srv/easybuild/modules/all \
+     --unused \
+     /var/log/xalt/run.json /var/log/lmod/module-usage.log \
+     > unused.txt
+   #+end_src
+
+   =unused.txt= is sorted and contains one =Name/Version= per line.
+   Review it against retention, licensing and support policy before changing the installation.
+
+3. Limit the observation window when the records span a longer period.
+   =--since= takes seconds since the epoch:
+
+   #+begin_src bash
+   since=$(date -d '180 days ago' +%s)
+   eb-keep-logs usage \
+     --software /srv/easybuild/software \
+     --modules /srv/easybuild/modules/all \
+     --since "$since" --unused \
+     /var/log/xalt/run.json /var/log/lmod/module-usage.log
+   #+end_src
+
+   A record without a numeric time does not count when =--since= is present.
+
+4. Make the complementary active inventory when planning a stack.
+
+   #+begin_src bash
+   eb-keep-logs usage \
+     --software /srv/easybuild/software \
+     --modules /srv/easybuild/modules/all \
+     --active \
+     /var/log/xalt/run.json /var/log/lmod/module-usage.log \
+     > active.txt
+   #+end_src
+
+   =active.txt= is in the plain =Name/Version= listing format accepted by =eb-stack stack gap --site active.txt=.
+   Pass it to =stack gap= with that command's target stack, easyconfig and generation arguments; =usage= deliberately does not reproduce gap classification.
+
+Add =--json= to any invocation when another program needs the counts and newest times as well as the active state.

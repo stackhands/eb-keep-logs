@@ -16,6 +16,7 @@ The title names the task.
    who-loaded-a-module
    who-ran-an-executable
    check-prefix-use
+   review-unused-software
    what-a-dry-run-would-build
    rotate-a-log-tree
    mark-licensed-logs
