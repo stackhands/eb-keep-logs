@@ -382,6 +382,14 @@ check "help: -h prints it whole" "$("${tool}" -h | whole)" "Exit status:"
 check "help: no arguments print it whole, with exit 2" "$?: $(whole < "${work}/usage")" "2: Exit status:"
 # eb-pipeline passes --lock-timeout where `--help` exits 0 and names it.
 check "help: as eb-pipeline reads it" "$("${tool}" --help | grep -c -- --lock-timeout > /dev/null; echo "${PIPESTATUS[*]}")" "0 0"
+# The example under "*** --help" in the cli reference is the usage as printed.
+reference_help=$(awk '
+    /^\*\*\* / { in_help = ($0 == "*** --help") }
+    in_help && /^#\+end_example$/ { exit }
+    shown { print }
+    in_help && /^#\+begin_example$/ { shown = 1 }
+' "${repo_root}/docs/orgmode/reference/cli.org")
+check "help: as the cli reference shows it" "$(diff <(printf '%s\n' "${reference_help}") "${work}/help")" ""
 # rotate: the run rotate writes into is still going and is left alone. A run
 # that started before midnight is a day old just after it.
 next_day=$(date -d '2026-11-14 00:10' +%s)
