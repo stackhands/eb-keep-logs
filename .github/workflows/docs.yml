@@ -49,6 +49,17 @@ jobs:
         with:
           path: docs/build/html
 
+      # The Pages artifact is a tar of the site. A pull request also uploads
+      # the built files so a download unzips to index.html. Main's deploy is
+      # unchanged.
+      - name: Built site
+        if: github.event_name == 'pull_request'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: documentation
+          path: docs/build/html
+          if-no-files-found: error
+
   deploy:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     needs: build

@@ -1,0 +1,25 @@
+# After the docs workflow succeeds, comment a download link for the built
+# site. doc-previewer has no v1 tag. v0.0.1 is the only release, and it is
+# the same commit as main.
+name: docs preview
+
+on:
+  workflow_run:
+    workflows: ["docs"]
+    types: [completed]
+
+permissions:
+  actions: read
+  pull-requests: write
+
+jobs:
+  comment:
+    if: github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: HaoZeke/doc-previewer@v0.0.1
+        with:
+          workflow_run_id: ${{ github.event.workflow_run.id }}
+          head_sha: ${{ github.event.workflow_run.head_sha }}
+          artifact_name: documentation
