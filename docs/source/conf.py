@@ -170,27 +170,22 @@ html_theme_options = {
                 {
                     "title": "eb-stack",
                     "url": "https://eb-stack.rgoswami.me/",
-                    "summary": "Solve, shard and plan an EasyBuild build list; admit builds under a scratch inode budget",
-                },
-                {
-                    "title": "eb-pipeline",
-                    "url": "https://github.com/stackhands/eb-pipeline#readme",
-                    "summary": "Drive an EasyBuild pipeline from one per-site TOML file, calling the other tools as subprocesses",
+                    "summary": "Turn conda-forge, Spack, PyPI, CRAN and Cargo recipes into easyconfigs; solve, shard and plan an EasyBuild build list",
                 },
                 {
                     "title": "eb-staged-rebuild",
                     "url": "https://stackhands.github.io/eb-staged-rebuild/",
-                    "summary": "Rebuild an installation in a staged tree and swap it in, so running jobs keep their paths",
+                    "summary": "Rebuild an installation beside the live one and swap it in, for a stack outside CernVM-FS that jobs read during the rebuild",
                 },
                 {
                     "title": "eessi-arch-guard",
                     "url": "https://stackhands.github.io/eessi-arch-guard/",
-                    "summary": "Reload EESSI in a Slurm task that inherited it for another CPU or GPU",
+                    "summary": "Reload EESSI in a Slurm task that inherited a stack loaded for another CPU or GPU, as srun from a login shell does",
                 },
                 {
                     "title": "eb-local",
                     "url": "https://stackhands.github.io/eb-local/",
-                    "summary": "Install software with EasyBuild on top of EESSI into a directory a user or project owns",
+                    "summary": "Build on EESSI-extend inside a Slurm job's node-local disk, compile your own code with RPATH, list and uninstall per CPU target",
                 },
                 {
                     "title": "rfc9162",
