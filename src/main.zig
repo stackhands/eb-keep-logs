@@ -13,6 +13,7 @@ const localtime = @import("localtime.zig");
 const scan = @import("scan.zig");
 const why = @import("why.zig");
 const loads = @import("loads.zig");
+const xalt_runs = @import("runs.zig");
 const syslog = @import("syslog.zig");
 
 const Allocator = std.mem.Allocator;
@@ -110,6 +111,19 @@ const usage_text =
     \\      FILE
     \\          The log that holds the records. A line that is not one is
     \\          skipped.
+    \\  eb-keep-logs runs --exec PATH FILE
+    \\      Print who ran PATH, from XALT run records in FILE. A run record is a
+    \\      JSON object whose userT holds user, exec_path and, when present,
+    \\      syshost and start_time. A link record is not a run and is skipped.
+    \\      PATH matches exec_path in full or as its last component. Each run is
+    \\      one line, user=USER host=HOST time=TIME path=PATH, in the file's
+    \\      order. A file with no run of PATH prints no run of PATH. Zig build
+    \\      only. It does not record runs.
+    \\      --exec PATH, --exec=PATH
+    \\          The executable, as a full path or its last component. Required.
+    \\      FILE
+    \\          One or more JSON objects. An object that is not a run record is
+    \\          skipped.
     \\  eb-keep-logs -h | --help
     \\      Print this help on stdout and exit 0.
     \\  eb-keep-logs --version
@@ -131,7 +145,7 @@ const usage_text =
     \\                       directory of zone files.
     \\
     \\Exit status:
-    \\  0   -h, --help or --version, or a failed, rotate, why, history or loads that
+    \\  0   -h, --help or --version, or a failed, rotate, why, history, loads or runs that
     \\      accepted its arguments, whatever it could keep, compress, remove or
     \\      read: what it could not do is reported on stderr.
     \\  2   The invocation was refused, with eb-keep-logs: MESSAGE on stderr; or
@@ -1053,11 +1067,12 @@ pub fn main(init: std.process.Init) u8 {
     if (std.mem.eql(u8, cmd, "why")) return why.cmdWhy(gpa, args[2..]);
     if (std.mem.eql(u8, cmd, "history")) return why.cmdHistory(gpa, args[2..]);
     if (std.mem.eql(u8, cmd, "loads")) return loads.cmdLoads(gpa, args[2..]);
+    if (std.mem.eql(u8, cmd, "runs")) return xalt_runs.cmdRuns(gpa, args[2..]);
     if (cmd.len == 0) {
         cli.put(1, usage_text);
         return cli.usage_exit;
     }
-    die("unknown command '{s}' (failed, rotate, why, history, loads, --help)", .{cmd});
+    die("unknown command '{s}' (failed, rotate, why, history, loads, runs, --help)", .{cmd});
 }
 
 test {
@@ -1065,6 +1080,7 @@ test {
     _ = scan;
     _ = why;
     _ = loads;
+    _ = xalt_runs;
     _ = syslog;
 }
 
