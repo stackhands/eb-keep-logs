@@ -1,0 +1,56 @@
+#+TITLE: Emit syslog or journald events for kept and rotated logs
+#+OPTIONS: toc:nil todo:nil num:nil author:nil title:nil
+#+STARTUP: content
+
+* Emit syslog or journald events for kept and rotated logs
+
+Pipeline steps that call =eb-keep-logs failed= or =eb-keep-logs rotate= write summaries to standard output, which scheduler logs can swallow or rotate away.
+Passing =--syslog= or setting =EB_KEEP_LOGS_SYSLOG= emits a structured RFC 5424 message or native =systemd-journald= record when logs are kept, closed, compressed, or deleted, without ever copying log file contents or license strings into syslog.
+
+** Before you start
+
+- Run =eb-keep-logs= from a pipeline or cron job as [[file:call-from-a-pipeline.org][Call eb-keep-logs from a pipeline]] and [[file:rotate-a-log-tree.org][Rotate a log tree]] describe.
+
+** Choose a destination
+
+| Target | Transport | Protocol |
+|---|---|---|
+| =journald= | =/run/systemd/journal/socket= | Native =systemd-journald= fields |
+| =syslog= | =/dev/log= | RFC 5424 over Unix datagram or stream |
+| =unix:///path/to/sock= | Explicit Unix socket | RFC 5424 over Unix datagram or stream |
+| =journal+unix:///path/to/sock= | Explicit Unix socket | Native =systemd-journald= fields |
+| =udp://host:port= | UDP | RFC 5424 datagram |
+| =tcp://host:port= | TCP | RFC 5424 with RFC 6587 octet-counting |
+
+** Emit events from failed and rotate
+
+1. Export =EB_KEEP_LOGS_SYSLOG= in the pipeline environment or pass =--syslog= directly:
+
+   #+begin_src bash
+   export EB_KEEP_LOGS_SYSLOG=journald
+   eb-keep-logs failed 1 Foo-1.0-GCC-15.2.0 "$LOGDIR" "$LOGDIR/easybuild-logs/Foo-1.0"
+   eb-keep-logs rotate /srv/build-logs --compress-after 30 --delete-after 365
+   #+end_src
+
+2. Route events in =rsyslog= using the stable =MSGID= values:
+
+   - =EB_KEEP_FAILED=: one or more files were kept and added to =.licensed-logs= (severity 4, warning).
+   - =EB_KEEP_NONE=: the build failed (=STATUS= non-zero), but no EasyBuild log could be kept (severity 4, warning).
+   - =EB_ROTATE_DONE=: rotation completed with =compressed= and =deleted= counts (severity 6, info).
+
+** Check that it worked
+
+Query the local journal after running =failed= or =rotate=:
+
+#+begin_src bash
+journalctl -t eb-keep-logs -n 5 -o json-pretty
+#+end_src
+
+A kept failure includes =MSGID=EB_KEEP_FAILED=, =EB_KEEP_NAME=, =EB_KEEP_KEPT=, and =EB_KEEP_LICENSED=.
+
+** If it fails
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| =eb-keep-logs: invalid syslog target 'VALUE'= (exit 2) | The target scheme or port is malformed. | Use =journald=, =syslog=, =unix:///...=, =journal+unix:///...=, =udp://host:port=, or =tcp://host:port=. |
+| =eb-keep-logs: cannot emit syslog event= on stderr | The socket or collector is unreachable. | Logs are still kept and rotated; check =systemd-journald=, =rsyslogd=, or collector firewall rules. |

@@ -1,0 +1,1 @@
+Emit structured RFC 5424 syslog or native `systemd-journald` events (`--syslog`, `EB_KEEP_LOGS_SYSLOG`) with stable `MSGID` values (`EB_KEEP_FAILED`, `EB_KEEP_NONE`, and `EB_ROTATE_DONE`) when `failed` keeps or closes logs and when `rotate` compresses or removes runs.
