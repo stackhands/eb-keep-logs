@@ -1,0 +1,44 @@
+#+TITLE: See what a dry run would build
+#+OPTIONS: toc:nil todo:nil num:nil author:nil title:nil
+#+STARTUP: content
+
+* See what a dry run would build
+
+Save the report from =eb --dry-run= or =eb --missing-modules= and read which modules it still has to build.
+EasyBuild already resolved the dependencies, which is what =--robot= does for these two reports.
+This command does not run =eb=, and it does not resolve anything itself.
+A module marked =[x]= is already installed and is not listed.
+
+** Before you start
+
+- The Zig build of =eb-keep-logs=. The shell script answers =pending= with =pending is in the Zig build only=.
+- A file that holds the report. =eb -Dr= prints a dry run, and =eb -M= prints the missing modules.
+  The shapes are the ones in [[https://docs.easybuild.io/using-easybuild/][Getting an overview of planned installations]].
+
+** Steps
+
+1. Keep the report, then ask:
+
+   #+begin_src bash
+   eb -Dr some.eb > /tmp/dry.txt
+   eb-keep-logs pending /tmp/dry.txt
+   #+end_src
+
+   A dry-run line =* [ ] PATH (module: NAME)=, and the same with =[F]= or =[R]=, is printed as =build NAME=.
+   =--terse= prints =- PATH= for one that would be built, and this command prints =build PATH=.
+   A missing-modules line =* NAME (FILE.eb)= is printed as =missing NAME=.
+   A report whose modules are all already installed prints =nothing to build=.
+
+** If it fails
+
+| Message | Cause | What to do |
+|---|---|---|
+| =eb-keep-logs: pending is in the Zig build only= | The =eb-keep-logs= on =PATH= is the shell script. | Put the Zig build first on =PATH=. |
+| =eb-keep-logs: pending needs a report= | No file was given. | Pass the path of the saved report. |
+| =eb-keep-logs: pending: PATH is not a dry-run or missing-modules report= | The file has neither shape. | Point it at the output of =eb --dry-run= or =eb --missing-modules=. |
+| =eb-keep-logs: pending does not know 'OPTION'= | An option was given. | The command takes the report path and nothing else. |
+
+** Related
+
+- [[file:find-why-a-build-failed.org][Find why a build failed]], for a build that then did run
+- [[https://docs.easybuild.io/using-easybuild/][Basic usage of EasyBuild]], for =--dry-run=, =--missing-modules= and =--robot=

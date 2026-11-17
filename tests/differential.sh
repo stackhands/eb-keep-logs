@@ -25,6 +25,7 @@ declare -A deliberate=(
     ["history"]="\`history\`"
     ["loads"]="\`loads\`"
     ["runs"]="\`runs\`"
+    ["pending"]="\`pending\`"
 )
 compat_deliberate=$(sed -n '/^## Deliberate differences$/,/^## /p' "${repo_root}/COMPAT.md")
 # The environment both runs get, as env(1) takes it.
@@ -154,6 +155,8 @@ printf 'user=a module=M path=/p host=h time=1\n' > "${work}/loads.log"
 compare "loads" loads --module M "${work}/loads.log"
 printf '%s\n' '{"userT":{"user":"a","exec_path":"/bin/gmx","syshost":"h","start_time":1}}' > "${work}/runs.json"
 compare "runs" runs --exec gmx "${work}/runs.json"
+printf '%s\n' ' * [ ] flex-2.6.4.eb (module: flex/2.6.4)' > "${work}/dry.txt"
+compare "pending" pending "${work}/dry.txt"
 
 echo "${diffs} differences"
 [ "${diffs}" -eq 0 ]

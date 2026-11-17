@@ -14,6 +14,7 @@ const scan = @import("scan.zig");
 const why = @import("why.zig");
 const loads = @import("loads.zig");
 const xalt_runs = @import("runs.zig");
+const pending = @import("pending.zig");
 const syslog = @import("syslog.zig");
 
 const Allocator = std.mem.Allocator;
@@ -124,6 +125,18 @@ const usage_text =
     \\      FILE
     \\          One or more JSON objects. An object that is not a run record is
     \\          skipped.
+    \\  eb-keep-logs pending FILE
+    \\      Print what an EasyBuild dry-run or missing-modules report still has
+    \\      to build. A dry-run line is "* [ ] PATH (module: NAME)", and [F] and
+    \\      [R] count as still to build; [x] is already installed and is not
+    \\      printed. --terse prints "x PATH" or "- PATH". A missing-modules line
+    \\      is "* NAME (FILE.eb)", or with --terse one easyconfig path on each
+    \\      line. Each is one line, build NAME or missing NAME, in the file's
+    \\      order. A report with nothing left prints nothing to build. Zig build
+    \\      only. It does not run eb, and it does not resolve dependencies.
+    \\      FILE
+    \\          The report, as eb --dry-run or eb --missing-modules printed it.
+    \\          Required.
     \\  eb-keep-logs -h | --help
     \\      Print this help on stdout and exit 0.
     \\  eb-keep-logs --version
@@ -145,7 +158,7 @@ const usage_text =
     \\                       directory of zone files.
     \\
     \\Exit status:
-    \\  0   -h, --help or --version, or a failed, rotate, why, history, loads or runs that
+    \\  0   -h, --help or --version, or a failed, rotate, why, history, loads, runs or pending that
     \\      accepted its arguments, whatever it could keep, compress, remove or
     \\      read: what it could not do is reported on stderr.
     \\  2   The invocation was refused, with eb-keep-logs: MESSAGE on stderr; or
@@ -1068,11 +1081,12 @@ pub fn main(init: std.process.Init) u8 {
     if (std.mem.eql(u8, cmd, "history")) return why.cmdHistory(gpa, args[2..]);
     if (std.mem.eql(u8, cmd, "loads")) return loads.cmdLoads(gpa, args[2..]);
     if (std.mem.eql(u8, cmd, "runs")) return xalt_runs.cmdRuns(gpa, args[2..]);
+    if (std.mem.eql(u8, cmd, "pending")) return pending.cmdPending(gpa, args[2..]);
     if (cmd.len == 0) {
         cli.put(1, usage_text);
         return cli.usage_exit;
     }
-    die("unknown command '{s}' (failed, rotate, why, history, loads, runs, --help)", .{cmd});
+    die("unknown command '{s}' (failed, rotate, why, history, loads, runs, pending, --help)", .{cmd});
 }
 
 test {
@@ -1081,6 +1095,7 @@ test {
     _ = why;
     _ = loads;
     _ = xalt_runs;
+    _ = pending;
     _ = syslog;
 }
 

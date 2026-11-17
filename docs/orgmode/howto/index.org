@@ -15,6 +15,7 @@ The title names the task.
    find-why-a-build-failed
    who-loaded-a-module
    who-ran-an-executable
+   what-a-dry-run-would-build
    rotate-a-log-tree
    mark-licensed-logs
    emit-syslog-events
