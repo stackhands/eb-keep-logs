@@ -2,24 +2,6 @@
 # eb-keep-logs: keep the logs of EasyBuild builds that a build pipeline would
 # otherwise lose, and keep the pipeline's log tree bounded.
 #
-#   eb-keep-logs failed STATUS NAME LOGDIR [TMP_LOGDIR]
-#       After `eb` returned STATUS for easyconfig NAME: when STATUS is not 0,
-#       copy the EasyBuild session log `eb --last-log` names, the failing
-#       command's output and a meson testlog next to LOGDIR/NAME.stdout.log,
-#       closed to others and listed in LOGDIR/.licensed-logs. TMP_LOGDIR is
-#       the --tmp-logdir eb ran with; without it, the newest log in
-#       EasyBuild's default place is used, unless it is another build's.
-#       NAME.stdout.log and a TMP_LOGDIR below LOGDIR are closed to others too.
-#   eb-keep-logs rotate ROOT --compress-after DAYS [--delete-after DAYS]
-#                            [--lock-timeout SECONDS]
-#       In the run directories directly under ROOT (named YYYYMMDD_HHMMSS),
-#       gzip the logs of runs older than DAYS; with --delete-after, remove
-#       whole runs older than that. Permissions and .licensed-logs follow.
-#       EB_KEEP_LOGS_NOW, in seconds since the epoch, sets the current time.
-#       One rotate at a time holds ROOT/.eb-keep-logs-rotate.lock; another
-#       waits up to SECONDS for it (600; 0 does not wait), then exits 75.
-#   eb-keep-logs --help | --version
-#
 # A failed build's log is in EasyBuild's tmpdir on the build node, which goes
 # with the job; and EasyBuild wraps the "Results of the build can be found in
 # the log file(s)" line, so parsing stdout for the path finds nothing.
@@ -28,7 +10,65 @@ set -uo pipefail
 
 VERSION=0.1.0
 
-usage() { sed -n '2,23p' "$0" | sed 's/^# \{0,1\}//'; }
+# src/main.zig's usage_text holds the same text: tests/differential.sh
+# compares the two.
+usage() {
+    cat <<'EOF'
+eb-keep-logs: keep the logs of EasyBuild builds that a build pipeline would
+otherwise lose, and keep the pipeline's log tree bounded.
+
+  eb-keep-logs failed STATUS NAME LOGDIR [TMP_LOGDIR]
+      After `eb` returned STATUS for easyconfig NAME: when STATUS is not 0,
+      copy the EasyBuild session log `eb --last-log` names, the failing
+      command's output and a meson testlog next to LOGDIR/NAME.stdout.log,
+      closed to others and listed in LOGDIR/.licensed-logs. TMP_LOGDIR is
+      the --tmp-logdir eb ran with; without it, the newest log in
+      EasyBuild's default place is used, unless it is another build's.
+      NAME.stdout.log and a TMP_LOGDIR below LOGDIR are closed to others too.
+  eb-keep-logs rotate ROOT --compress-after DAYS [--delete-after DAYS]
+                           [--lock-timeout SECONDS]
+      In the run directories directly under ROOT (named YYYYMMDD_HHMMSS),
+      gzip the *.log and *.txt files of old runs and remove older runs
+      whole, leaving alone a run that is still written into. A run's age is
+      in days from the local midnight of the date in its name. Permissions
+      and .licensed-logs follow. One rotate of ROOT runs at a time, holding
+      ROOT/.eb-keep-logs-rotate.lock. Options and ROOT come in any order.
+      --compress-after DAYS, --compress-after=DAYS
+          Gzip the files of runs at least DAYS old. Required; there is no
+          default.
+      --delete-after DAYS, --delete-after=DAYS
+          Remove whole runs at least DAYS old; DAYS must be larger than
+          that of --compress-after. Default: none; no run is removed. An
+          empty value is the default.
+      --lock-timeout SECONDS, --lock-timeout=SECONDS
+          While another rotate holds the lock, wait up to SECONDS for it,
+          then give up and exit 75. Default: 600; 0 does not wait. An empty
+          value is the default.
+  eb-keep-logs -h | --help
+      Print this help on stdout and exit 0.
+  eb-keep-logs --version
+      Print the version line on stdout and exit 0.
+
+Environment:
+  PATH                 Where failed looks up eb.
+  EASYBUILD_TMPDIR     failed copies a command's output only from below it;
+                       unset or empty, it copies none.
+  EB_KEEP_LOGS_NOW     The time rotate takes as now, in seconds since the
+                       epoch; unset or empty, the current time.
+  EB_PIPELINE_LOG_DIR  rotate leaves alone the run that holds this path.
+  TZ, TZDIR            The time zone of the local midnights, and the
+                       directory of zone files.
+
+Exit status:
+  0   -h, --help or --version, or a failed or rotate that accepted its
+      arguments, whatever it could keep, compress or remove: what it could
+      not do is reported on stderr.
+  2   The invocation was refused, with eb-keep-logs: MESSAGE on stderr; or
+      no command was given, and this help is on stdout.
+  75  rotate waited --lock-timeout seconds for the lock another rotate
+      held, then gave up and changed nothing; run it again later.
+EOF
+}
 
 die() { echo "eb-keep-logs: $*" >&2; exit 2; }
 

@@ -16,8 +16,13 @@ chmod +x "${work}/bin/eb"
 export PATH="${work}/bin:${PATH}"
 
 diffs=0
-# Labels whose difference COMPAT.md documents.
-deliberate=("no arguments" "rotate, lock is a symbolic link")
+# Labels whose difference is deliberate, each with its case in COMPAT.md. A
+# difference passes only while COMPAT.md lists that case among the
+# deliberate differences.
+declare -A deliberate=(
+    ["rotate, lock is a symbolic link"]="\`rotate\`'s lock file cannot be opened, or is a symbolic link or not a regular file"
+)
+compat_deliberate=$(sed -n '/^## Deliberate differences$/,/^## /p' "${repo_root}/COMPAT.md")
 # The environment both runs get, as env(1) takes it.
 run_env=(PATH="${PATH}")
 # compare LABEL ARGS...: run both with the same arguments.
@@ -26,16 +31,15 @@ compare() {
     env "${run_env[@]}" "${OLD_BIN}" "$@" > "${work}/o.out" 2> "${work}/o.err"; local oc=$?
     env "${run_env[@]}" "${TOOL_BIN}" "$@" > "${work}/n.out" 2> "${work}/n.err"; local nc=$?
     if [ "${oc}" != "${nc}" ] || ! cmp -s "${work}/o.out" "${work}/n.out" || ! cmp -s "${work}/o.err" "${work}/n.err"; then
-        local d
-        for d in "${deliberate[@]}"; do
-            if [ "${d}" = "${label}" ]; then
-                echo "deliberate ${label}"
-                return
-            fi
-        done
+        local compat_case="${deliberate[${label}]:-}"
+        if [ -n "${compat_case}" ] && grep -qF -- "| ${compat_case} |" <<< "${compat_deliberate}"; then
+            echo "deliberate ${label}"
+            return
+        fi
         # On stderr: zig build test shows a script's stderr, not stdout.
         {
             echo "DIFF ${label}: exit ${oc} vs ${nc}"
+            [ -z "${compat_case}" ] || echo "     COMPAT.md lists no deliberate difference: ${compat_case}"
             diff "${work}/o.out" "${work}/n.out" | sed 's/^/     out /'
             diff "${work}/o.err" "${work}/n.err" | sed 's/^/     err /'
         } >&2
@@ -46,6 +50,8 @@ compare() {
 }
 
 compare "no arguments"
+compare "--help" --help
+compare "-h" -h
 compare "unknown command" bogus
 compare "failed, too few" failed 1 Foo
 compare "failed, bad status" failed x Foo "${work}/logs"

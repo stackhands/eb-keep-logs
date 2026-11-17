@@ -10,6 +10,7 @@ on the same invocations.
 | | |
 |---|---|
 | commands | `failed STATUS NAME LOGDIR [TMP_LOGDIR]`, `rotate ROOT --compress-after DAYS [--delete-after DAYS] [--lock-timeout SECONDS]`, `-h`, `--help`, `--version` |
+| usage | the same text on stdout for `-h`, `--help` and no arguments |
 | exit codes | 0 on success and on every `failed` that got past its arguments; 2 for a refused invocation, after `eb-keep-logs: MESSAGE` on stderr; 2 with the usage text on stdout for no arguments; 75 when another `rotate` holds ROOT's lock past `--lock-timeout`, after `eb-keep-logs: another rotate holds the lock ROOT/.eb-keep-logs-rotate.lock; gave up after N s (--lock-timeout)` on stderr |
 | one rotate at a time | `rotate` holds an exclusive flock(2) on `ROOT/.eb-keep-logs-rotate.lock`, created when missing, from before it reads ROOT until it exits; it waits up to `--lock-timeout` seconds for it, 600 without the option or with an empty value, 0 not at all, 999999999 at most; it opens the file for reading when it may not write it; a lock file that cannot be opened, or a symbolic link or non-regular file at its name, is refused, exit 2; on a file system that cannot lock, `rotate` says so on stderr and rotates without the lock |
 | environment | `PATH` (finds `eb`), `EASYBUILD_TMPDIR`, `EB_KEEP_LOGS_NOW`, `EB_PIPELINE_LOG_DIR`, `TZ`, `TZDIR` |
@@ -24,7 +25,6 @@ on the same invocations.
 
 | case | shell script | Zig build |
 |---|---|---|
-| no arguments, `--help` | prints a trailing half sentence from the script's header | stops after the `--version` line |
 | `--version` | `eb-keep-logs 0.1.0` | `eb-keep-logs 0.2.1 (TARGET, MODE, zig VERSION, COMMIT)`; the first two words are unchanged |
 | `--compress-after` or `--delete-after` with no value after it | never returns | refused, exit 2 |
 | `EB_KEEP_LOGS_NOW` not empty and not an integer | evaluated as shell arithmetic | refused, exit 2 |
