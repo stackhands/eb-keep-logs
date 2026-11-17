@@ -404,6 +404,50 @@ The shell script has no =usage=.
 | =FILE= | One or more concatenated-XALT-JSON or Lmod usage-log files. A file that cannot be read, or truncated JSON, is refused. |
 
 
+** lifecycle
+
+=lifecycle --policy FILE [--modulerc-out FILE] [--easyconfigs DIR ...] [--easystack FILE ...] [--eb-stack PATH] [--rebuild-set FILE] [--now EPOCH] [--json] FILE= turns a =usage --json= report (generated with =selection= ="all"=) and a TOML policy into a reviewable deprecation plan and Lmod =.modulerc.lua= warnings and forbids.
+It never deletes software or modulefiles.
+
+The TOML policy accepts an optional =[policy]= or =[lifecycle]= header and these keys:
+
+- =min_observation_days= (required, integer >= 1): minimum span in days between =since= in the usage report and =now= before =candidate-remove= is permitted.
+- =warn_after_days= (required, integer >= 0): idle age threshold for =warn=.
+- =forbid_after_days= (required, integer >= =warn_after_days=): idle age threshold for =forbid-after=.
+- =remove_after_days= (required, integer >= =forbid_after_days=): idle age threshold for =candidate-remove=.
+- =forbid_grace_days= (optional, default 30): days added after =now= (or after reaching =forbid_after_days=) when computing the =after= date in Lmod =forbid{}= entries.
+- =min_hits= (optional, default 1): minimum recorded hits required to treat an undated active hit as active.
+- =keep= (optional, array of strings): module names or =*= / =?= glob patterns (such as ="GCCcore/*"=) that stay =keep=.
+- =warn_message= and =forbid_message= (optional strings): templates supporting ={module}= and ={after}= placeholders for generated Lmod messages.
+
+Before allowing =candidate-remove=, =lifecycle= enforces two guards:
+
+1. The usage report must carry a numeric =since= covering at least =min_observation_days= up to =now=.
+2. Installed reverse dependents must be checked with =eb-stack rebuild-set= (via =--easyconfigs=, or a precomputed =--rebuild-set= report). Any candidate absent from the easyconfig graph or with installed dependents is held back from =candidate-remove=; candidates with installed dependents are held at =warn= without emitting a =forbid= directive so dependent modules continue to load.
+
+Without =--json=, text output prints one sorted line per installed module:
+
+#+begin_example
+ACTION Name/Version hits=N idle_days=D [forbid_after=YYYY-MM-DD] [dependents=M1,M2] reason="..."
+#+end_example
+
+With =--json=, the document has =schema_version= 1, =kind= ="lifecycle"=, =software=, =modules=, =policy=, =now=, =since=, =observed_days=, =min_observation_days=, =observation_satisfied=, =dependents_checked=, =counts= (with keys =keep=, =warn=, =forbid-after=, =candidate-remove=), =entries= and =modulerc_lua=.
+With =--modulerc-out FILE=, the generated =.modulerc.lua= text is written atomically via a temporary file in the destination directory; symlinks and directories at =FILE= are refused.
+The shell script has no =lifecycle=.
+
+| Option / argument | Meaning |
+|---|---|
+| =--policy FILE= | TOML policy file. Required. |
+| =--modulerc-out FILE= | Write generated =.modulerc.lua= warnings and forbids to =FILE=. |
+| =--easyconfigs DIR= | Easyconfig tree passed to =eb-stack rebuild-set=. Repeatable. |
+| =--easystack FILE= | Deployed easystack YAML passed to =eb-stack rebuild-set=. Repeatable. |
+| =--eb-stack PATH= | Explicit path to =eb-stack=. Default: =eb-stack= on =PATH=. |
+| =--rebuild-set FILE= | Precomputed =rebuild-set.json= from =eb-stack rebuild-set=. Mutually exclusive with =--easyconfigs=. |
+| =--now EPOCH= | Reference epoch time in seconds. Default: =EB_KEEP_LOGS_NOW=, else current time. |
+| =--json= | Print one JSON document instead of text. |
+| =FILE= | JSON output from =eb-keep-logs usage --json= with =selection= ="all"=. Required. |
+
+
 ** runs
 
 =runs --exec PATH [--json] FILE= prints who ran =PATH=, from XALT run records in =FILE=.
@@ -747,7 +791,7 @@ eb-keep-logs 0.2.1 (x86_64-linux-musl, safe, zig 0.17.1, 5ceaead)
 ** See also
 
 - [[file:../tutorials/keep-a-failed-build-log.org][Keep a failed build's logs]]
-- [[file:../howto/call-from-a-pipeline.org][Call eb-keep-logs from a build pipeline]], [[file:../howto/rotate-a-log-tree.org][Rotate a log tree]] and [[file:../howto/mark-licensed-logs.org][Mark logs that may carry a licence number]]
+- [[file:../howto/call-from-a-pipeline.org][Call eb-keep-logs from a build pipeline]], [[file:../howto/rotate-a-log-tree.org][Rotate a log tree]], [[file:../howto/mark-licensed-logs.org][Mark logs that may carry a licence number]], [[file:../howto/review-unused-software.org][Review unused installed software]] and [[file:../howto/plan-module-lifecycle.org][Plan module lifecycle and deprecation]]
 - [[file:../explanation/why-eb-last-log.org][Finding a failed build's log]], [[file:../explanation/local-time.org][Run ages and local time]] and [[file:../explanation/rotate-in-use.org][Rotating a tree in use]]
 - [[file:compatibility.org][Compatibility]], the differences from the shell script.
 - [[file:api/zig/eb-keep-logs.md][The Zig API]], from the doc comments of the source.

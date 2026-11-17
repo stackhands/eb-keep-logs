@@ -44,6 +44,13 @@ cat > "${work}/xalt.json" <<EOF
 {"userT":{"user":"u","exec_path":"${software}/Foo/1.0/bin/foo","start_time":"200"}}
 EOF
 echo 'user=bob module=Foo/1.0 path='"${modules}/Foo/1.0.lua"' host=login01 time=300' > "${work}/lmod.log"
+"${tool}" usage --software "${software}" --modules "${modules}" --since 100 --json "${work}/xalt.json" "${work}/lmod.log" > "${work}/usage.json"
+cat > "${work}/policy.toml" <<'EOF'
+min_observation_days = 90
+warn_after_days = 60
+forbid_after_days = 180
+remove_after_days = 365
+EOF
 
 fails=0
 run() {
@@ -125,6 +132,7 @@ run "test-bundle" validate test-bundle test-bundle \
     --gpu "none" \
     --out "${work}/bundle-b.json"
 run "test-compare" bash -c "\"${tool}\" test-compare --json \"${work}/bundle-a.json\" \"${work}/bundle-b.json\" | python3 \"${repo_root}/tests/json_schema_validate.py\" \"${schema_dir}/test-compare.schema.json\""
+run "lifecycle" validate lifecycle lifecycle --policy "${work}/policy.toml" --now 1794873600 --json "${work}/usage.json"
 
 echo "${fails} failed"
 [ "${fails}" -eq 0 ]
