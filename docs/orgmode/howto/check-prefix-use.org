@@ -11,9 +11,10 @@ Before uninstalling or retiring an install tree, see whether XALT or Lmod record
 ** Before starting
 
 - The Zig build of =eb-keep-logs=. The shell script answers =used= with =used is in the Zig build only=.
-- Files of XALT JSON objects and/or Lmod ModuleUsageTracking lines, as the site already keeps.
+- Files of XALT JSON objects, XALT V:3 syslog chunks and/or Lmod ModuleUsageTracking lines, as the site already keeps.
   Run records carry =userT= and optionally =libA=. Link records carry =resultT= and =linkA=.
   Package records carry =package_path=. Lmod lines carry =path= under the module tree.
+  For V:3 input, chunks may be interleaved or out of order; =used= groups by =key= and joins =idx= values.
 
 ** Steps
 
@@ -56,3 +57,4 @@ Before uninstalling or retiring an install tree, see whether XALT or Lmod record
 - [[file:who-ran-an-executable.org][See who ran an executable]]
 - [[file:who-loaded-a-module.org][See who loaded a module]]
 - [[https://xalt.readthedocs.io/en/latest/120_xalt_json.html][A description of XALT's JSON record]]
+- [[https://xalt.readthedocs.io/en/latest/110_db.html][XALT's V:3 syslog chunk format]]

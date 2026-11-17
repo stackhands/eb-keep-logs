@@ -91,6 +91,12 @@ assert all(p["active"] and p["hits"] == 1 for p in o["packages"])
 print("ok")
 ' <<<"${json}")" "ok"
 
+v3=$("${tool}" usage \
+    --software tests/fixtures/xalt-software \
+    --modules tests/fixtures/xalt-software \
+    --active tests/fixtures/xalt-v3.log)
+check "XALT V:3 chunks feed usage" "${v3}" "GROMACS/2024"
+
 "${tool}" usage --software "${software}" --modules "${modules}" \
     --unused --active "${work}/lmod.log" >/dev/null 2>"${work}/err"
 check "selection is exclusive" "$?" "2"

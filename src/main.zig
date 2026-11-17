@@ -101,23 +101,35 @@ const usage_text =
     \\          directory.
     \\      --json
     \\          Print one line of JSON instead, with schema_version 1.
-    \\  eb-keep-logs loads --module NAME FILE
+    \\  eb-keep-logs loads --module NAME [--user USER] [--jobid ID]
+    \\                     [--since EPOCH] [--json] FILE
     \\      Print who loaded NAME, from Lmod's ModuleUsageTracking lines in FILE.
     \\      Each record is user=USER module=NAME path=PATH host=HOST time=TIME,
     \\      in any order, and a syslog prefix is left in place. Each load is
-    \\      one line, user=USER host=HOST time=TIME path=PATH, in the file's
-    \\      order. A file with no load of NAME prints no load of NAME. Zig
-    \\      build only.
+    \\      one line, user=USER [jobid=ID] host=HOST time=TIME path=PATH, in the
+    \\      file's order. A file with no load of NAME prints no load of NAME.
+    \\      The optional filters select matching records. --json prints one
+    \\      JSON document with schema_version 1. Zig build only.
     \\      --module NAME, --module=NAME
     \\          The module's full name, as Lmod recorded it, such as
     \\          GROMACS/2024.1. Required.
+    \\      --user USER, --user=USER
+    \\          Only records for USER. Default: all users.
+    \\      --jobid ID, --jobid=ID
+    \\          Only records whose optional jobid field is ID. Default: all jobs.
+    \\      --since EPOCH, --since=EPOCH
+    \\          Only records at or after this non-negative epoch time.
+    \\          Default: all record times.
+    \\      --json
+    \\          Print one line of JSON instead.
     \\      FILE
     \\          The log that holds the records. A line that is not one is
     \\          skipped.
     \\  eb-keep-logs used --prefix PREFIX [--json] [--require-none] FILE...
     \\      Print paths under PREFIX that appear in XALT or Lmod records in
-    \\      FILE. A run record lists userT.exec_path (kind run) and each libA
-    \\      path under PREFIX (kind run-lib) even when exec_path is outside.
+    \\      FILE. XALT V:3 syslog chunks are reassembled by key and index. A run
+    \\      record lists userT.exec_path (kind run) and each libA path under
+    \\      PREFIX (kind run-lib) even when exec_path is outside.
     \\      A link record lists resultT.exec_path and each linkA path (kind
     \\      link). A package record lists package_path (kind pkg). An Lmod
     \\      tracking line lists path when it is under PREFIX (kind module-load).
@@ -132,13 +144,14 @@ const usage_text =
     \\      --require-none
     \\          Exit 2 when any path under PREFIX was found.
     \\      FILE
-    \\          One or more files of concatenated XALT JSON objects and/or Lmod
-    \\          ModuleUsageTracking lines. Required.
+    \\          One or more files of concatenated XALT JSON objects, XALT V:3
+    \\          syslog chunks and/or Lmod ModuleUsageTracking lines. Required.
     \\  eb-keep-logs usage --software DIR --modules DIR [--since EPOCH]
     \\                     [--unused | --active] [--json] FILE...
     \\      Compare installed DIR/Name/Version software with XALT and Lmod
-    \\      records. XALT paths below the software directory and Lmod module
-    \\      loads below the modules directory count as hits. By default, print
+    \\      records. XALT V:3 syslog chunks are reassembled by key and index.
+    \\      XALT paths below the software directory and Lmod module loads below
+    \\      the modules directory count as hits. By default, print
     \\      every installed Name/Version with its state, hit count and newest
     \\      time. --unused and --active print only Name/Version lines;
     \\      --active output is accepted by eb-stack stack gap --site. --since
@@ -162,19 +175,29 @@ const usage_text =
     \\      FILE
     \\          One or more files of concatenated XALT JSON objects and/or Lmod
     \\          ModuleUsageTracking lines. Required.
-    \\  eb-keep-logs runs --exec PATH FILE
+    \\  eb-keep-logs runs --exec PATH [--user USER] [--since EPOCH] [--json] FILE
     \\      Print who ran PATH, from XALT run records in FILE. A run record is a
     \\      JSON object whose userT holds user, exec_path and, when present,
     \\      syshost and start_time. A link record is not a run and is skipped.
-    \\      PATH matches exec_path in full or as its last component. Each run is
-    \\      one line, user=USER host=HOST time=TIME path=PATH, in the file's
-    \\      order. A file with no run of PATH prints no run of PATH. Zig build
-    \\      only. It does not record runs.
+    \\      FILE may also contain XALT V:3 syslog chunks, which are reassembled
+    \\      by key and index. PATH matches exec_path in full or as its last
+    \\      component. Each run is one line, user=USER host=HOST time=TIME
+    \\      path=PATH, in the file's order. A file with no run of PATH prints no
+    \\      run of PATH. The optional filters select matching records. --json
+    \\      prints one JSON document with schema_version 1. Zig build only.
+    \\      It does not record runs.
     \\      --exec PATH, --exec=PATH
     \\          The executable, as a full path or its last component. Required.
+    \\      --user USER, --user=USER
+    \\          Only records for USER. Default: all users.
+    \\      --since EPOCH, --since=EPOCH
+    \\          Only records at or after this non-negative epoch time.
+    \\          Default: all record times.
+    \\      --json
+    \\          Print one line of JSON instead.
     \\      FILE
-    \\          One or more JSON objects. An object that is not a run record is
-    \\          skipped.
+    \\          One or more JSON objects or XALT V:3 syslog chunks. An object
+    \\          that is not a run record is skipped.
     \\  eb-keep-logs pending FILE
     \\      Print what an EasyBuild dry-run or missing-modules report still has
     \\      to build. A dry-run line is "* [ ] PATH (module: NAME)", and [F] and

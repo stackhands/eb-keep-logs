@@ -16,7 +16,8 @@ It reports candidates; it does not retire or uninstall anything.
    #+end_src
 
 2. List entries with no recorded hit.
-   Pass every retained XALT JSON and Lmod usage-log file in one invocation:
+   Pass every retained XALT JSON, XALT V:3 syslog and Lmod usage-log file in one invocation.
+   V:3 chunks may be interleaved or out of order:
 
    #+begin_src bash
    eb-keep-logs usage \

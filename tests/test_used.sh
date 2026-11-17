@@ -41,6 +41,11 @@ check "pkg package_path" "$(grep -c 'kind=pkg' <<< "${out}")" "1"
 check "exec outside prefix is not run" "$(grep -c '/usr/bin/python' <<< "${out}" || true)" "0"
 check "neighbour prefix absent" "$(grep -c 'install-other' <<< "${out}" || true)" "0"
 
+v3_prefix="tests/fixtures/xalt-software"
+v3=$("${tool}" used --prefix "${v3_prefix}" tests/fixtures/xalt-v3.log)
+check "XALT V:3 link chunks are reassembled" "${v3}" \
+    "path=tests/fixtures/xalt-software/GROMACS/2024/bin/gmx kind=link last=1731840002 count=1"
+
 cat > "${work}/moduleUsage.log" << EOF
 user=alice module=Hello/1.0 path=${prefix}/modules/Hello host=login01 time=1.0
 user=bob module=Hello/1.0 path=${prefix}/modules/Hello host=login02 time=3.0

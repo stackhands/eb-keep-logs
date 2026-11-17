@@ -1,0 +1,6 @@
+Nov 17 12:00:01 collector XALT_LOGGING_alpha V:3 kind:run syshost:alpha key:run_strt_111 nb:03 idx:01 epoch:1731840001 value:"/opt/site/bin/gmx","syshost":"node01",
+Nov 17 12:00:02 collector XALT_LOGGING_alpha V:3 kind:link syshost:alpha key:link_222 nb:03 idx:00 epoch:1731840002 value:{"resultT":{"exec_path":"tests/fixtures/
+Nov 17 12:00:01 collector XALT_LOGGING_alpha V:3 kind:run syshost:alpha key:run_strt_111 nb:03 idx:00 epoch:1731840001 value:{"userT":{"user":"ada","exec_path":
+Nov 17 12:00:02 collector XALT_LOGGING_alpha V:3 kind:link syshost:alpha key:link_222 nb:03 idx:02 epoch:1731840002 value:epoch":"1731840002"}}
+Nov 17 12:00:01 collector XALT_LOGGING_alpha V:3 kind:run syshost:alpha key:run_strt_111 nb:03 idx:02 epoch:1731840001 value:"start_time":"1731840001.25"}}
+Nov 17 12:00:02 collector XALT_LOGGING_alpha V:3 kind:link syshost:alpha key:link_222 nb:03 idx:01 epoch:1731840002 value:xalt-software/GROMACS/2024/bin/gmx","build_

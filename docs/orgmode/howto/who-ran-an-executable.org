@@ -13,6 +13,7 @@ A link record, the one that lists libraries, is not a run and is skipped.
 
 - The Zig build of =eb-keep-logs=. The shell script answers =runs= with =runs is in the Zig build only=.
 - A file of XALT run records. Each record is a JSON object, and several may follow one another.
+  The file may instead contain XALT V:3 syslog chunks. =runs= groups them by =key= and joins =idx= values from zero through =nb - 1=.
   =userT= holds =user=, =exec_path= and, when XALT wrote them, =syshost= and =start_time=.
   The shape is the one in [[https://xalt.readthedocs.io/en/latest/120_xalt_json.html][XALT's JSON record]].
 
@@ -28,6 +29,15 @@ A link record, the one that lists libraries, is not a run and is skipped.
    =time== is the =start_time= XALT wrote.
    A file with no run of that executable prints =no run of gmx=.
 
+2. Select a user and observation window:
+
+   #+begin_src bash
+   eb-keep-logs runs --exec gmx --user alice --since 1731840000 /var/log/xalt.log
+   #+end_src
+
+   =--since= takes a non-negative epoch. A record without a numeric =start_time= does not match.
+   Add =--json= for one document with =schema_version= 1 and a =runs= array.
+
 ** If it fails
 
 | Message | Cause | What to do |
@@ -35,10 +45,11 @@ A link record, the one that lists libraries, is not a run and is skipped.
 | =eb-keep-logs: runs is in the Zig build only= | The =eb-keep-logs= on =PATH= is the shell script. | Put the Zig build first on =PATH=. |
 | =eb-keep-logs: runs needs --exec= | =--exec= was omitted, or its value was empty. | Pass the executable path, or its last component, as =gmx=. |
 | =eb-keep-logs: runs needs a record file= | No file was given. | Pass the path of the XALT records. |
-| =eb-keep-logs: runs: PATH is not XALT run JSON= | The file is not one or more JSON objects. | Point it at the run records, not a log of another shape. |
-| =eb-keep-logs: runs does not know 'OPTION'= | An option other than =--exec=. | Drop it. The command takes =--exec= and one file. |
+| =eb-keep-logs: runs: PATH is not XALT run JSON= | A complete record is not valid JSON. | Check the source record or chunk set. |
+| =eb-keep-logs: runs does not know 'OPTION'= | An option other than those documented here. | Drop it. |
 
 ** Related
 
 - [[file:who-loaded-a-module.org][See who loaded a module]], for the module load rather than the execution
 - [[https://xalt.readthedocs.io/en/latest/120_xalt_json.html][A description of XALT's JSON record]]
+- [[https://xalt.readthedocs.io/en/latest/110_db.html][XALT's V:3 syslog chunk format]]

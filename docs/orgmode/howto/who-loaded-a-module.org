@@ -5,7 +5,7 @@
 * See who loaded a module
 
 Read Lmod's module-usage log before retiring a module, and see who loaded it.
-Lmod can syslog each load as =user=USER module=NAME path=PATH host=HOST time=TIME= with the tag =ModuleUsageTracking=, as [[https://lmod.readthedocs.io/en/latest/300_tracking_module_usage.html][Tracking Module Usage]] describes.
+Lmod can syslog each load as =user=USER jobid=ID module=NAME path=PATH host=HOST time=TIME= with the tag =ModuleUsageTracking=, as [[https://lmod.readthedocs.io/en/latest/300_tracking_module_usage.html][Tracking Module Usage]] describes.
 =eb-keep-logs loads= reads that log. It does not record loads, and it does not retire the module.
 
 ** Before you start
@@ -25,12 +25,23 @@ Lmod can syslog each load as =user=USER module=NAME path=PATH host=HOST time=TIM
    Each load is one line, in the file's order:
 
    #+begin_example
-   user=alice host=login01 time=1731840001.250000 path=/cvmfs/g.lua
+   user=alice jobid=8102 host=login01 time=1731840001.250000 path=/srv/modules/g.lua
    #+end_example
 
    =time== is the epoch Lmod wrote. A recent time is someone who still loads the module.
+   When the input has =jobid=, the output keeps it.
 
-2. A log that never mentions the module prints one line and exits 0:
+2. Narrow a large log by user, job identifier or time:
+
+   #+begin_src bash
+   eb-keep-logs loads --module GROMACS/2024.1 \
+     --user alice --jobid 8102 --since 1731840000 \
+     /var/log/moduleUsage.log
+   #+end_src
+
+   Add =--json= when another program will read the result. The document has =schema_version= 1 and a =loads= array.
+
+3. A log that never mentions the module prints one line and exits 0:
 
    #+begin_example
    no load of GROMACS/2024.1
@@ -46,7 +57,7 @@ Lmod can syslog each load as =user=USER module=NAME path=PATH host=HOST time=TIM
 | =eb-keep-logs: loads needs --module= | =--module= was omitted, or its value was empty. | Pass the full module name, as =GROMACS/2024.1=. |
 | =eb-keep-logs: loads needs a log file= | No file was given. | Pass the path of the tracking log. |
 | =eb-keep-logs: cannot read FILE: ERROR= | The file cannot be opened or is larger than 64 MiB. | Point at the log you can read, or split a larger one. |
-| =eb-keep-logs: loads does not know 'OPTION'= | An option other than =--module=. | Drop it. The command takes =--module= and one file. |
+| =eb-keep-logs: loads does not know 'OPTION'= | An option other than those documented here. | Drop it. |
 
 ** Related
 

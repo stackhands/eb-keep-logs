@@ -10,7 +10,6 @@ const sys = common.sys;
 const fsx = common.fsx;
 const cli = common.cli;
 const loads = @import("loads.zig");
-const runs = @import("runs.zig");
 
 const Allocator = std.mem.Allocator;
 const tool = "eb-keep-logs";
@@ -71,6 +70,8 @@ pub const Hit = struct {
     kind: Kind,
     path: []const u8,
     module: ?[]const u8 = null,
+    user: ?[]const u8 = null,
+    host: ?[]const u8 = null,
     time: []const u8 = "",
     epoch: ?f64 = null,
 };
@@ -182,6 +183,8 @@ fn appendHit(gpa: Allocator, hits: *std.ArrayList(Hit), hit: Hit) !void {
     var owned = hit;
     owned.path = try gpa.dupe(u8, hit.path);
     if (hit.module) |module| owned.module = try gpa.dupe(u8, module);
+    if (hit.user) |user| owned.user = try gpa.dupe(u8, user);
+    if (hit.host) |host| owned.host = try gpa.dupe(u8, host);
     if (hit.time.len > 0) owned.time = try gpa.dupe(u8, hit.time);
     try hits.append(gpa, owned);
 }
@@ -206,10 +209,26 @@ fn processObject(gpa: Allocator, hits: *std.ArrayList(Hit), root: std.json.Objec
             .object => |obj| obj,
             else => return,
         };
-        const time = timeFromUserT(user_t_obj);
+        var time = timeFromUserT(user_t_obj);
+        if (time.len == 0) {
+            if (user_t_obj.getPtr("start_time")) |when| {
+                time = switch (when.*) {
+                    .integer => |n| try std.fmt.allocPrint(gpa, "{d}", .{n}),
+                    .float => |n| try std.fmt.allocPrint(gpa, "{d}", .{n}),
+                    else => "",
+                };
+            }
+        }
         const epoch = epochFromUserT(user_t_obj);
         if (stringField(user_t_obj, "exec_path")) |path| {
-            try appendHit(gpa, hits, .{ .kind = .run, .path = path, .time = time, .epoch = epoch });
+            try appendHit(gpa, hits, .{
+                .kind = .run,
+                .path = path,
+                .user = stringField(user_t_obj, "user"),
+                .host = stringField(user_t_obj, "syshost"),
+                .time = time,
+                .epoch = epoch,
+            });
         }
         if (root.getPtr("libA")) |lib_a| {
             const arr = switch (lib_a.*) {
@@ -246,37 +265,144 @@ fn processLmodLine(gpa: Allocator, hits: *std.ArrayList(Hit), line: []const u8) 
         .kind = .@"module-load",
         .path = rec.path,
         .module = rec.module,
+        .user = rec.user,
+        .host = rec.host,
         .time = rec.time,
         .epoch = parseEpoch(rec.time),
     });
+}
+
+pub const Object = struct { slice: []const u8, end: usize };
+
+/// The next concatenated JSON object in `text`.
+pub fn nextObject(text: []const u8, start: usize) error{BadJson}!?Object {
+    var i = start;
+    while (i < text.len and std.ascii.isWhitespace(text[i])) : (i += 1) {}
+    if (i >= text.len) return null;
+    if (text[i] != '{') return error.BadJson;
+    var depth: usize = 0;
+    var in_string = false;
+    var escape = false;
+    const begin = i;
+    while (i < text.len) : (i += 1) {
+        const c = text[i];
+        if (in_string) {
+            if (escape) {
+                escape = false;
+                continue;
+            }
+            if (c == '\\') {
+                escape = true;
+                continue;
+            }
+            if (c == '"') in_string = false;
+            continue;
+        }
+        if (c == '"') {
+            in_string = true;
+            continue;
+        }
+        if (c == '{') depth += 1;
+        if (c == '}') {
+            depth -= 1;
+            if (depth == 0) return .{ .slice = text[begin .. i + 1], .end = i + 1 };
+        }
+    }
+    return error.BadJson;
+}
+
+fn processJson(gpa: Allocator, hits: *std.ArrayList(Hit), json: []const u8) !void {
+    const parsed = std.json.parseFromSlice(std.json.Value, gpa, json, .{}) catch |err| switch (err) {
+        error.OutOfMemory => return error.OutOfMemory,
+        else => return error.BadJson,
+    };
+    defer parsed.deinit();
+    const root = switch (parsed.value) {
+        .object => |obj| obj,
+        else => return,
+    };
+    try processObject(gpa, hits, root);
+}
+
+fn colonField(meta: []const u8, name: []const u8) ?[]const u8 {
+    var at: usize = 0;
+    while (at < meta.len) {
+        while (at < meta.len and std.ascii.isWhitespace(meta[at])) : (at += 1) {}
+        const end = std.mem.indexOfScalarPos(u8, meta, at, ' ') orelse meta.len;
+        const token = meta[at..end];
+        if (std.mem.startsWith(u8, token, name) and token.len > name.len and token[name.len] == ':')
+            return token[name.len + 1 ..];
+        at = end;
+    }
+    return null;
+}
+
+const Chunks = struct {
+    parts: []?[]const u8,
+    count: usize = 0,
+};
+
+fn processV3Line(
+    gpa: Allocator,
+    hits: *std.ArrayList(Hit),
+    records: *std.StringHashMapUnmanaged(Chunks),
+    line: []const u8,
+) !bool {
+    const tag = std.mem.indexOf(u8, line, "XALT_LOGGING_") orelse return false;
+    const version = std.mem.indexOfPos(u8, line, tag, " V:3 ") orelse return false;
+    const value_at = std.mem.indexOfPos(u8, line, version, " value:") orelse return true;
+    const meta = line[version + " V:3 ".len .. value_at];
+    const key = colonField(meta, "key") orelse return true;
+    _ = colonField(meta, "kind") orelse return true;
+    const nb_text = colonField(meta, "nb") orelse return true;
+    const idx_text = colonField(meta, "idx") orelse return true;
+    const nb = std.fmt.parseUnsigned(usize, nb_text, 10) catch return true;
+    const idx = std.fmt.parseUnsigned(usize, idx_text, 10) catch return true;
+    if (nb == 0 or idx >= nb or nb > 1_000_000) return true;
+
+    const gop = try records.getOrPut(gpa, key);
+    if (!gop.found_existing) {
+        gop.key_ptr.* = try gpa.dupe(u8, key);
+        gop.value_ptr.* = .{ .parts = try gpa.alloc(?[]const u8, nb) };
+        @memset(gop.value_ptr.parts, null);
+    } else if (gop.value_ptr.parts.len != nb) {
+        return true;
+    }
+    const chunks = gop.value_ptr;
+    if (chunks.parts[idx] == null) {
+        chunks.parts[idx] = line[value_at + " value:".len ..];
+        chunks.count += 1;
+    }
+    if (chunks.count != nb) return true;
+
+    var joined: std.ArrayList(u8) = .empty;
+    defer joined.deinit(gpa);
+    for (chunks.parts) |part| try joined.appendSlice(gpa, part.?);
+    try processJson(gpa, hits, joined.items);
+    _ = records.remove(key);
+    return true;
 }
 
 /// Parse every XALT and Lmod hit in `text` once, without filtering paths.
 pub fn parseHits(gpa: Allocator, text: []const u8) (Allocator.Error || error{BadJson})![]Hit {
     var hits: std.ArrayList(Hit) = .empty;
     errdefer hits.deinit(gpa);
+    var records: std.StringHashMapUnmanaged(Chunks) = .empty;
+    defer records.deinit(gpa);
     var at: usize = 0;
     while (true) {
         while (at < text.len and std.ascii.isWhitespace(text[at])) : (at += 1) {}
         if (at >= text.len) break;
         if (text[at] == '{') {
-            const item = (try runs.nextObject(text, at)) orelse break;
+            const item = (try nextObject(text, at)) orelse break;
             at = item.end;
-            const parsed = std.json.parseFromSlice(std.json.Value, gpa, item.slice, .{}) catch |err| switch (err) {
-                error.OutOfMemory => return error.OutOfMemory,
-                else => return error.BadJson,
-            };
-            defer parsed.deinit();
-            const root = switch (parsed.value) {
-                .object => |obj| obj,
-                else => continue,
-            };
-            try processObject(gpa, &hits, root);
+            try processJson(gpa, &hits, item.slice);
             continue;
         }
         const end = std.mem.indexOfScalarPos(u8, text, at, '\n') orelse text.len;
         const line = std.mem.trimEnd(u8, text[at..end], "\r");
-        try processLmodLine(gpa, &hits, line);
+        if (!try processV3Line(gpa, &hits, &records, line))
+            try processLmodLine(gpa, &hits, line);
         at = if (end < text.len) end + 1 else end;
     }
     return try hits.toOwnedSlice(gpa);

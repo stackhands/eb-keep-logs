@@ -3,13 +3,14 @@
 //! A run record is one JSON object. `userT` holds `user`, `exec_path`, and
 //! when XALT wrote them `syshost` and `start_time`. A link record has
 //! `resultT` and no `userT`; it is not a run. The file may hold several
-//! objects, one after another. This does not record runs and does not open
-//! a database.
+//! objects, one after another, or XALT V:3 syslog chunks. This does not record
+//! runs and does not open a database.
 const std = @import("std");
 const common = @import("zig_common");
 const sys = common.sys;
 const fsx = common.fsx;
 const cli = common.cli;
+const used = @import("used.zig");
 
 const Allocator = std.mem.Allocator;
 const tool = "eb-keep-logs";
@@ -42,120 +43,129 @@ pub fn execMatches(path: []const u8, query: []const u8) bool {
     return std.mem.eql(u8, path[slash + 1 ..], query);
 }
 
-pub const Object = struct { slice: []const u8, end: usize };
+const Filters = struct {
+    user: ?[]const u8 = null,
+    since: ?f64 = null,
+};
 
-/// The next concatenated JSON object in `text`.
-pub fn nextObject(text: []const u8, start: usize) error{BadJson}!?Object {
-    var i = start;
-    while (i < text.len and std.ascii.isWhitespace(text[i])) : (i += 1) {}
-    if (i >= text.len) return null;
-    if (text[i] != '{') return error.BadJson;
-    var depth: usize = 0;
-    var in_string = false;
-    var escape = false;
-    const begin = i;
-    while (i < text.len) : (i += 1) {
-        const c = text[i];
-        if (in_string) {
-            if (escape) {
-                escape = false;
-                continue;
-            }
-            if (c == '\\') {
-                escape = true;
-                continue;
-            }
-            if (c == '"') in_string = false;
-            continue;
+fn matchingRuns(
+    gpa: Allocator,
+    text: []const u8,
+    exec: []const u8,
+    filters: Filters,
+) (Allocator.Error || error{BadJson})![]used.Hit {
+    const hits = try used.parseHits(gpa, text);
+    var selected: std.ArrayList(used.Hit) = .empty;
+    for (hits) |hit| {
+        if (hit.kind != .run or !execMatches(hit.path, exec)) continue;
+        const user = hit.user orelse continue;
+        if (filters.user) |wanted| if (!std.mem.eql(u8, user, wanted)) continue;
+        if (filters.since) |minimum| {
+            const epoch = hit.epoch orelse continue;
+            if (epoch < minimum) continue;
         }
-        if (c == '"') {
-            in_string = true;
-            continue;
-        }
-        if (c == '{') depth += 1;
-        if (c == '}') {
-            depth -= 1;
-            if (depth == 0) return .{ .slice = text[begin .. i + 1], .end = i + 1 };
-        }
+        try selected.append(gpa, hit);
     }
-    return error.BadJson;
+    return try selected.toOwnedSlice(gpa);
 }
 
-fn appendScalar(out: *std.ArrayList(u8), gpa: Allocator, value: std.json.Value) Allocator.Error!void {
-    switch (value) {
-        .string => |s| try out.appendSlice(gpa, s),
-        .number_string => |s| try out.appendSlice(gpa, s),
-        .integer => |n| try out.print(gpa, "{d}", .{n}),
-        .float => |n| try out.print(gpa, "{d}", .{n}),
-        else => {},
-    }
-}
-
-/// The runs of `exec` in `text`, one line each, in file order. No run is
-/// the line `no run of PATH`.
-pub fn formatRuns(gpa: Allocator, text: []const u8, exec: []const u8) (Allocator.Error || error{BadJson})![]u8 {
+fn formatRunsText(gpa: Allocator, selected: []const used.Hit, exec: []const u8) Allocator.Error![]u8 {
     var out: std.ArrayList(u8) = .empty;
     errdefer out.deinit(gpa);
-    var n: usize = 0;
-    var at: usize = 0;
-    while (try nextObject(text, at)) |item| {
-        at = item.end;
-        const parsed = std.json.parseFromSlice(std.json.Value, gpa, item.slice, .{}) catch return error.BadJson;
-        defer parsed.deinit();
-        const root = switch (parsed.value) {
-            .object => |obj| obj,
-            else => continue,
-        };
-        const user_t_value = root.getPtr("userT") orelse continue;
-        const user_t = switch (user_t_value.*) {
-            .object => |obj| obj,
-            else => continue,
-        };
-        const user_value = user_t.getPtr("user") orelse continue;
-        const path_value = user_t.getPtr("exec_path") orelse continue;
-        const user = switch (user_value.*) {
-            .string => |s| s,
-            else => continue,
-        };
-        const path = switch (path_value.*) {
-            .string => |s| s,
-            else => continue,
-        };
-        if (!execMatches(path, exec)) continue;
-        try out.appendSlice(gpa, "user=");
-        try out.appendSlice(gpa, user);
-        try out.appendSlice(gpa, " host=");
-        if (user_t.getPtr("syshost")) |host| {
-            if (host.* == .string) try out.appendSlice(gpa, host.string);
-        }
-        try out.appendSlice(gpa, " time=");
-        if (user_t.getPtr("start_time")) |when| try appendScalar(&out, gpa, when.*);
-        try out.appendSlice(gpa, " path=");
-        try out.appendSlice(gpa, path);
-        try out.append(gpa, '\n');
-        n += 1;
+    for (selected) |hit| {
+        try out.print(gpa, "user={s} host={s} time={s} path={s}\n", .{
+            hit.user.?,
+            hit.host orelse "",
+            hit.time,
+            hit.path,
+        });
     }
-    if (n == 0) try out.print(gpa, "no run of {s}\n", .{exec});
+    if (selected.len == 0) try out.print(gpa, "no run of {s}\n", .{exec});
     return try out.toOwnedSlice(gpa);
 }
 
-/// `runs --exec PATH FILE`.
+const JsonRun = struct {
+    user: []const u8,
+    host: []const u8,
+    time: []const u8,
+    path: []const u8,
+};
+
+const JsonReport = struct {
+    schema_version: u32 = 1,
+    kind: []const u8 = "runs",
+    exec: []const u8,
+    runs: []const JsonRun,
+};
+
+fn formatRunsJson(
+    gpa: Allocator,
+    selected: []const used.Hit,
+    exec: []const u8,
+) ![]u8 {
+    var rows: std.ArrayList(JsonRun) = .empty;
+    defer rows.deinit(gpa);
+    for (selected) |hit| try rows.append(gpa, .{
+        .user = hit.user.?,
+        .host = hit.host orelse "",
+        .time = hit.time,
+        .path = hit.path,
+    });
+    const report: JsonReport = .{ .exec = exec, .runs = rows.items };
+    var out: std.Io.Writer.Allocating = .init(gpa);
+    defer out.deinit();
+    try std.json.Stringify.value(report, .{}, &out.writer);
+    try out.writer.writeAll("\n");
+    return try out.toOwnedSlice();
+}
+
+/// The runs of `exec` in `text`, one line each, in file order.
+pub fn formatRuns(gpa: Allocator, text: []const u8, exec: []const u8) (Allocator.Error || error{BadJson})![]u8 {
+    var arena_state = std.heap.ArenaAllocator.init(gpa);
+    defer arena_state.deinit();
+    const selected = try matchingRuns(arena_state.allocator(), text, exec, .{});
+    return formatRunsText(gpa, selected, exec);
+}
+
+fn optionValue(
+    args: []const []const u8,
+    i: *usize,
+    arg: []const u8,
+    comptime option: []const u8,
+    comptime message: []const u8,
+) []const u8 {
+    const value = if (std.mem.startsWith(u8, arg, option ++ "="))
+        arg[option.len + 1 ..]
+    else blk: {
+        i.* += 1;
+        if (i.* >= args.len) die(message, .{});
+        break :blk args[i.*];
+    };
+    if (value.len == 0 or value[0] == '-') die(message, .{});
+    return value;
+}
+
+/// `runs --exec PATH [--user USER] [--since EPOCH] [--json] FILE`.
 pub fn cmdRuns(gpa: Allocator, args: []const []const u8) u8 {
     var exec: []const u8 = "";
+    var user: ?[]const u8 = null;
+    var since: ?f64 = null;
+    var json_out = false;
     var path: []const u8 = "";
     var i: usize = 0;
     while (i < args.len) : (i += 1) {
         const a = args[i];
         if (std.mem.eql(u8, a, "--exec") or std.mem.startsWith(u8, a, "--exec=")) {
-            const v = if (std.mem.startsWith(u8, a, "--exec="))
-                a["--exec=".len..]
-            else blk: {
-                i += 1;
-                if (i >= args.len) die("runs needs --exec", .{});
-                break :blk args[i];
-            };
-            if (v.len == 0 or v[0] == '-') die("runs needs --exec", .{});
-            exec = v;
+            exec = optionValue(args, &i, a, "--exec", "runs needs --exec");
+        } else if (std.mem.eql(u8, a, "--user") or std.mem.startsWith(u8, a, "--user=")) {
+            user = optionValue(args, &i, a, "--user", "--user needs a name");
+        } else if (std.mem.eql(u8, a, "--since") or std.mem.startsWith(u8, a, "--since=")) {
+            const value = optionValue(args, &i, a, "--since", "--since needs an epoch");
+            const parsed = std.fmt.parseFloat(f64, value) catch die("--since needs an epoch", .{});
+            if (!std.math.isFinite(parsed) or parsed < 0) die("--since needs an epoch", .{});
+            since = parsed;
+        } else if (std.mem.eql(u8, a, "--json")) {
+            json_out = true;
         } else if (a.len > 0 and a[0] == '-') {
             die("runs does not know '{s}'", .{a});
         } else if (path.len == 0) {
@@ -168,14 +178,20 @@ pub fn cmdRuns(gpa: Allocator, args: []const []const u8) u8 {
     if (path.len == 0) die("runs needs a record file", .{});
     const text = readLog(gpa, path) orelse return 2;
     defer gpa.free(text);
-    const body = formatRuns(gpa, text, exec) catch |err| switch (err) {
+    var arena_state = std.heap.ArenaAllocator.init(gpa);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+    const selected = matchingRuns(arena, text, exec, .{ .user = user, .since = since }) catch |err| switch (err) {
         error.BadJson => {
             warn("runs: {s} is not XALT run JSON", .{path});
             return 2;
         },
         error.OutOfMemory => die("out of memory", .{}),
     };
-    defer gpa.free(body);
+    const body = if (json_out)
+        formatRunsJson(arena, selected, exec) catch die("out of memory", .{})
+    else
+        formatRunsText(arena, selected, exec) catch die("out of memory", .{});
     cli.out("{s}", .{body});
     return 0;
 }
