@@ -12,6 +12,7 @@ const cli = common.cli;
 const localtime = @import("localtime.zig");
 const scan = @import("scan.zig");
 const why = @import("why.zig");
+const loads = @import("loads.zig");
 const syslog = @import("syslog.zig");
 
 const Allocator = std.mem.Allocator;
@@ -96,6 +97,19 @@ const usage_text =
     \\          directory.
     \\      --json
     \\          Print one line of JSON instead, with schema_version 1.
+    \\  eb-keep-logs loads --module NAME FILE
+    \\      Print who loaded NAME, from Lmod's ModuleUsageTracking lines in FILE.
+    \\      Each record is user=USER module=NAME path=PATH host=HOST time=TIME,
+    \\      in any order, and a syslog prefix is left in place. Each load is
+    \\      one line, user=USER host=HOST time=TIME path=PATH, in the file's
+    \\      order. A file with no load of NAME prints no load of NAME. Zig
+    \\      build only.
+    \\      --module NAME, --module=NAME
+    \\          The module's full name, as Lmod recorded it, such as
+    \\          GROMACS/2024.1. Required.
+    \\      FILE
+    \\          The log that holds the records. A line that is not one is
+    \\          skipped.
     \\  eb-keep-logs -h | --help
     \\      Print this help on stdout and exit 0.
     \\  eb-keep-logs --version
@@ -117,7 +131,7 @@ const usage_text =
     \\                       directory of zone files.
     \\
     \\Exit status:
-    \\  0   -h, --help or --version, or a failed, rotate, why or history that
+    \\  0   -h, --help or --version, or a failed, rotate, why, history or loads that
     \\      accepted its arguments, whatever it could keep, compress, remove or
     \\      read: what it could not do is reported on stderr.
     \\  2   The invocation was refused, with eb-keep-logs: MESSAGE on stderr; or
@@ -1038,17 +1052,19 @@ pub fn main(init: std.process.Init) u8 {
     if (std.mem.eql(u8, cmd, "rotate")) return cmdRotate(c, args[2..]);
     if (std.mem.eql(u8, cmd, "why")) return why.cmdWhy(gpa, args[2..]);
     if (std.mem.eql(u8, cmd, "history")) return why.cmdHistory(gpa, args[2..]);
+    if (std.mem.eql(u8, cmd, "loads")) return loads.cmdLoads(gpa, args[2..]);
     if (cmd.len == 0) {
         cli.put(1, usage_text);
         return cli.usage_exit;
     }
-    die("unknown command '{s}' (failed, rotate, why, history, --help)", .{cmd});
+    die("unknown command '{s}' (failed, rotate, why, history, loads, --help)", .{cmd});
 }
 
 test {
     _ = localtime;
     _ = scan;
     _ = why;
+    _ = loads;
     _ = syslog;
 }
 

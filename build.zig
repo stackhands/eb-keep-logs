@@ -67,6 +67,11 @@ pub fn build(b: *std.Build) void {
     which.setCwd(b.path("."));
     which.expectExitCode(0);
     which.has_side_effects = true;
+    const loads_test = b.addSystemCommand(&.{ "bash", "-c", "TOOL_BIN=\"$0\" exec bash tests/test_loads.sh" });
+    loads_test.addArtifactArg(exe);
+    loads_test.setCwd(b.path("."));
+    loads_test.expectExitCode(0);
+    loads_test.has_side_effects = true;
 
     const test_step = b.step("test", "Run the unit tests, the command-line suites and the differential run");
     test_step.dependOn(&b.addRunArtifact(unit).step);
@@ -74,4 +79,5 @@ pub fn build(b: *std.Build) void {
     test_step.dependOn(&diff.step);
     test_step.dependOn(&why.step);
     test_step.dependOn(&which.step);
+    test_step.dependOn(&loads_test.step);
 }

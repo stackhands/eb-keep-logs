@@ -13,6 +13,7 @@ The title names the task.
 
    call-from-a-pipeline
    find-why-a-build-failed
+   who-loaded-a-module
    rotate-a-log-tree
    mark-licensed-logs
    emit-syslog-events
