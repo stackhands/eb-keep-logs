@@ -16,6 +16,7 @@ const loads = @import("loads.zig");
 const xalt_runs = @import("runs.zig");
 const pending = @import("pending.zig");
 const used_cmd = @import("used.zig");
+const usage_cmd = @import("usage.zig");
 const syslog = @import("syslog.zig");
 
 const Allocator = std.mem.Allocator;
@@ -133,6 +134,34 @@ const usage_text =
     \\      FILE
     \\          One or more files of concatenated XALT JSON objects and/or Lmod
     \\          ModuleUsageTracking lines. Required.
+    \\  eb-keep-logs usage --software DIR --modules DIR [--since EPOCH]
+    \\                     [--unused | --active] [--json] FILE...
+    \\      Compare installed DIR/Name/Version software with XALT and Lmod
+    \\      records. XALT paths below the software directory and Lmod module
+    \\      loads below the modules directory count as hits. By default, print
+    \\      every installed Name/Version with its state, hit count and newest
+    \\      time. --unused and --active print only Name/Version lines;
+    \\      --active output is accepted by eb-stack stack gap --site. --since
+    \\      ignores records older than EPOCH and records without a time.
+    \\      --json prints one JSON document with schema_version 1. Zig build
+    \\      only.
+    \\      --software DIR, --software=DIR
+    \\          The software install tree, with Name/Version directories.
+    \\          Required.
+    \\      --modules DIR, --modules=DIR
+    \\          The module tree that Lmod record paths must be below. Required.
+    \\      --since EPOCH, --since=EPOCH
+    \\          Count records at or after this non-negative epoch time.
+    \\          Default: all record times.
+    \\      --unused
+    \\          List installed Name/Version entries with no hit.
+    \\      --active
+    \\          List installed Name/Version entries with at least one hit.
+    \\      --json
+    \\          Print one line of JSON instead.
+    \\      FILE
+    \\          One or more files of concatenated XALT JSON objects and/or Lmod
+    \\          ModuleUsageTracking lines. Required.
     \\  eb-keep-logs runs --exec PATH FILE
     \\      Print who ran PATH, from XALT run records in FILE. A run record is a
     \\      JSON object whose userT holds user, exec_path and, when present,
@@ -179,7 +208,7 @@ const usage_text =
     \\                       directory of zone files.
     \\
     \\Exit status:
-    \\  0   -h, --help or --version, or a failed, rotate, why, history, loads, runs, used or pending that
+    \\  0   -h, --help or --version, or a failed, rotate, why, history, loads, runs, used, usage or pending that
     \\      accepted its arguments, whatever it could keep, compress, remove or
     \\      read: what it could not do is reported on stderr. used with
     \\      --require-none also exits 2 when any path was listed.
@@ -1104,12 +1133,13 @@ pub fn main(init: std.process.Init) u8 {
     if (std.mem.eql(u8, cmd, "loads")) return loads.cmdLoads(gpa, args[2..]);
     if (std.mem.eql(u8, cmd, "runs")) return xalt_runs.cmdRuns(gpa, args[2..]);
     if (std.mem.eql(u8, cmd, "used")) return used_cmd.cmdUsed(gpa, args[2..]);
+    if (std.mem.eql(u8, cmd, "usage")) return usage_cmd.cmdUsage(gpa, args[2..]);
     if (std.mem.eql(u8, cmd, "pending")) return pending.cmdPending(gpa, args[2..]);
     if (cmd.len == 0) {
         cli.put(1, usage_text);
         return cli.usage_exit;
     }
-    die("unknown command '{s}' (failed, rotate, why, history, loads, runs, used, pending, --help)", .{cmd});
+    die("unknown command '{s}' (failed, rotate, why, history, loads, runs, used, usage, pending, --help)", .{cmd});
 }
 
 test {
@@ -1120,6 +1150,7 @@ test {
     _ = xalt_runs;
     _ = pending;
     _ = used_cmd;
+    _ = usage_cmd;
     _ = syslog;
 }
 

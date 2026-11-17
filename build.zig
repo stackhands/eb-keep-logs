@@ -82,6 +82,11 @@ pub fn build(b: *std.Build) void {
     used_test.setCwd(b.path("."));
     used_test.expectExitCode(0);
     used_test.has_side_effects = true;
+    const usage_test = b.addSystemCommand(&.{ "bash", "-c", "TOOL_BIN=\"$0\" exec bash tests/test_usage.sh" });
+    usage_test.addArtifactArg(exe);
+    usage_test.setCwd(b.path("."));
+    usage_test.expectExitCode(0);
+    usage_test.has_side_effects = true;
     const pending_test = b.addSystemCommand(&.{ "bash", "-c", "TOOL_BIN=\"$0\" exec bash tests/test_pending.sh" });
     pending_test.addArtifactArg(exe);
     pending_test.setCwd(b.path("."));
@@ -97,5 +102,6 @@ pub fn build(b: *std.Build) void {
     test_step.dependOn(&loads_test.step);
     test_step.dependOn(&runs_test.step);
     test_step.dependOn(&used_test.step);
+    test_step.dependOn(&usage_test.step);
     test_step.dependOn(&pending_test.step);
 }

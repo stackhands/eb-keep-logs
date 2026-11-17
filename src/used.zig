@@ -10,6 +10,7 @@ const sys = common.sys;
 const fsx = common.fsx;
 const cli = common.cli;
 const loads = @import("loads.zig");
+const runs = @import("runs.zig");
 
 const Allocator = std.mem.Allocator;
 const tool = "eb-keep-logs";
@@ -24,7 +25,7 @@ pub const Kind = enum {
     pkg,
     @"module-load",
 
-    fn name(self: Kind) []const u8 {
+    pub fn name(self: Kind) []const u8 {
         return switch (self) {
             .run => "run",
             .@"run-lib" => "run-lib",
@@ -57,43 +58,22 @@ fn parseTime(text: []const u8) ?f64 {
     return std.fmt.parseFloat(f64, text) catch null;
 }
 
-const Object = struct { slice: []const u8, end: usize };
-
-fn nextObject(text: []const u8, start: usize) error{BadJson}!?Object {
-    var i = start;
-    while (i < text.len and std.ascii.isWhitespace(text[i])) : (i += 1) {}
-    if (i >= text.len) return null;
-    if (text[i] != '{') return error.BadJson;
-    var depth: usize = 0;
-    var in_string = false;
-    var escape = false;
-    const begin = i;
-    while (i < text.len) : (i += 1) {
-        const c = text[i];
-        if (in_string) {
-            if (escape) {
-                escape = false;
-                continue;
-            }
-            if (c == '\\') {
-                escape = true;
-                continue;
-            }
-            if (c == '"') in_string = false;
-            continue;
-        }
-        if (c == '"') {
-            in_string = true;
-            continue;
-        }
-        if (c == '{') depth += 1;
-        if (c == '}') {
-            depth -= 1;
-            if (depth == 0) return .{ .slice = text[begin .. i + 1], .end = i + 1 };
-        }
-    }
-    return error.BadJson;
+fn parseEpoch(text: []const u8) ?f64 {
+    const value = parseTime(text) orelse return null;
+    if (!std.math.isFinite(value) or value < 0) return null;
+    return value;
 }
+
+/// One path-bearing record parsed from XALT JSON or an Lmod tracking line.
+/// `module` is set only for an Lmod record. Numeric JSON times have an empty
+/// `time` (as `used` has always printed) and a populated `epoch`.
+pub const Hit = struct {
+    kind: Kind,
+    path: []const u8,
+    module: ?[]const u8 = null,
+    time: []const u8 = "",
+    epoch: ?f64 = null,
+};
 
 const Entry = struct {
     count: u32 = 0,
@@ -178,17 +158,44 @@ fn timeFromResultT(result_t: std.json.ObjectMap) []const u8 {
     return "";
 }
 
-fn walkLibArray(gpa: Allocator, arr: std.json.Array, prefix: []const u8, kind: Kind, time: []const u8, table: *Table) !void {
+fn epochFromValue(value: std.json.Value) ?f64 {
+    return switch (value) {
+        .string, .number_string => |s| parseEpoch(s),
+        .integer => |n| if (n >= 0) @floatFromInt(n) else null,
+        .float => |n| if (std.math.isFinite(n) and n >= 0) n else null,
+        else => null,
+    };
+}
+
+fn epochFromUserT(user_t: std.json.ObjectMap) ?f64 {
+    if (user_t.getPtr("start_time")) |when| return epochFromValue(when.*);
+    if (user_t.getPtr("currentEpoch")) |when| return epochFromValue(when.*);
+    return null;
+}
+
+fn epochFromResultT(result_t: std.json.ObjectMap) ?f64 {
+    if (result_t.getPtr("build_epoch")) |when| return epochFromValue(when.*);
+    return null;
+}
+
+fn appendHit(gpa: Allocator, hits: *std.ArrayList(Hit), hit: Hit) !void {
+    var owned = hit;
+    owned.path = try gpa.dupe(u8, hit.path);
+    if (hit.module) |module| owned.module = try gpa.dupe(u8, module);
+    if (hit.time.len > 0) owned.time = try gpa.dupe(u8, hit.time);
+    try hits.append(gpa, owned);
+}
+
+fn walkLibArray(gpa: Allocator, hits: *std.ArrayList(Hit), arr: std.json.Array, kind: Kind, time: []const u8, epoch: ?f64) !void {
     for (arr.items) |item| {
         const path = pathFromPair(item) orelse continue;
-        if (!underPrefix(prefix, path)) continue;
-        try noteHit(gpa, table, kind, path, time);
+        try appendHit(gpa, hits, .{ .kind = kind, .path = path, .time = time, .epoch = epoch });
     }
 }
 
-fn processObject(gpa: Allocator, table: *Table, prefix: []const u8, root: std.json.ObjectMap) !void {
+fn processObject(gpa: Allocator, hits: *std.ArrayList(Hit), root: std.json.ObjectMap) !void {
     if (stringField(root, "package_path")) |path| {
-        if (underPrefix(prefix, path)) try noteHit(gpa, table, .pkg, path, "");
+        try appendHit(gpa, hits, .{ .kind = .pkg, .path = path });
     }
 
     const user_t = root.getPtr("userT");
@@ -200,15 +207,16 @@ fn processObject(gpa: Allocator, table: *Table, prefix: []const u8, root: std.js
             else => return,
         };
         const time = timeFromUserT(user_t_obj);
+        const epoch = epochFromUserT(user_t_obj);
         if (stringField(user_t_obj, "exec_path")) |path| {
-            if (underPrefix(prefix, path)) try noteHit(gpa, table, .run, path, time);
+            try appendHit(gpa, hits, .{ .kind = .run, .path = path, .time = time, .epoch = epoch });
         }
         if (root.getPtr("libA")) |lib_a| {
             const arr = switch (lib_a.*) {
                 .array => |a| a,
                 else => return,
             };
-            try walkLibArray(gpa, arr, prefix, .@"run-lib", time, table);
+            try walkLibArray(gpa, hits, arr, .@"run-lib", time, epoch);
         }
     }
 
@@ -218,31 +226,44 @@ fn processObject(gpa: Allocator, table: *Table, prefix: []const u8, root: std.js
             else => return,
         };
         const time = timeFromResultT(result_t_obj);
+        const epoch = epochFromResultT(result_t_obj);
         if (stringField(result_t_obj, "exec_path")) |path| {
-            if (underPrefix(prefix, path)) try noteHit(gpa, table, .link, path, time);
+            try appendHit(gpa, hits, .{ .kind = .link, .path = path, .time = time, .epoch = epoch });
         }
         if (root.getPtr("linkA")) |link_a| {
             const arr = switch (link_a.*) {
                 .array => |a| a,
                 else => return,
             };
-            try walkLibArray(gpa, arr, prefix, .link, time, table);
+            try walkLibArray(gpa, hits, arr, .link, time, epoch);
         }
     }
 }
 
-fn processLmodLine(gpa: Allocator, table: *Table, prefix: []const u8, line: []const u8) !void {
+fn processLmodLine(gpa: Allocator, hits: *std.ArrayList(Hit), line: []const u8) !void {
     const rec = loads.parseRecord(line) orelse return;
-    if (!underPrefix(prefix, rec.path)) return;
-    try noteHit(gpa, table, .@"module-load", rec.path, rec.time);
+    try appendHit(gpa, hits, .{
+        .kind = .@"module-load",
+        .path = rec.path,
+        .module = rec.module,
+        .time = rec.time,
+        .epoch = parseEpoch(rec.time),
+    });
 }
 
-pub fn scanText(gpa: Allocator, table: *Table, prefix: []const u8, text: []const u8) (Allocator.Error || error{BadJson})!void {
+/// Parse every XALT and Lmod hit in `text` once, without filtering paths.
+pub fn parseHits(gpa: Allocator, text: []const u8) (Allocator.Error || error{BadJson})![]Hit {
+    var hits: std.ArrayList(Hit) = .empty;
+    errdefer hits.deinit(gpa);
     var at: usize = 0;
     var ws = at;
     while (ws < text.len and std.ascii.isWhitespace(text[ws])) : (ws += 1) {}
     if (ws < text.len and text[ws] == '{') {
-        while (try nextObject(text, at)) |item| {
+        while (true) {
+            var next = at;
+            while (next < text.len and std.ascii.isWhitespace(text[next])) : (next += 1) {}
+            if (next >= text.len or text[next] != '{') break;
+            const item = (try runs.nextObject(text, next)) orelse break;
             at = item.end;
             const parsed = std.json.parseFromSlice(std.json.Value, gpa, item.slice, .{}) catch |err| switch (err) {
                 error.OutOfMemory => return error.OutOfMemory,
@@ -253,7 +274,7 @@ pub fn scanText(gpa: Allocator, table: *Table, prefix: []const u8, text: []const
                 .object => |obj| obj,
                 else => continue,
             };
-            try processObject(gpa, table, prefix, root);
+            try processObject(gpa, &hits, root);
         }
     } else {
         at = 0;
@@ -262,7 +283,16 @@ pub fn scanText(gpa: Allocator, table: *Table, prefix: []const u8, text: []const
     while (it.next()) |raw| {
         const line = std.mem.trimEnd(u8, raw, "\r");
         if (line.len == 0) continue;
-        try processLmodLine(gpa, table, prefix, line);
+        try processLmodLine(gpa, &hits, line);
+    }
+    return try hits.toOwnedSlice(gpa);
+}
+
+pub fn scanText(gpa: Allocator, table: *Table, prefix: []const u8, text: []const u8) (Allocator.Error || error{BadJson})!void {
+    const hits = try parseHits(gpa, text);
+    for (hits) |hit| {
+        if (!underPrefix(prefix, hit.path)) continue;
+        try noteHit(gpa, table, hit.kind, hit.path, hit.time);
     }
 }
 
