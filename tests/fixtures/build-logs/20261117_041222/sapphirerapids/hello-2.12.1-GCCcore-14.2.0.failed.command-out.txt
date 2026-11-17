@@ -1,0 +1,52 @@
+if test -d ./.git				\
+	&& git --version >/dev/null 2>&1; then			\
+  cd . &&						\
+  git submodule --quiet foreach					\
+      'test "$(git rev-parse "$sha1")"			\
+	  = "$(git merge-base origin "$sha1")"'		\
+    || { echo 'maint.mk: found non-public submodule commit' >&2;	\
+	 exit 1; };						\
+else								\
+  : ;								\
+fi
+make  check-recursive
+make[1]: Entering directory '/tmp/alice/easybuild/build/hello/2.12.1/GCCcore-14.2.0/hello-2.12.1'
+Making check in po
+make[2]: Entering directory '/tmp/alice/easybuild/build/hello/2.12.1/GCCcore-14.2.0/hello-2.12.1/po'
+Makefile:170: warning: ignoring prerequisites on suffix rule definition
+make[2]: Nothing to be done for 'check'.
+make[2]: Leaving directory '/tmp/alice/easybuild/build/hello/2.12.1/GCCcore-14.2.0/hello-2.12.1/po'
+make[2]: Entering directory '/tmp/alice/easybuild/build/hello/2.12.1/GCCcore-14.2.0/hello-2.12.1'
+make  check-TESTS
+make[3]: Entering directory '/tmp/alice/easybuild/build/hello/2.12.1/GCCcore-14.2.0/hello-2.12.1'
+make[4]: Entering directory '/tmp/alice/easybuild/build/hello/2.12.1/GCCcore-14.2.0/hello-2.12.1'
+PASS: tests/atexit-1
+PASS: tests/greeting-1
+SKIP: tests/greeting-2
+FAIL: tests/hello-1
+PASS: tests/last-1
+PASS: tests/operand-1
+PASS: tests/traditional-1
+============================================================================
+Testsuite summary for GNU Hello 2.12.1
+============================================================================
+# TOTAL: 7
+# PASS:  5
+# SKIP:  1
+# XFAIL: 0
+# FAIL:  1
+# XPASS: 0
+# ERROR: 0
+============================================================================
+See ./test-suite.log
+Please report to bug-hello@gnu.org
+============================================================================
+make[4]: *** [Makefile:2611: test-suite.log] Error 1
+make[4]: Leaving directory '/tmp/alice/easybuild/build/hello/2.12.1/GCCcore-14.2.0/hello-2.12.1'
+make[3]: *** [Makefile:2719: check-TESTS] Error 2
+make[3]: Leaving directory '/tmp/alice/easybuild/build/hello/2.12.1/GCCcore-14.2.0/hello-2.12.1'
+make[2]: *** [Makefile:2995: check-am] Error 2
+make[2]: Leaving directory '/tmp/alice/easybuild/build/hello/2.12.1/GCCcore-14.2.0/hello-2.12.1'
+make[1]: *** [Makefile:2496: check-recursive] Error 1
+make[1]: Leaving directory '/tmp/alice/easybuild/build/hello/2.12.1/GCCcore-14.2.0/hello-2.12.1'
+make: *** [Makefile:2997: check] Error 2

@@ -7,7 +7,8 @@
 Keep the logs of EasyBuild builds that a build pipeline would otherwise lose, and keep the pipeline's log tree bounded.
 After a failed build, =eb-keep-logs failed= copies the EasyBuild log and the failing command's own output next to the build's output, where the end of the job does not take them, and closes the copies to other users, because a failed compile line of licensed software can print the licence number.
 =eb-keep-logs rotate= compresses the logs of old runs and removes the oldest runs.
-Each release is one static binary per architecture that needs nothing but =eb=; the shell script it was ported from stays in the repository as the same tool.
+=eb-keep-logs why= says from the kept logs why a run's builds failed, and =eb-keep-logs history= how a package's builds went run by run.
+Each release is one static binary per architecture that needs nothing but =eb=; the shell script it was ported from stays in the repository as the same tool, without =why= and =history=.
 
 New here?
 [[file:tutorials/keep-a-failed-build-log.org][Keep a failed build's logs]] runs an EasyBuild build that fails and ends with its log and the compiler's error kept in a directory of your own.

@@ -1,0 +1,21 @@
+--- hello-2.12.1.orig/src/hello.c
++++ hello-2.12.1/src/hello.c
+@@ -65,7 +65,7 @@
+      This is implemented in the Gnulib module "closeout".  */
+   atexit (close_stdout);
+ 
+-  while ((optc = getopt_long (argc, argv, "g:htv", longopts, NULL)) != -1)
++  while ((optc = getopt_long (argc, argv, "eg:htv", longopts, NULL)) != -1)
+     switch (optc)
+       {
+ 	/* --help and --version exit immediately, per GNU coding standards.  */
+@@ -73,6 +73,9 @@
+ 	print_version ();
+ 	exit (EXIT_SUCCESS);
+ 	break;
++      case 'e':
++	greeting_msg = getenv ("HELLO_GREETING");
++	break;
+       case 'g':
+ 	greeting_msg = optarg;
+ 	break;

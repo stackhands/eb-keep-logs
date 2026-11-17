@@ -1,0 +1,30 @@
+easyblock = 'ConfigureMake'
+
+name = 'hello'
+version = '2.12.1'
+
+homepage = 'https://www.gnu.org/software/hello/'
+description = "GNU hello prints a friendly greeting."
+
+toolchain = {'name': 'GCCcore', 'version': '14.2.0'}
+
+source_urls = [GNU_SOURCE]
+sources = [SOURCE_TAR_GZ]
+patches = ['hello-2.12.1_capitalise.patch']
+checksums = [
+    {'hello-2.12.1.tar.gz': '8d99142afd92576f30b0cd7cb42a8dc6809998bc5d607d88761f512e26c7db20'},
+    {'hello-2.12.1_capitalise.patch': 'e3f06cdd0bc219e21ffd667444d50dc3b07d9c4ee6373ba672377373c3e0bc76'},
+]
+
+builddependencies = [('binutils', '2.42')]
+
+runtest = 'check'
+
+sanity_check_paths = {
+    'files': ['bin/hello'],
+    'dirs': ['share/man/man1'],
+}
+
+sanity_check_commands = ['hello --version']
+
+moduleclass = 'tools'

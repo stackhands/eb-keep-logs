@@ -1,0 +1,160 @@
+rm -f lib/alloca.h-t lib/alloca.h && \
+{ echo '/* DO NOT EDIT! GENERATED AUTOMATICALLY! */'; \
+  sed -e 's|@''HAVE_ALLOCA_H''@|1|g' < ./lib/alloca.in.h; \
+} > lib/alloca.h-t && \
+mv -f lib/alloca.h-t lib/alloca.h
+rm -f lib/configmake.h-t && \
+{ echo '/* DO NOT EDIT! GENERATED AUTOMATICALLY! */'; \
+  echo '#if HAVE_WINSOCK2_H'; \
+  echo '# include <winsock2.h> /* avoid mingw pollution on DATADIR */'; \
+  echo '#endif'; \
+      -e 's|@''HAVE_MBSRTOWCS''@|1|g' \
+      -e 's|@''HAVE_MBSNRTOWCS''@|1|g' \
+      -e 's|@''HAVE_WCRTOMB''@|1|g' \
+      -e 's|@''HAVE_WCSRTOMBS''@|1|g' \
+      -e 's|@''HAVE_WCSNRTOMBS''@|1|g' \
+      -e 's|@''HAVE_WMEMCHR''@|1|g' \
+      -e 's|@''HAVE_WMEMCMP''@|1|g' \
+      -e 's|@''HAVE_WMEMCPY''@|1|g' \
+      -e 's|@''HAVE_WMEMMOVE''@|1|g' \
+      -e 's|@''HAVE_WMEMPCPY''@|1|g' \
+      -e 's|@''HAVE_WMEMSET''@|1|g' \
+      -e 's|@''HAVE_WCSLEN''@|1|g' \
+      -e 's|@''HAVE_WCSNLEN''@|1|g' \
+      -e 's|@''HAVE_WCSCPY''@|1|g' \
+      -e 's|@''HAVE_WCPCPY''@|1|g' \
+      -e 's|@''HAVE_WCSNCPY''@|1|g' \
+      -e 's|@''HAVE_WCPNCPY''@|1|g' \
+      -e 's|@''HAVE_WCSCAT''@|1|g' \
+      -e 's|@''HAVE_WCSNCAT''@|1|g' \
+      -e 's|@''HAVE_WCSCMP''@|1|g' \
+      -e 's|@''HAVE_WCSNCMP''@|1|g' \
+      -e 's|@''HAVE_WCSCASECMP''@|1|g' \
+      -e 's|@''HAVE_WCSNCASECMP''@|1|g' \
+      -e 's|@''HAVE_WCSCOLL''@|1|g' \
+      -e 's|@''HAVE_WCSXFRM''@|1|g' \
+      -e 's|@''HAVE_WCSDUP''@|1|g' \
+      -e 's|@''HAVE_WCSCHR''@|1|g' \
+      -e 's|@''HAVE_WCSRCHR''@|1|g' \
+      -e 's|@''HAVE_WCSCSPN''@|1|g' \
+      -e 's|@''HAVE_WCSSPN''@|1|g' \
+      -e 's|@''HAVE_WCSPBRK''@|1|g' \
+      -e 's|@''HAVE_WCSSTR''@|1|g' \
+      -e 's|@''HAVE_WCSTOK''@|1|g' \
+      -e 's|@''HAVE_WCSWIDTH''@|1|g' \
+      -e 's|@''HAVE_WCSFTIME''@|1|g' \
+      -e 's|@''HAVE_DECL_WCTOB''@|1|g' \
+      -e 's|@''HAVE_DECL_WCSDUP''@|1|g' \
+      -e 's|@''HAVE_DECL_WCWIDTH''@|1|g' \
+  | \
+  sed -e 's|@''REPLACE_MBSTATE_T''@|0|g' \
+      -e 's|@''REPLACE_BTOWC''@|0|g' \
+      -e 's|@''REPLACE_WCTOB''@|0|g' \
+      -e 's|@''REPLACE_MBSINIT''@|0|g' \
+      -e 's|@''REPLACE_MBRTOWC''@|1|g' \
+      -e 's|@''REPLACE_MBRLEN''@|0|g' \
+      -e 's|@''REPLACE_MBSRTOWCS''@|0|g' \
+      -e 's|@''REPLACE_MBSNRTOWCS''@|0|g' \
+      -e 's|@''REPLACE_WCRTOMB''@|0|g' \
+      -e 's|@''REPLACE_WCSRTOMBS''@|0|g' \
+      -e 's|@''REPLACE_WCSNRTOMBS''@|0|g' \
+      -e 's|@''REPLACE_WCWIDTH''@|0|g' \
+      -e 's|@''REPLACE_WCSWIDTH''@|0|g' \
+      -e 's|@''REPLACE_WCSFTIME''@|0|g' \
+      -e 's|@''REPLACE_WCSTOK''@|0|g' \
+      -e '/definitions of _GL_FUNCDECL_RPL/r ./lib/c++defs.h' \
+      -e '/definition of _GL_ARG_NONNULL/r ./lib/arg-nonnull.h' \
+      -e '/definition of _GL_WARN_ON_USE/r ./lib/warn-on-use.h'; \
+} > lib/wchar.h-t && \
+mv lib/wchar.h-t lib/wchar.h
+rm -f lib/wctype.h-t lib/wctype.h && \
+{ echo '/* DO NOT EDIT! GENERATED AUTOMATICALLY! */'; \
+  sed -e 's|@''GUARD_PREFIX''@|GL|g' \
+      -e 's/@''HAVE_WCTYPE_H''@/1/g' \
+      -e 's|@''INCLUDE_NEXT''@|include_next|g' \
+      -e 's|@''PRAGMA_SYSTEM_HEADER''@|#pragma GCC system_header|g' \
+      -e 's|@''PRAGMA_COLUMNS''@||g' \
+      -e 's|@''NEXT_WCTYPE_H''@|<wctype.h>|g' \
+      -e 's/@''HAVE_CRTDEFS_H''@/0/g' \
+      -e 's/@''GNULIB_OVERRIDES_WINT_T''@/0/g' \
+      -e 's/@''GNULIB_ISWBLANK''@/1/g' \
+      -e 's/@''GNULIB_ISWDIGIT''@/1/g' \
+      -e 's/@''GNULIB_ISWXDIGIT''@/1/g' \
+      -e 's/@''GNULIB_WCTYPE''@/0/g' \
+      -e 's/@''GNULIB_ISWCTYPE''@/0/g' \
+      -e 's/@''GNULIB_WCTRANS''@/0/g' \
+      -e 's/@''GNULIB_TOWCTRANS''@/0/g' \
+      -e 's/@''HAVE_ISWBLANK''@/1/g' \
+      -e 's/@''HAVE_ISWCNTRL''@/1/g' \
+      -e 's/@''HAVE_WCTYPE_T''@/1/g' \
+      -e 's/@''HAVE_WCTRANS_T''@/1/g' \
+      -e 's/@''HAVE_WINT_T''@/1/g' \
+      -e 's/@''REPLACE_ISWBLANK''@/0/g' \
+      -e 's/@''REPLACE_ISWDIGIT''@/0/g' \
+      -e 's/@''REPLACE_ISWXDIGIT''@/0/g' \
+      -e 's/@''REPLACE_ISWCNTRL''@/0/g' \
+      -e 's/@''REPLACE_TOWLOWER''@/0/g' \
+      -e '/definitions of _GL_FUNCDECL_RPL/r ./lib/c++defs.h' \
+      -e '/definition of _GL_WARN_ON_USE/r ./lib/warn-on-use.h' \
+      < ./lib/wctype.in.h; \
+} > lib/wctype.h-t && \
+mv lib/wctype.h-t lib/wctype.h
+make  all-recursive
+make[1]: Entering directory '/tmp/alice/easybuild/build/hello/2.12.1/GCCcore-14.2.0/hello-2.12.1'
+Making all in po
+make[2]: Entering directory '/tmp/alice/easybuild/build/hello/2.12.1/GCCcore-14.2.0/hello-2.12.1/po'
+Makefile:170: warning: ignoring prerequisites on suffix rule definition
+make[2]: Nothing to be done for 'all'.
+make[2]: Leaving directory '/tmp/alice/easybuild/build/hello/2.12.1/GCCcore-14.2.0/hello-2.12.1/po'
+make[2]: Entering directory '/tmp/alice/easybuild/build/hello/2.12.1/GCCcore-14.2.0/hello-2.12.1'
+depbase=`echo src/hello.o | sed 's|[^/]*$|.deps/&|;s|\.o$||'`;\
+gcc -DLOCALEDIR=\"/home/alice/eessi/versions/2025.06/software/linux/x86_64/intel/sapphirerapids/software/hello/2.12.1-GCCcore-14.2.0/share/locale\" -DHAVE_CONFIG_H -I.  -Ilib -I./lib -Isrc -I./src   -O2 -ftree-vectorize -march=native -fno-math-errno -MT src/hello.o -MD -MP -MF $depbase.Tpo -c -o src/hello.o src/hello.c &&\
+mv -f $depbase.Tpo $depbase.Po
+depbase=`echo lib/basename-lgpl.o | sed 's|[^/]*$|.deps/&|;s|\.o$||'`;\
+gcc -DLOCALEDIR=\"/home/alice/eessi/versions/2025.06/software/linux/x86_64/intel/sapphirerapids/software/hello/2.12.1-GCCcore-14.2.0/share/locale\" -DHAVE_CONFIG_H -I.  -Ilib -I./lib -Isrc -I./src   -O2 -ftree-vectorize -march=native -fno-math-errno -MT lib/basename-lgpl.o -MD -MP -MF $depbase.Tpo -c -o lib/basename-lgpl.o lib/basename-lgpl.c &&\
+mv -f $depbase.Tpo $depbase.Po
+depbase=`echo lib/c-ctype.o | sed 's|[^/]*$|.deps/&|;s|\.o$||'`;\
+gcc -DLOCALEDIR=\"/home/alice/eessi/versions/2025.06/software/linux/x86_64/intel/sapphirerapids/software/hello/2.12.1-GCCcore-14.2.0/share/locale\" -DHAVE_CONFIG_H -I.  -Ilib -I./lib -Isrc -I./src   -O2 -ftree-vectorize -march=native -fno-math-errno -MT lib/c-ctype.o -MD -MP -MF $depbase.Tpo -c -o lib/c-ctype.o lib/c-ctype.c &&\
+mv -f $depbase.Tpo $depbase.Po
+depbase=`echo lib/c-strcasecmp.o | sed 's|[^/]*$|.deps/&|;s|\.o$||'`;\
+gcc -DLOCALEDIR=\"/home/alice/eessi/versions/2025.06/software/linux/x86_64/intel/sapphirerapids/software/hello/2.12.1-GCCcore-14.2.0/share/locale\" -DHAVE_CONFIG_H -I.  -Ilib -I./lib -Isrc -I./src   -O2 -ftree-vectorize -march=native -fno-math-errno -MT lib/c-strcasecmp.o -MD -MP -MF $depbase.Tpo -c -o lib/c-strcasecmp.o lib/c-strcasecmp.c &&\
+mv -f $depbase.Tpo $depbase.Po
+depbase=`echo lib/c-strncasecmp.o | sed 's|[^/]*$|.deps/&|;s|\.o$||'`;\
+gcc -DLOCALEDIR=\"/home/alice/eessi/versions/2025.06/software/linux/x86_64/intel/sapphirerapids/software/hello/2.12.1-GCCcore-14.2.0/share/locale\" -DHAVE_CONFIG_H -I.  -Ilib -I./lib -Isrc -I./src   -O2 -ftree-vectorize -march=native -fno-math-errno -MT lib/c-strncasecmp.o -MD -MP -MF $depbase.Tpo -c -o lib/c-strncasecmp.o lib/c-strncasecmp.c &&\
+mv -f $depbase.Tpo $depbase.Po
+depbase=`echo lib/cloexec.o | sed 's|[^/]*$|.deps/&|;s|\.o$||'`;\
+gcc -DLOCALEDIR=\"/home/alice/eessi/versions/2025.06/software/linux/x86_64/intel/sapphirerapids/software/hello/2.12.1-GCCcore-14.2.0/share/locale\" -DHAVE_CONFIG_H -I.  -Ilib -I./lib -Isrc -I./src   -O2 -ftree-vectorize -march=native -fno-math-errno -MT lib/cloexec.o -MD -MP -MF $depbase.Tpo -c -o lib/cloexec.o lib/cloexec.c &&\
+mv -f $depbase.Tpo $depbase.Po
+depbase=`echo lib/close-stream.o | sed 's|[^/]*$|.deps/&|;s|\.o$||'`;\
+gcc -DLOCALEDIR=\"/home/alice/eessi/versions/2025.06/software/linux/x86_64/intel/sapphirerapids/software/hello/2.12.1-GCCcore-14.2.0/share/locale\" -DHAVE_CONFIG_H -I.  -Ilib -I./lib -Isrc -I./src   -O2 -ftree-vectorize -march=native -fno-math-errno -MT lib/close-stream.o -MD -MP -MF $depbase.Tpo -c -o lib/close-stream.o lib/close-stream.c &&\
+mv -f $depbase.Tpo $depbase.Po
+depbase=`echo lib/closeout.o | sed 's|[^/]*$|.deps/&|;s|\.o$||'`;\
+gcc -DLOCALEDIR=\"/home/alice/eessi/versions/2025.06/software/linux/x86_64/intel/sapphirerapids/software/hello/2.12.1-GCCcore-14.2.0/share/locale\" -DHAVE_CONFIG_H -I.  -Ilib -I./lib -Isrc -I./src   -O2 -ftree-vectorize -march=native -fno-math-errno -MT lib/closeout.o -MD -MP -MF $depbase.Tpo -c -o lib/closeout.o lib/closeout.c &&\
+mv -f $depbase.Tpo $depbase.Po
+depbase=`echo lib/dirname.o | sed 's|[^/]*$|.deps/&|;s|\.o$||'`;\
+gcc -DLOCALEDIR=\"/home/alice/eessi/versions/2025.06/software/linux/x86_64/intel/sapphirerapids/software/hello/2.12.1-GCCcore-14.2.0/share/locale\" -DHAVE_CONFIG_H -I.  -Ilib -I./lib -Isrc -I./src   -O2 -ftree-vectorize -march=native -fno-math-errno -MT lib/dirname.o -MD -MP -MF $depbase.Tpo -c -o lib/dirname.o lib/dirname.c &&\
+mv -f $depbase.Tpo $depbase.Po
+depbase=`echo lib/basename.o | sed 's|[^/]*$|.deps/&|;s|\.o$||'`;\
+gcc -DLOCALEDIR=\"/home/alice/eessi/versions/2025.06/software/linux/x86_64/intel/sapphirerapids/software/hello/2.12.1-GCCcore-14.2.0/share/locale\" -DHAVE_CONFIG_H -I.  -Ilib -I./lib -Isrc -I./src   -O2 -ftree-vectorize -march=native -fno-math-errno -MT lib/basename.o -MD -MP -MF $depbase.Tpo -c -o lib/basename.o lib/basename.c &&\
+mv -f $depbase.Tpo $depbase.Po
+depbase=`echo lib/dirname-lgpl.o | sed 's|[^/]*$|.deps/&|;s|\.o$||'`;\
+gcc -DLOCALEDIR=\"/home/alice/eessi/versions/2025.06/software/linux/x86_64/intel/sapphirerapids/software/hello/2.12.1-GCCcore-14.2.0/share/locale\" -DHAVE_CONFIG_H -I.  -Ilib -I./lib -Isrc -I./src   -O2 -ftree-vectorize -march=native -fno-math-errno -MT lib/dirname-lgpl.o -MD -MP -MF $depbase.Tpo -c -o lib/dirname-lgpl.o lib/dirname-lgpl.c &&\
+mv -f $depbase.Tpo $depbase.Po
+depbase=`echo lib/stripslash.o | sed 's|[^/]*$|.deps/&|;s|\.o$||'`;\
+gcc -DLOCALEDIR=\"/home/alice/eessi/versions/2025.06/software/linux/x86_64/intel/sapphirerapids/software/hello/2.12.1-GCCcore-14.2.0/share/locale\" -DHAVE_CONFIG_H -I.  -Ilib -I./lib -Isrc -I./src   -O2 -ftree-vectorize -march=native -fno-math-errno -MT lib/stripslash.o -MD -MP -MF $depbase.Tpo -c -o lib/stripslash.o lib/stripslash.c &&\
+mv -f $depbase.Tpo $depbase.Po
+depbase=`echo lib/exitfail.o | sed 's|[^/]*$|.deps/&|;s|\.o$||'`;\
+gcc -DLOCALEDIR=\"/home/alice/eessi/versions/2025.06/software/linux/x86_64/intel/sapphirerapids/software/hello/2.12.1-GCCcore-14.2.0/share/locale\" -DHAVE_CONFIG_H -I.  -Ilib -I./lib -Isrc -I./src   -O2 -ftree-vectorize -march=native -fno-math-errno -MT lib/exitfail.o -MD -MP -MF $depbase.Tpo -c -o lib/exitfail.o lib/exitfail.c &&\
+mv -f $depbase.Tpo $depbase.Po
+src/hello.c: In function 'main':
+src/hello.c:149:18: error: 'site_greeting' undeclared (first use in this function); did you mean 'mb_greeting'?
+  149 |   greeting_msg = site_greeting;
+      |                  ^~~~~~~~~~~~~
+      |                  mb_greeting
+src/hello.c:149:18: note: each undeclared identifier is reported only once for each function it appears in
+make[2]: *** [Makefile:2270: src/hello.o] Error 1
+make[2]: *** Waiting for unfinished jobs....
+make[2]: Leaving directory '/tmp/alice/easybuild/build/hello/2.12.1/GCCcore-14.2.0/hello-2.12.1'
+make[1]: *** [Makefile:2496: all-recursive] Error 1
+make[1]: Leaving directory '/tmp/alice/easybuild/build/hello/2.12.1/GCCcore-14.2.0/hello-2.12.1'
+make: *** [Makefile:1899: all] Error 2

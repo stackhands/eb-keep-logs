@@ -13,7 +13,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - run: shellcheck -S warning eb-keep-logs tests/test_eb_keep_logs.sh
+      - run: shellcheck -S warning eb-keep-logs tests/test_eb_keep_logs.sh tests/corpus/run.sh tests/corpus/make-fixtures.sh
       - run: bash tests/test_eb_keep_logs.sh
       - name: no site names in the tree
         run: |
@@ -35,6 +35,6 @@ jobs:
         with:
           version: 0.17.1
       - run: zig fmt --check build.zig build.zig.zon src
-      - run: shellcheck -S warning tests/differential.sh
+      - run: shellcheck -S warning tests/differential.sh tests/test_why.sh
       - run: zig build test --summary all
       - run: zig build -Drelease=true -Dcommit=${{ github.sha }} && zig-out/bin/eb-keep-logs --version

@@ -75,6 +75,7 @@ eb-keep-logs rotate: 0 files compressed, 0 runs deleted under /home/alice/build-
 #+end_example
 
 Each build has =NAME.stdout.log= and its =--tmp-logdir= under =easybuild-logs/=; a failed build also has =NAME.failed.ebout.log= and, when its last command failed, =NAME.failed.command-out.txt=.
+=eb-keep-logs why "$LOGDIR"= says from these files why each failed build failed; [[file:find-why-a-build-failed.org][Find why a build failed]] shows how.
 
 ** If it fails
 
@@ -88,6 +89,7 @@ Each build has =NAME.stdout.log= and its =--tmp-logdir= under =easybuild-logs/=;
 
 ** Related
 
+- [[file:find-why-a-build-failed.org][Find why a build failed]]
 - [[file:rotate-a-log-tree.org][Rotate a log tree]]
 - [[file:../explanation/why-eb-last-log.org][Finding a failed build's log]]
 - [[file:../reference/cli.org][The eb-keep-logs command]]
