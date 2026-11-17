@@ -11,6 +11,7 @@ const logs = common.logs;
 const cli = common.cli;
 const localtime = @import("localtime.zig");
 const scan = @import("scan.zig");
+const why = @import("why.zig");
 
 const Allocator = std.mem.Allocator;
 const tool = "eb-keep-logs";
@@ -51,6 +52,27 @@ const usage_text =
     \\          While another rotate holds the lock, wait up to SECONDS for it,
     \\          then give up and exit 75. Default: 600; 0 does not wait. An empty
     \\          value is the default.
+    \\  eb-keep-logs why [RUN | --latest] [--target TARGET] [--root ROOT] [--json]
+    \\      Say why the builds of a run failed: for each failed easyconfig, its
+    \\      package and easyconfig, the EasyBuild step it failed in, EasyBuild's
+    \\      message, and the line of its kept log that shows the error: the first
+    \\      compiler or linker error, else EasyBuild's own error line, with the
+    \\      line number and three lines either side. Logs rotate compressed are
+    \\      read as they are. Zig build only. RUN and the options come in any
+    \\      order.
+    \\      RUN
+    \\          A run directory, as a path or as a name under ROOT.
+    \\      --latest
+    \\          The newest run under ROOT, or the newest with a directory
+    \\          TARGET. The default when no RUN is given.
+    \\      --target TARGET, --target=TARGET
+    \\          Only the builds in the run's directory TARGET. Default: those in
+    \\          the run's own directory and in every directory in it.
+    \\      --root ROOT, --root=ROOT
+    \\          The directory that holds the runs. Default: the current
+    \\          directory.
+    \\      --json
+    \\          Print one line of JSON instead, with schema_version 1.
     \\  eb-keep-logs -h | --help
     \\      Print this help on stdout and exit 0.
     \\  eb-keep-logs --version
@@ -67,9 +89,9 @@ const usage_text =
     \\                       directory of zone files.
     \\
     \\Exit status:
-    \\  0   -h, --help or --version, or a failed or rotate that accepted its
-    \\      arguments, whatever it could keep, compress or remove: what it could
-    \\      not do is reported on stderr.
+    \\  0   -h, --help or --version, or a failed, rotate or why that accepted
+    \\      its arguments, whatever it could keep, compress, remove or read:
+    \\      what it could not do is reported on stderr.
     \\  2   The invocation was refused, with eb-keep-logs: MESSAGE on stderr; or
     \\      no command was given, and this help is on stdout.
     \\  75  rotate waited --lock-timeout seconds for the lock another rotate
@@ -811,10 +833,10 @@ fn cmdRotate(c: Ctx, args: []const [:0]const u8) u8 {
     return 0;
 }
 
-/// The command line. `failed` and `rotate` run those commands; `--help` or
-/// `-h` prints the usage and `--version` the version line, both returning
-/// 0. No command prints the usage and returns 2, and an unknown one is
-/// refused with 2.
+/// The command line. `failed`, `rotate` and `why` run those commands;
+/// `--help` or `-h` prints the usage and `--version` the version line, both
+/// returning 0. No command prints the usage and returns 2, and an unknown
+/// one is refused with 2.
 pub fn main(init: std.process.Init) u8 {
     const gpa = init.gpa;
     const args = init.minimal.args.toSlice(init.arena.allocator()) catch die("cannot read the arguments", .{});
@@ -835,16 +857,18 @@ pub fn main(init: std.process.Init) u8 {
     }
     if (std.mem.eql(u8, cmd, "failed")) return cmdFailed(c, args[2..]);
     if (std.mem.eql(u8, cmd, "rotate")) return cmdRotate(c, args[2..]);
+    if (std.mem.eql(u8, cmd, "why")) return why.cmdWhy(gpa, args[2..]);
     if (cmd.len == 0) {
         cli.put(1, usage_text);
         return cli.usage_exit;
     }
-    die("unknown command '{s}' (failed, rotate, --help)", .{cmd});
+    die("unknown command '{s}' (failed, rotate, why, --help)", .{cmd});
 }
 
 test {
     _ = localtime;
     _ = scan;
+    _ = why;
 }
 
 test "a failed copy does not replace a log already kept" {

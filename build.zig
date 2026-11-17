@@ -55,9 +55,17 @@ pub fn build(b: *std.Build) void {
     diff.setCwd(b.path("."));
     diff.expectExitCode(0);
     diff.has_side_effects = true;
+    // why, which the shell implementation does not have, on the kept logs
+    // of real EasyBuild failures.
+    const why = b.addSystemCommand(&.{ "bash", "-c", "TOOL_BIN=\"$0\" exec bash tests/test_why.sh" });
+    why.addArtifactArg(exe);
+    why.setCwd(b.path("."));
+    why.expectExitCode(0);
+    why.has_side_effects = true;
 
-    const test_step = b.step("test", "Run the unit tests, the command-line suite and the differential run");
+    const test_step = b.step("test", "Run the unit tests, the command-line suites and the differential run");
     test_step.dependOn(&b.addRunArtifact(unit).step);
     test_step.dependOn(&suite.step);
     test_step.dependOn(&diff.step);
+    test_step.dependOn(&why.step);
 }

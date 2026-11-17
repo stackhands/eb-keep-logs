@@ -26,6 +26,7 @@ on the same invocations.
 | case | shell script | Zig build |
 |---|---|---|
 | `--version` | `eb-keep-logs 0.1.0` | `eb-keep-logs 0.2.1 (TARGET, MODE, zig VERSION, COMMIT)`; the first two words are unchanged |
+| `why` | refused with `eb-keep-logs: why is in the Zig build only`, exit 2 | says why the run's builds failed, from their kept logs, read through gzip when rotated |
 | `--compress-after` or `--delete-after` with no value after it | never returns | refused, exit 2 |
 | `EB_KEEP_LOGS_NOW` not empty and not an integer | evaluated as shell arithmetic | refused, exit 2 |
 | `rotate`'s lock file cannot be opened, or is a symbolic link or not a regular file | `eb-keep-logs: cannot lock PATH`, exit 2, from a look at the name just before it is opened | `eb-keep-logs: cannot lock PATH: ERROR`, exit 2, from the open itself |

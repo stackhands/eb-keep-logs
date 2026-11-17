@@ -1,0 +1,14 @@
+tests/fixtures/build-logs/20261117_040615: 1 failed build of 1
+
+sapphirerapids/hello-2.12.1-GCCcore-14.2.0 failed in the build step, after 3m06s
+  package:    hello/2.12.1-GCCcore-14.2.0
+  easyconfig: /home/alice/corpus/cases/compile/hello-2.12.1-GCCcore-14.2.0.eb
+  EasyBuild:  shell command 'make ...' failed with exit code 2 in build step for hello-2.12.1-GCCcore-14.2.0.eb
+  log:        tests/fixtures/build-logs/20261117_040615/sapphirerapids/hello-2.12.1-GCCcore-14.2.0.failed.ebout.log:291
+      288 | gcc -DLOCALEDIR=\"/home/alice/eessi/versions/2025.06/software/linux/x86_64/intel/sapphirerapids/software/hello/2.12.1-GCCcore-14.2.0/share/locale\" -DHAVE_CONFIG_H -I.  -Ilib -I./lib -Isrc -I./src   -O2 -ftree-vectorize -march=native -fno-math-errno -MT lib/exitfail.o -MD -MP -MF $depbase.Tpo -c -o lib/exitfail.o lib/exitfail.c &&\
+      289 | mv -f $depbase.Tpo $depbase.Po
+      290 | src/hello.c: In function 'main':
+    > 291 | src/hello.c:149:18: error: 'site_greeting' undeclared (first use in this function); did you mean 'mb_greeting'?
+      292 |   149 |   greeting_msg = site_greeting;
+      293 |       |                  ^~~~~~~~~~~~~
+      294 |       |                  mb_greeting

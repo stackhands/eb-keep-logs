@@ -4,14 +4,15 @@
 
 * The eb-keep-logs command
 
-=eb-keep-logs= keeps the logs of a failed EasyBuild build, and compresses and removes the old runs of a log tree.
-This page describes the Zig build; the shell script =eb-keep-logs= in the repository behaves the same, except as [[file:compatibility.org][Compatibility]] lists.
+=eb-keep-logs= keeps the logs of a failed EasyBuild build, compresses and removes the old runs of a log tree, and says from the kept logs why a run's builds failed.
+This page describes the Zig build; the shell script =eb-keep-logs= in the repository behaves the same, except as [[file:compatibility.org][Compatibility]] lists: it has no =why=.
 
 ** Synopsis
 
 #+begin_example
 eb-keep-logs failed STATUS NAME LOGDIR [TMP_LOGDIR]
 eb-keep-logs rotate ROOT --compress-after DAYS [--delete-after DAYS] [--lock-timeout SECONDS]
+eb-keep-logs why [RUN | --latest] [--target TARGET] [--root ROOT] [--json]
 eb-keep-logs -h | --help
 eb-keep-logs --version
 #+end_example
@@ -25,6 +26,7 @@ eb-keep-logs --version
 | =LOGDIR=     | =failed= | The run's directory, which holds =NAME.stdout.log= and gets the copies and =.licensed-logs=; a symbolic link to a directory is followed.                                                                |
 | =TMP_LOGDIR= | =failed= | The =--tmp-logdir= =eb= ran with, passed on to =eb --last-log=. Empty is the same as not given: =eb --last-log= then names the newest log in EasyBuild's default place. Arguments after it are ignored. |
 | =ROOT=       | =rotate= | The directory that holds the runs. A run is a directory directly under it, not a symbolic link, named =YYYYMMDD_HHMMSS= with a date that exists; everything else under it is left alone.                |
+| =RUN=        | =why=    | The run to read: a path, or a name under =--root=. Its builds are in it, as =failed= given it as =LOGDIR= keeps them, or in its directories, one per target, not symbolic links, as eb-pipeline keeps them. |
 
 ** Options
 
@@ -33,12 +35,17 @@ eb-keep-logs --version
 | =--compress-after DAYS=, =--compress-after=DAYS= | =rotate= | Required. Compress the =*.log= and =*.txt= files, at any depth, of runs at least =DAYS= old. =DAYS= is decimal digits.                       |
 | =--delete-after DAYS=, =--delete-after=DAYS=     | =rotate= | Remove whole runs at least =DAYS= old. =DAYS= must be larger than =--compress-after=. Without it, or with an empty value, no run is removed. |
 | =--lock-timeout SECONDS=, =--lock-timeout=SECONDS= | =rotate= | How long to wait for the lock another =rotate= of =ROOT= holds, in seconds, decimal digits; =0= does not wait. Without it, or with an empty value, 600. A value larger than 999999999, which is over 31 years, waits 999999999 seconds. |
+| =--latest=                                       | =why=    | Read the newest run under =--root=, by its name; with =--target=, the newest that has that target. The default without =RUN=.               |
+| =--target TARGET=, =--target=TARGET=             | =why=    | Read only the builds in the run's directory =TARGET=. Without it, those in the run's own directory and then in each directory in it, by name. |
+| =--root ROOT=, =--root=ROOT=                     | =why=    | The directory that holds the runs, directories named =YYYYMMDD_HHMMSS=, not symbolic links. Without it, the current directory.               |
+| =--json=                                         | =why=    | Print one line of JSON instead of the report; its keys are under Files below.                                                                |
 | =-h=, =--help=                                   |          | Print the usage on stdout and exit 0.                                                                                                        |
 | =--version=                                      |          | Print the version line on stdout and exit 0.                                                                                                 |
 
 - A run's age is the number of whole days from the local midnight of the date in its name; [[file:../explanation/local-time.org][Run ages and local time]] gives the details.
 - =rotate='s options and =ROOT= come in any order; the value of an option is the next argument, whatever it is.
   An option given twice takes its last value.
+- =why='s options and =RUN= come in any order, and an option given twice takes its last value; the value of an option is the next argument, whatever it is, and an empty one is refused.
 - =-h=, =--help= and =--version= count only in the place of the command.
 - =failed= takes no options.
 
@@ -57,13 +64,13 @@ eb-keep-logs --version
 
 | Status | Meaning                                                                                                                                                                          |
 |--------+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-|      0 | =-h=, =--help= or =--version=, a =failed= that accepted its arguments, or a =rotate= that accepted its arguments and did not give up waiting for its lock, whatever it could keep, compress or remove: what it could not do is reported, and is no failure. |
+|      0 | =-h=, =--help= or =--version=, a =failed= or =why= that accepted its arguments, or a =rotate= that accepted its arguments and did not give up waiting for its lock, whatever it could keep, compress, remove or read: what it could not do is reported, and is no failure. A =why= exits 0 whether or not the run's builds failed. |
 |      2 | The invocation was refused, with =eb-keep-logs: MESSAGE= on stderr; or no command was given, and the usage is on stdout.                                                         |
 |     75 | Another =rotate= held =ROOT='s lock for longer than =--lock-timeout=, and this =rotate= changed nothing; try again later.                                                          |
 
 | =MESSAGE=                                                       | Cause                                                                                         |
 |-----------------------------------------------------------------+-----------------------------------------------------------------------------------------------|
-| =unknown command 'WORD' (failed, rotate, --help)=               | The first argument is none of the commands.                                                   |
+| =unknown command 'WORD' (failed, rotate, why, --help)=          | The first argument is none of the commands.                                                   |
 | =failed needs STATUS NAME LOGDIR [TMP_LOGDIR]=                  | =failed= got fewer than three arguments.                                                      |
 | =STATUS must be a number, not 'STATUS'=                         | =STATUS= is empty or holds something other than digits.                                       |
 | =LOGDIR LOGDIR is not a directory=                              | =LOGDIR= does not name a directory that can be opened.                                        |
@@ -77,9 +84,17 @@ eb-keep-logs --version
 | =EB_KEEP_LOGS_NOW must be seconds since the epoch, not 'VALUE'= | =EB_KEEP_LOGS_NOW= is neither empty nor an integer.                                           |
 | =cannot lock ROOT/.eb-keep-logs-rotate.lock: ERROR=             | The lock file could not be opened, or is a symbolic link or not a regular file.               |
 | =cannot read ROOT ROOT=, =cannot read ROOT ROOT: ERROR=         | =ROOT= could not be listed.                                                                   |
-| =cannot read the arguments=                                     | The arguments could not be read into memory.                                                  |
+| =why takes one RUN=                                             | =why= got two arguments that are not options.                                                 |
+| =why takes RUN or --latest, not both=                           | =why= got =RUN= and =--latest=.                                                               |
+| =RUN must not be empty=                                         | =RUN= is empty.                                                                               |
+| =--target needs a target=, =--root needs a directory=           | The option's value is missing or empty.                                                       |
+| =no run under ROOT=, =no run under ROOT has a target TARGET=    | =--latest= found no run under =ROOT=, or none with a directory =TARGET=.                      |
+| =RUN RUN is not a directory=                                    | =RUN= does not name a directory that can be opened.                                           |
+| =TARGET TARGET is not a directory in RUN=                       | The run has no directory =TARGET=, or it is a symbolic link.                                  |
+| =cannot read RUN RUN: ERROR=                                    | The run could not be listed.                                                                  |
+| =cannot read the arguments=, =out of memory=                    | The arguments, or what =why= reads, could not be held in memory.                              |
 
-=rotate= checks =ROOT= before its options' values, then =EB_KEEP_LOGS_NOW=, and then takes the lock; =failed= checks =STATUS= and then =LOGDIR=.
+=rotate= checks =ROOT= before its options' values, then =EB_KEEP_LOGS_NOW=, and then takes the lock; =failed= checks =STATUS= and then =LOGDIR=; =why= checks its arguments, then =ROOT=, then =RUN= and =TARGET=.
 With status 75, =rotate= prints, with =ROOT= without its trailing slashes and =N= the seconds it waited:
 
 #+begin_example
@@ -163,6 +178,80 @@ What =rotate= cannot do it reports on stderr as =eb-keep-logs: MESSAGE=, and goe
 | =cannot sync a .licensed-logs: ERROR=   | A list was replaced, but its directory could not be synced; after a crash the old list may be back.                                 |
 | =cannot delete ROOT/RUN: ERROR=         | The run could not be removed completely; what was removed stays removed.                                                            |
 
+*** why
+
+=why= only reads.
+A build is a =NAME= with either of its logs in the run's own directory or in one of its target directories; of =FILE= and =FILE.gz=, =FILE= is read, and a =.gz= file is read through gzip, its CRC-32 checked.
+
+| File                                        | Use                                                                                                                                                                                                                                              |
+|---------------------------------------------+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| =RUN/[TARGET/]NAME.stdout.log=, =.gz=       | EasyBuild's output, which says how the build went: the last =COMPLETED: Installation ended successfully= or =FAILED: Installation ended unsuccessfully= in it decides, with the duration in it; an =ERROR:= line after a success, or without either, is a failure. |
+| =RUN/[TARGET/]NAME.failed.ebout.log=, =.gz= | The session log =failed= kept, which says why the build failed. A build whose output says nothing of how it went has failed when this log is there; without either, its outcome is unknown.                                                    |
+
+What =why= takes from a failed build's session log, or from its output when it has none:
+
+| Item       | Taken from                                                                                                                                                                                                                                                                                                                                                         |
+|------------+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| package    | EasyBuild's =building and installing NAME/VERSION...=.                                                                                                                                                                                                                                                                                                              |
+| easyconfig | EasyBuild's =processing EasyBuild easyconfig PATH=.                                                                                                                                                                                                                                                                                                                 |
+| message    | EasyBuild's message for the failure: =EasyBuild encountered an error: MESSAGE= in the session log; in the output, the =FAILED: Installation ended unsuccessfully: MESSAGE= entry with EasyBuild's wrapping at 80 columns undone, or else the first =ERROR: MESSAGE=. Its first 400 bytes.                                                                    |
+| step       | The step the =FAILED= entry names, as in =... failed with exit code 2 in build step for NAME.eb=; else the last step the log shows starting before the failure: =Starting STEP step= in the session log, an announcement such as ~== sanity checking...~ in the output. By EasyBuild's name, as =eb --stop= takes it: =fetch=, =ready=, =extract=, =patch=, =prepare=, =configure=, =build=, =test=, =install=, =extensions=, =postiter=, =postproc=, =sanitycheck=, =cleanup=, =module=, =permissions=, =package=, =testcases=. None when the failure came before the first step, as a missing dependency does. |
+| error      | The line that shows the error: the first compiler or linker error from the start of that step to EasyBuild's own error line, else that line. A compiler's error is one at a source line, =FILE:LINE: error:= or =FILE:LINE:COLUMN: fatal error:= as GCC and Clang print it, or =FILE(LINE): error:= as nvcc does; a linker's is =undefined reference to= or =cannot find -l= as GNU ld prints them, or =undefined symbol:= as lld and mold do. EasyBuild's own error line is its first =EasyBuild encountered an error= in the session log; in the output, the =FAILED= entry, or else the first =ERROR:=. In a session log, nothing before the first step counts. With its line number and three lines either side, each cut to 400 bytes. |
+| duration   | The =(took DURATION)= of the =FAILED= entry, in seconds.                                                                                                                                                                                                                                                                                                         |
+
+For a failure class, feed the kept log to [[https://eb-stack.rgoswami.me/][eb-stack]]; =why= gives none.
+
+The report on stdout gives the run, the count of failed builds, and each failed build in turn, those in the run's own directory first, without =TARGET/=, then by target, each by name:
+
+#+begin_example
+tests/fixtures/build-logs/20261117_040615: 1 failed build of 1
+
+sapphirerapids/hello-2.12.1-GCCcore-14.2.0 failed in the build step, after 3m06s
+  package:    hello/2.12.1-GCCcore-14.2.0
+  easyconfig: /home/alice/corpus/cases/compile/hello-2.12.1-GCCcore-14.2.0.eb
+  EasyBuild:  shell command 'make ...' failed with exit code 2 in build step for hello-2.12.1-GCCcore-14.2.0.eb
+  log:        tests/fixtures/build-logs/20261117_040615/sapphirerapids/hello-2.12.1-GCCcore-14.2.0.failed.ebout.log:291
+      288 | gcc -DLOCALEDIR=\"/home/alice/eessi/versions/2025.06/software/linux/x86_64/intel/sapphirerapids/software/hello/2.12.1-GCCcore-14.2.0/share/locale\" -DHAVE_CONFIG_H -I.  -Ilib -I./lib -Isrc -I./src   -O2 -ftree-vectorize -march=native -fno-math-errno -MT lib/exitfail.o -MD -MP -MF $depbase.Tpo -c -o lib/exitfail.o lib/exitfail.c &&\
+      289 | mv -f $depbase.Tpo $depbase.Po
+      290 | src/hello.c: In function 'main':
+    > 291 | src/hello.c:149:18: error: 'site_greeting' undeclared (first use in this function); did you mean 'mb_greeting'?
+      292 |   149 |   greeting_msg = site_greeting;
+      293 |       |                  ^~~~~~~~~~~~~
+      294 |       |                  mb_greeting
+#+end_example
+
+A line the log does not give is left out; a failed build before its first step says =failed before its first step=, and one whose log could not be read, or records no failure, says =log: PATH (no error recorded)=.
+With =--json=, =why= prints one line of JSON instead, its keys in this order, a value the log does not give =null=:
+
+| Key              | Value                                                                                                                         |
+|------------------+-------------------------------------------------------------------------------------------------------------------------------|
+| =schema_version= | =1=. A new version drops or renames a key, or changes what one means; a key may be added without one.                         |
+| =kind=           | ="why"=.                                                                                                                      |
+| =run=            | The run's name: the last component of its path, symbolic links resolved.                                                      |
+| =run_dir=        | The run's path, as given or joined to =--root=.                                                                               |
+| =counts=         | ={"success": N, "failed": N, "unknown": N}=, the builds read, by outcome.                                                     |
+| =failures=       | One object for each failed build, in the order of the report.                                                                 |
+
+| Key in a failure | Value                                                                                                                         |
+|------------------+-------------------------------------------------------------------------------------------------------------------------------|
+| =target=         | The target directory, or =null= for a build in the run's own directory.                                                       |
+| =name=           | =NAME=.                                                                                                                       |
+| =package=        | The package, as =NAME/VERSION=.                                                                                               |
+| =easyconfig=     | The easyconfig's path.                                                                                                        |
+| =step=           | The step.                                                                                                                     |
+| =message=        | EasyBuild's message.                                                                                                          |
+| =duration_s=     | The duration in seconds, from the =FAILED= entry or else from EasyBuild's output.                                             |
+| =log=            | The path of the log read: =run_dir/TARGET/FILE=, or =run_dir/FILE=.                                                           |
+| =error=          | ={"line": N, "text": LINE, "before": [LINE, ...], "after": [LINE, ...]}=, the error line and its context, or =null=.          |
+
+Text in the JSON is UTF-8: a byte of a log that is not part of a UTF-8 character is U+FFFD.
+What =why= cannot read it reports on stderr as =eb-keep-logs: MESSAGE=, and goes on with the rest:
+
+| =MESSAGE=                  | Cause                                                                                                                                              |
+|----------------------------+----------------------------------------------------------------------------------------------------------------------------------------------------|
+| =cannot open PATH: ERROR=  | A target directory could not be opened; its builds are not read.                                                                                   |
+| =cannot read PATH: ERROR=  | A target directory could not be listed, or a log could not be read: =BadGzip= for a =.gz= that is not gzip or is damaged, =StreamTooLong= for one of 1 GiB or more. A failed build whose log it is, is still listed. |
+
 *** --help
 
 The usage =-h=, =--help= and no arguments print on stdout, the same from the shell script:
@@ -198,6 +287,27 @@ otherwise lose, and keep the pipeline's log tree bounded.
           While another rotate holds the lock, wait up to SECONDS for it,
           then give up and exit 75. Default: 600; 0 does not wait. An empty
           value is the default.
+  eb-keep-logs why [RUN | --latest] [--target TARGET] [--root ROOT] [--json]
+      Say why the builds of a run failed: for each failed easyconfig, its
+      package and easyconfig, the EasyBuild step it failed in, EasyBuild's
+      message, and the line of its kept log that shows the error: the first
+      compiler or linker error, else EasyBuild's own error line, with the
+      line number and three lines either side. Logs rotate compressed are
+      read as they are. Zig build only. RUN and the options come in any
+      order.
+      RUN
+          A run directory, as a path or as a name under ROOT.
+      --latest
+          The newest run under ROOT, or the newest with a directory
+          TARGET. The default when no RUN is given.
+      --target TARGET, --target=TARGET
+          Only the builds in the run's directory TARGET. Default: those in
+          the run's own directory and in every directory in it.
+      --root ROOT, --root=ROOT
+          The directory that holds the runs. Default: the current
+          directory.
+      --json
+          Print one line of JSON instead, with schema_version 1.
   eb-keep-logs -h | --help
       Print this help on stdout and exit 0.
   eb-keep-logs --version
@@ -214,9 +324,9 @@ Environment:
                        directory of zone files.
 
 Exit status:
-  0   -h, --help or --version, or a failed or rotate that accepted its
-      arguments, whatever it could keep, compress or remove: what it could
-      not do is reported on stderr.
+  0   -h, --help or --version, or a failed, rotate or why that accepted
+      its arguments, whatever it could keep, compress, remove or read:
+      what it could not do is reported on stderr.
   2   The invocation was refused, with eb-keep-logs: MESSAGE on stderr; or
       no command was given, and this help is on stdout.
   75  rotate waited --lock-timeout seconds for the lock another rotate

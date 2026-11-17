@@ -343,12 +343,14 @@ check "help: the copy is the session log" "$("${tool}" --help | grep -c 'EasyBui
 check "help: EB_KEEP_LOGS_NOW" "$("${tool}" --help | grep -c 'EB_KEEP_LOGS_NOW')" "1"
 # --help lists every option either parser takes: the words starting with -
 # that the shell script's case patterns and the Zig build's comparisons of
-# an argument name. An option that takes a value gives its default or says
-# it is required, and the exit statuses are listed.
+# an argument name, or its optionValue calls, which take NAME and NAME=,
+# name. An option that takes a value gives its default or says it is
+# required, and the exit statuses are listed.
 "${tool}" --help > "${work}/help"
 options=$({
     grep -oE -- '^ *-[-a-z|=*]+\)' "${repo_root}/eb-keep-logs" | tr -d ' )*' | tr '|' '\n' | grep -vx -- -
-    grep -oE '\(u8, [a-z_]+, "-[^"]*"\)' "${repo_root}/src/main.zig" | cut -d '"' -f 2
+    grep -ohE '\(u8, [a-z_]+, "-[^"]*"\)' "${repo_root}"/src/*.zig | cut -d '"' -f 2
+    grep -ohE 'optionValue\([a-z_]+, &[a-z_]+, "-[^"]*"' "${repo_root}"/src/*.zig | cut -d '"' -f 2 | sed 'p; s/$/=/'
 } | LC_ALL=C sort -u)
 # listed OPT: whether --help names OPT as a word, or OPT= followed by a value.
 listed() {
