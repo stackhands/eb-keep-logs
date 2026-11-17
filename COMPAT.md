@@ -30,6 +30,7 @@ on the same invocations.
 | `history` | refused with `eb-keep-logs: history is in the Zig build only`, exit 2 | lists how each kept build of a package went, run by run |
 | `loads` | refused with `eb-keep-logs: loads is in the Zig build only`, exit 2 | prints who loaded a module, from Lmod's ModuleUsageTracking lines |
 | `runs` | refused with `eb-keep-logs: runs is in the Zig build only`, exit 2 | prints who ran an executable, from XALT run records |
+| `used` | refused with `eb-keep-logs: used is in the Zig build only`, exit 2 | lists paths under a prefix in XALT and Lmod records |
 | `pending` | refused with `eb-keep-logs: pending is in the Zig build only`, exit 2 | prints what a dry-run or missing-modules report still has to build |
 | `--compress-after` or `--delete-after` with no value after it | never returns | refused, exit 2 |
 | `EB_KEEP_LOGS_NOW` not empty and not an integer | evaluated as shell arithmetic | refused, exit 2 |

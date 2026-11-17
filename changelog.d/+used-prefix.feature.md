@@ -1,0 +1,1 @@
+`eb-keep-logs used --prefix PREFIX FILE...` lists paths under `PREFIX` from XALT run, library, link and package records and from Lmod module-usage lines, with a last-seen time and count per path. `--json` prints one document. `--require-none` exits 2 when anything is listed. The shell script has no `used`.
