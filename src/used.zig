@@ -256,14 +256,11 @@ pub fn parseHits(gpa: Allocator, text: []const u8) (Allocator.Error || error{Bad
     var hits: std.ArrayList(Hit) = .empty;
     errdefer hits.deinit(gpa);
     var at: usize = 0;
-    var ws = at;
-    while (ws < text.len and std.ascii.isWhitespace(text[ws])) : (ws += 1) {}
-    if (ws < text.len and text[ws] == '{') {
-        while (true) {
-            var next = at;
-            while (next < text.len and std.ascii.isWhitespace(text[next])) : (next += 1) {}
-            if (next >= text.len or text[next] != '{') break;
-            const item = (try runs.nextObject(text, next)) orelse break;
+    while (true) {
+        while (at < text.len and std.ascii.isWhitespace(text[at])) : (at += 1) {}
+        if (at >= text.len) break;
+        if (text[at] == '{') {
+            const item = (try runs.nextObject(text, at)) orelse break;
             at = item.end;
             const parsed = std.json.parseFromSlice(std.json.Value, gpa, item.slice, .{}) catch |err| switch (err) {
                 error.OutOfMemory => return error.OutOfMemory,
@@ -275,15 +272,12 @@ pub fn parseHits(gpa: Allocator, text: []const u8) (Allocator.Error || error{Bad
                 else => continue,
             };
             try processObject(gpa, &hits, root);
+            continue;
         }
-    } else {
-        at = 0;
-    }
-    var it = std.mem.splitScalar(u8, text[at..], '\n');
-    while (it.next()) |raw| {
-        const line = std.mem.trimEnd(u8, raw, "\r");
-        if (line.len == 0) continue;
+        const end = std.mem.indexOfScalarPos(u8, text, at, '\n') orelse text.len;
+        const line = std.mem.trimEnd(u8, text[at..end], "\r");
         try processLmodLine(gpa, &hits, line);
+        at = if (end < text.len) end + 1 else end;
     }
     return try hits.toOwnedSlice(gpa);
 }

@@ -38,16 +38,33 @@ EOF
 cat > "${work}/lmod.log" <<EOF
 user=c module=Bar/2.0 path=${modules}/Bar/2.0.lua host=n1 time=300
 user=d module=Outside/1.0 path=/other/Outside/1.0.lua host=n2 time=400
+user=e module=Never/3.0 path=${modules}/Never/3.0.lua host=n3 time=nan
 EOF
-cat "${work}/xalt.json" "${work}/lmod.log" > "${work}/mixed.log"
+cat > "${work}/mixed.log" <<EOF
+user=c module=Bar/2.0 path=${modules}/Bar/2.0.lua host=n1 time=300
+{"userT":{"user":"a","exec_path":"${software}/Foo/1.0/bin/foo","start_time":200}}
+user=d module=Outside/1.0 path=/other/Outside/1.0.lua host=n2 time=400
+{"userT":{"user":"b","exec_path":"${software}/Old/1.0/bin/old","start_time":"50"}}
+{"package_path":"${software}/Never/3.0"}
+EOF
 
 mixed=$("${tool}" usage --software "${software}" --modules "${modules}" --active \
     "${work}/mixed.log")
-check "XALT and Lmod share one scan" "${mixed}" $'Bar/2.0\nFoo/1.0\nNever/3.0\nOld/1.0'
+check "interleaved Lmod and XALT share one scan" "${mixed}" $'Bar/2.0\nFoo/1.0\nNever/3.0\nOld/1.0'
 
 active=$("${tool}" usage --software "${software}" --modules "${modules}" --active \
     "${work}/xalt.json" "${work}/lmod.log")
 check "active is a sorted Name/Version listing" "${active}" $'Bar/2.0\nFoo/1.0\nNever/3.0\nOld/1.0'
+
+relative=$(cd "${work}" && "${tool}" usage --software software --modules modules \
+    --since 100 --active xalt.json lmod.log)
+check "relative roots match absolute record paths" "${relative}" $'Bar/2.0\nFoo/1.0'
+
+ln -s software "${work}/software-link"
+ln -s modules "${work}/modules-link"
+linked=$("${tool}" usage --software "${work}/software-link" --modules "${work}/modules-link" \
+    --since 100 --active "${work}/xalt.json" "${work}/lmod.log")
+check "linked roots match canonical record paths" "${linked}" $'Bar/2.0\nFoo/1.0'
 
 active_since=$("${tool}" usage --software="${software}" --modules="${modules}" \
     --since 100 --active "${work}/xalt.json" "${work}/lmod.log")

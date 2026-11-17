@@ -56,7 +56,7 @@ fn readLog(gpa: Allocator, path: []const u8) ?[]u8 {
 }
 
 fn inventory(gpa: Allocator, arena: Allocator, software: []const u8) !Table {
-    const root = fsx.openDir(fsx.cwd, software, false) catch
+    const root = fsx.openDir(fsx.cwd, software, true) catch
         die("SOFTWARE {s} is not a directory", .{software});
     defer sys.close(root);
     var table: Table = .empty;
@@ -117,7 +117,9 @@ fn applyHits(
     arena: Allocator,
     table: *Table,
     software: []const u8,
+    software_real: []const u8,
     modules: []const u8,
+    modules_real: []const u8,
     since: ?f64,
     hits: []const used.Hit,
 ) !void {
@@ -126,12 +128,25 @@ fn applyHits(
             const epoch = hit.epoch orelse continue;
             if (epoch < minimum) continue;
         }
-        const module = if (hit.kind == .@"module-load") blk: {
-            if (!used.underPrefix(modules, hit.path)) continue;
-            break :blk hit.module orelse continue;
-        } else (try moduleFromSoftware(arena, software, hit.path)) orelse continue;
-        const pkg = table.getPtr(module) orelse continue;
-        note(pkg, hit);
+        if (hit.kind == .@"module-load") {
+            if (!used.underPrefix(modules, hit.path) and
+                !used.underPrefix(modules_real, hit.path)) continue;
+            const module = hit.module orelse continue;
+            const pkg = table.getPtr(module) orelse continue;
+            note(pkg, hit);
+            continue;
+        }
+        if (try moduleFromSoftware(arena, software, hit.path)) |module| {
+            if (table.getPtr(module)) |pkg| {
+                note(pkg, hit);
+                continue;
+            }
+        }
+        if (!std.mem.eql(u8, software, software_real)) {
+            if (try moduleFromSoftware(arena, software_real, hit.path)) |module| {
+                if (table.getPtr(module)) |pkg| note(pkg, hit);
+            }
+        }
     }
 }
 
@@ -277,9 +292,15 @@ pub fn cmdUsage(gpa: Allocator, args: []const []const u8) u8 {
         std.mem.indexOfScalar(u8, modules, '\n') != null)
         die("usage directory must not contain a newline", .{});
 
-    const module_dir = fsx.openDir(fsx.cwd, modules, false) catch
+    const module_dir = fsx.openDir(fsx.cwd, modules, true) catch
         die("MODULES {s} is not a directory", .{modules});
-    sys.close(module_dir);
+    defer sys.close(module_dir);
+    var modules_real_buf: [sys.path_max]u8 = undefined;
+    const modules_real = fsx.realpathFd(module_dir, &modules_real_buf) catch
+        die("MODULES {s} is not a directory", .{modules});
+    var software_real_buf: [sys.path_max]u8 = undefined;
+    const software_real = fsx.realpath(fsx.cwd, software, &software_real_buf) catch
+        die("SOFTWARE {s} is not a directory", .{software});
 
     var arena_state = std.heap.ArenaAllocator.init(gpa);
     defer arena_state.deinit();
@@ -297,7 +318,16 @@ pub fn cmdUsage(gpa: Allocator, args: []const []const u8) u8 {
             },
             error.OutOfMemory => die("out of memory", .{}),
         };
-        applyHits(arena, &table, software, modules, since, hits) catch die("out of memory", .{});
+        applyHits(
+            arena,
+            &table,
+            software,
+            software_real,
+            modules,
+            modules_real,
+            since,
+            hits,
+        ) catch die("out of memory", .{});
     }
 
     const selected_rows = rows(arena, &table, selection) catch die("out of memory", .{});
