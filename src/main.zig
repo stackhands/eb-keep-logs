@@ -20,6 +20,7 @@ const usage_cmd = @import("usage.zig");
 const test_bundle = @import("test_bundle.zig");
 const lifecycle = @import("lifecycle.zig");
 const syslog = @import("syslog.zig");
+const metrics = @import("metrics.zig");
 
 const Allocator = std.mem.Allocator;
 const tool = "eb-keep-logs";
@@ -33,7 +34,7 @@ const usage_text =
     \\eb-keep-logs: keep the logs of EasyBuild builds that a build pipeline would
     \\otherwise lose, and keep the pipeline's log tree bounded.
     \\
-    \\  eb-keep-logs failed [--syslog TARGET] STATUS NAME LOGDIR [TMP_LOGDIR]
+    \\  eb-keep-logs failed [--syslog TARGET] [--metrics-file PATH] STATUS NAME LOGDIR [TMP_LOGDIR]
     \\      After `eb` returned STATUS for easyconfig NAME: when STATUS is not 0,
     \\      copy the EasyBuild session log `eb --last-log` names, the failing
     \\      command's output and a meson testlog next to LOGDIR/NAME.stdout.log,
@@ -44,8 +45,12 @@ const usage_text =
     \\      --syslog TARGET, --syslog=TARGET
     \\          Emit an RFC 5424 or native systemd-journald event when logs are
     \\          kept or none are found. Default: EB_KEEP_LOGS_SYSLOG, else none.
+    \\      --metrics-file PATH, --metrics-file=PATH
+    \\          Atomically update Prometheus counters for kept logs and bytes.
+    \\          Default: none.
     \\  eb-keep-logs rotate ROOT --compress-after DAYS [--delete-after DAYS]
     \\                           [--lock-timeout SECONDS] [--syslog TARGET]
+    \\                           [--metrics-file PATH]
     \\      In the run directories directly under ROOT (named YYYYMMDD_HHMMSS),
     \\      gzip the *.log and *.txt files of old runs and remove older runs
     \\      whole, leaving alone a run that is still written into. A run's age is
@@ -67,6 +72,8 @@ const usage_text =
     \\          Emit an RFC 5424 or native systemd-journald event with the
     \\          compressed and deleted counts. Default: EB_KEEP_LOGS_SYSLOG,
     \\          else none.
+    \\      --metrics-file PATH, --metrics-file=PATH
+    \\          Atomically record when this rotation completed. Default: none.
     \\  eb-keep-logs why [RUN | --latest] [--target TARGET] [--root ROOT] [--json]
     \\      Say why the builds of a run failed: for each failed easyconfig, its
     \\      package and easyconfig, the EasyBuild step it failed in, EasyBuild's
@@ -467,11 +474,12 @@ fn copyDurable(dir: fsx.fd_t, name: []const u8, src: fsx.fd_t, src_stat: fsx.Sta
 
 /// Copy an open file into LOGDIR as `name`, set its mode to `closed_mode`
 /// or, when that is null, take others' bits off the copy's own mode (chmod
-/// o-rwx), and list it. False when the copy failed.
-fn keep(c: Ctx, logdir: fsx.fd_t, logdir_s: []const u8, src: fsx.fd_t, src_stat: fsx.Stat, name: []const u8, comptime closed_mode: ?u32) bool {
+/// o-rwx), and list it. Return the written byte count, or null when the copy
+/// failed.
+fn keep(c: Ctx, logdir: fsx.fd_t, logdir_s: []const u8, src: fsx.fd_t, src_stat: fsx.Stat, name: []const u8, comptime closed_mode: ?u32) ?u64 {
     const fd = copyDurable(logdir, name, src, src_stat) catch |err| {
         warn("cannot keep {s}/{s}: {t}", .{ logdir_s, name, err });
-        return false;
+        return null;
     };
     defer sys.close(fd);
     // As chmod o-rwx fails and leaves the mode when the file cannot be
@@ -482,7 +490,7 @@ fn keep(c: Ctx, logdir: fsx.fd_t, logdir_s: []const u8, src: fsx.fd_t, src_stat:
     };
     if (mode) |m| sys.fchmod(fd, @intCast(m)) catch |err| warn("cannot close {s}/{s} to others: {t}", .{ logdir_s, name, err });
     listKept(c, logdir, fd);
-    return true;
+    return @intCast((fsx.fstat(fd) catch return 0).size);
 }
 
 fn rewind(fd: fsx.fd_t) void {
@@ -658,10 +666,29 @@ fn emitRotateSyslog(
     }
 }
 
+fn updateMetrics(c: Ctx, path: ?[]const u8, logs_kept: usize, bytes_kept: u64, record_completion: bool) void {
+    const p = path orelse return;
+    metrics.update(c.gpa, p, @intCast(logs_kept), bytes_kept, record_completion) catch |err|
+        warn("cannot update metrics file {s}: {t}", .{ p, err });
+}
+
+const KeepStats = struct {
+    logs: usize = 0,
+    bytes: u64 = 0,
+
+    fn add(s: *KeepStats, bytes: ?u64) void {
+        if (bytes) |n| {
+            s.logs += 1;
+            s.bytes += n;
+        }
+    }
+};
+
 fn cmdFailed(c: Ctx, args: []const [:0]const u8) u8 {
     var pos: std.ArrayList([]const u8) = .empty;
     defer pos.deinit(c.gpa);
     var syslog_v: ?[]const u8 = null;
+    var metrics_file: ?[]const u8 = null;
     var i: usize = 0;
     while (i < args.len) : (i += 1) {
         const a = args[i];
@@ -671,6 +698,12 @@ fn cmdFailed(c: Ctx, args: []const [:0]const u8) u8 {
             syslog_v = args[i];
         } else if (std.mem.startsWith(u8, a, "--syslog=")) {
             syslog_v = a["--syslog=".len..];
+        } else if (std.mem.eql(u8, a, "--metrics-file")) {
+            if (i + 1 >= args.len) die("--metrics-file needs a path", .{});
+            i += 1;
+            metrics_file = args[i];
+        } else if (std.mem.startsWith(u8, a, "--metrics-file=")) {
+            metrics_file = a["--metrics-file=".len..];
         } else {
             pos.append(c.gpa, a) catch return 2;
         }
@@ -682,6 +715,9 @@ fn cmdFailed(c: Ctx, args: []const [:0]const u8) u8 {
     if (!allDigits(status)) die("STATUS must be a number, not '{s}'", .{status});
     const logdir = fsx.openDir(fsx.cwd, pos.items[2], true) catch die("LOGDIR {s} is not a directory", .{pos.items[2]});
     defer sys.close(logdir);
+    if (metrics_file) |p| if (p.len == 0) die("--metrics-file needs a path", .{});
+    var kept: KeepStats = .{};
+    defer updateMetrics(c, metrics_file, kept.logs, kept.bytes, false);
     const syslog_target = resolveSyslog(c, syslog_v);
     const logdir_s = joinable(pos.items[2]);
     if (std.mem.indexOfNone(u8, status, "0") == null) return 0;
@@ -722,18 +758,24 @@ fn cmdFailed(c: Ctx, args: []const [:0]const u8) u8 {
     if (explicit == null) if (src_text) |t| if (scan.otherBuild(t, name)) {
         cli.out("No EasyBuild log to keep for {s}: {s} is another build's log.\n", .{ name, src_path.? });
         const cmd_kept = keepCommandOutput(c, logdir, logdir_s, name, null);
-        emitFailedSyslog(c, syslog_target, status, name, logdir_s, false, cmd_kept, false, if (cmd_kept > 0) "kept" else "other-build");
+        kept.logs += cmd_kept.logs;
+        kept.bytes += cmd_kept.bytes;
+        emitFailedSyslog(c, syslog_target, status, name, logdir_s, false, cmd_kept.logs, false, if (cmd_kept.logs > 0) "kept" else "other-build");
         return 0;
     };
 
     rewind(src.?.fd);
     const ebout = c.gpa.print("{s}.failed.ebout.log", .{name}) catch return 0;
     defer c.gpa.free(ebout);
-    const ebout_kept = keep(c, logdir, logdir_s, src.?.fd, src.?.stat, ebout, null);
+    const ebout_bytes = keep(c, logdir, logdir_s, src.?.fd, src.?.stat, ebout, null);
+    kept.add(ebout_bytes);
+    const ebout_kept = ebout_bytes != null;
     if (ebout_kept)
         cli.out("Failed build log: {s}/{s}\n", .{ logdir_s, ebout });
 
     const cmd_kept = keepCommandOutput(c, logdir, logdir_s, name, src_text);
+    kept.logs += cmd_kept.logs;
+    kept.bytes += cmd_kept.bytes;
 
     // A meson test step prints only the last 100 lines of a failing test;
     // the full output is meson-logs/testlog.txt in the build directory. A
@@ -753,13 +795,15 @@ fn cmdFailed(c: Ctx, args: []const [:0]const u8) u8 {
             rewind(tl.fd);
             const dest = c.gpa.print("{s}.failed.meson-testlog.txt", .{name}) catch break :blk;
             defer c.gpa.free(dest);
-            if (keep(c, logdir, logdir_s, tl.fd, tl.stat, dest, null)) {
+            const meson_bytes = keep(c, logdir, logdir_s, tl.fd, tl.stat, dest, null);
+            if (meson_bytes != null) {
                 cli.out("Failed meson test log: {s}/{s}\n", .{ logdir_s, dest });
                 meson_kept = true;
+                kept.add(meson_bytes);
             }
         } else |_| {}
     };
-    emitFailedSyslog(c, syslog_target, status, name, logdir_s, ebout_kept, cmd_kept, meson_kept, if (ebout_kept or cmd_kept > 0 or meson_kept) "kept" else "no-log");
+    emitFailedSyslog(c, syslog_target, status, name, logdir_s, ebout_kept, cmd_kept.logs, meson_kept, if (ebout_kept or cmd_kept.logs > 0 or meson_kept) "kept" else "no-log");
     return 0;
 }
 
@@ -770,12 +814,12 @@ fn cmdFailed(c: Ctx, args: []const [:0]const u8) u8 {
 /// by this user. A stream is compared with EASYBUILD_TMPDIR with both
 /// resolved, as EasyBuild names the stream through EASYBUILD_TMPDIR as it was
 /// given.
-fn keepCommandOutput(c: Ctx, logdir: fsx.fd_t, logdir_s: []const u8, name: []const u8, src_text: ?[]const u8) usize {
-    var kept_count: usize = 0;
+fn keepCommandOutput(c: Ctx, logdir: fsx.fd_t, logdir_s: []const u8, name: []const u8, src_text: ?[]const u8) KeepStats {
+    var kept: KeepStats = .{};
     var out_txt: ?[]const u8 = null;
     var stdout_text: ?[]u8 = null;
     defer if (stdout_text) |t| c.gpa.free(t);
-    const stdout_name = c.gpa.print("{s}.stdout.log", .{name}) catch return 0;
+    const stdout_name = c.gpa.print("{s}.stdout.log", .{name}) catch return kept;
     defer c.gpa.free(stdout_name);
     if (fsx.openRegular(logdir, stdout_name, true)) |f| {
         defer sys.close(f.fd);
@@ -788,23 +832,23 @@ fn keepCommandOutput(c: Ctx, logdir: fsx.fd_t, logdir_s: []const u8, name: []con
     if (out_txt == null) if (src_text) |t| {
         out_txt = scan.failedCommandOutput(t);
     };
-    const command_out = out_txt orelse return 0;
+    const command_out = out_txt orelse return kept;
     const tmpdir = c.getenv("EASYBUILD_TMPDIR") orelse "";
     if (tmpdir.len == 0) {
         cli.out("Failed command output not kept: EASYBUILD_TMPDIR is not set.\n", .{});
-        return 0;
+        return kept;
     }
     const root = command_out[0 .. command_out.len - "/out.txt".len];
     var tb: [sys.path_max]u8 = undefined;
     const tmp_real: ?[]const u8 = fsx.realpath(fsx.cwd, tmpdir, &tb) catch null;
     const prefix: ?[]u8 = if (tmp_real) |t|
-        c.gpa.print("{s}/", .{if (t[t.len - 1] == '/') t[0 .. t.len - 1] else t}) catch return 0
+        c.gpa.print("{s}/", .{if (t[t.len - 1] == '/') t[0 .. t.len - 1] else t}) catch return kept
     else
         null;
     defer if (prefix) |p| c.gpa.free(p);
 
     for ([_][]const u8{ "out", "err" }) |stream| {
-        const path = c.gpa.print("{s}/{s}.txt", .{ root, stream }) catch return kept_count;
+        const path = c.gpa.print("{s}/{s}.txt", .{ root, stream }) catch return kept;
         defer c.gpa.free(path);
         const f = fsx.openRegular(fsx.cwd, path, false) catch continue;
         defer sys.close(f.fd);
@@ -818,14 +862,15 @@ fn keepCommandOutput(c: Ctx, logdir: fsx.fd_t, logdir_s: []const u8, name: []con
             cli.out("Failed command output not kept: {s} belongs to another user.\n", .{path});
             continue;
         }
-        const dest = c.gpa.print("{s}.failed.command-{s}.txt", .{ name, stream }) catch return kept_count;
+        const dest = c.gpa.print("{s}.failed.command-{s}.txt", .{ name, stream }) catch return kept;
         defer c.gpa.free(dest);
-        if (keep(c, logdir, logdir_s, f.fd, f.stat, dest, 0o600)) {
+        const bytes = keep(c, logdir, logdir_s, f.fd, f.stat, dest, 0o600);
+        if (bytes != null) {
             cli.out("Failed command output: {s}/{s}\n", .{ logdir_s, dest });
-            kept_count += 1;
+            kept.add(bytes);
         }
     }
-    return kept_count;
+    return kept;
 }
 
 fn parseDays(opt: []const u8, v: ?[]const u8) u64 {
@@ -854,6 +899,12 @@ fn monotonicNs() i128 {
     var ts: linux.timespec = undefined;
     _ = linux.clock_gettime(.MONOTONIC, &ts);
     return @as(i128, ts.sec) * std.time.ns_per_s + ts.nsec;
+}
+
+fn realtimeSeconds() i64 {
+    var ts: linux.timespec = undefined;
+    _ = linux.clock_gettime(.REALTIME, &ts);
+    return ts.sec;
 }
 
 /// Open `root/.eb-keep-logs-rotate.lock`, created when missing; for reading
@@ -1059,6 +1110,7 @@ fn cmdRotate(c: Ctx, args: []const [:0]const u8) u8 {
     var delete_v: ?[]const u8 = null;
     var lock_v: []const u8 = "";
     var syslog_v: ?[]const u8 = null;
+    var metrics_file: ?[]const u8 = null;
     var have_compress = false;
     var have_delete = false;
     var i: usize = 0;
@@ -1076,6 +1128,12 @@ fn cmdRotate(c: Ctx, args: []const [:0]const u8) u8 {
             syslog_v = args[i];
         } else if (std.mem.startsWith(u8, a, "--syslog=")) {
             syslog_v = a["--syslog=".len..];
+        } else if (std.mem.eql(u8, a, "--metrics-file")) {
+            if (i + 1 >= args.len) die("--metrics-file needs a path", .{});
+            i += 1;
+            metrics_file = args[i];
+        } else if (std.mem.startsWith(u8, a, "--metrics-file=")) {
+            metrics_file = a["--metrics-file=".len..];
         } else if (std.mem.eql(u8, a, "--compress-after") or std.mem.eql(u8, a, "--delete-after")) {
             const v: ?[]const u8 = if (i + 1 < args.len) args[i + 1] else null;
             if (v == null) die("{s} needs a number of days", .{a});
@@ -1102,6 +1160,7 @@ fn cmdRotate(c: Ctx, args: []const [:0]const u8) u8 {
     }
     const root_p = root_s orelse die("rotate needs ROOT", .{});
     if (root_p.len == 0) die("rotate needs ROOT", .{});
+    if (metrics_file) |p| if (p.len == 0) die("--metrics-file needs a path", .{});
     const root = fsx.openDir(fsx.cwd, root_p, true) catch die("ROOT {s} is not a directory", .{root_p});
     defer sys.close(root);
     const compress_after = parseDays("--compress-after", if (have_compress) compress_v else null);
@@ -1129,11 +1188,7 @@ fn cmdRotate(c: Ctx, args: []const [:0]const u8) u8 {
         // a lock manager, or NFS for a file open only for reading.
         else => warn("cannot lock {s}/{s}: {t}; rotating without the lock", .{ joinable(root_p), rotate_lock, err }),
     };
-    const now: i64 = fixed_now orelse blk: {
-        var ts: linux.timespec = undefined;
-        _ = linux.clock_gettime(.REALTIME, &ts);
-        break :blk ts.sec;
-    };
+    const now: i64 = fixed_now orelse realtimeSeconds();
     var zone = localtime.load(c.gpa, c.getenv("TZ"), c.getenv("TZDIR"));
     defer zone.deinit();
 
@@ -1188,6 +1243,10 @@ fn cmdRotate(c: Ctx, args: []const [:0]const u8) u8 {
     const summary = arena.print("eb-keep-logs rotate: {d} file{s} compressed, {d} run{s} deleted under {s}", .{ compressed, plural(compressed), deleted, plural(deleted), root_p }) catch "eb-keep-logs rotate";
     cli.out("{s}\n", .{summary});
     emitRotateSyslog(c, syslog_target, root_p, compressed, deleted, summary);
+    // Run ages use the snapshot above. The metric chooses its completion time
+    // while holding the metrics lock, after all rotation work and event
+    // emission have completed.
+    updateMetrics(c, metrics_file, 0, 0, true);
     return 0;
 }
 
@@ -1244,6 +1303,7 @@ test {
     _ = test_bundle;
     _ = lifecycle;
     _ = syslog;
+    _ = metrics;
 }
 
 test "a failed copy does not replace a log already kept" {

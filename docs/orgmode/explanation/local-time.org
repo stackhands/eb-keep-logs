@@ -28,7 +28,8 @@ The Zig build has to give the same ages without =date=: it is one static binary 
 4. Where a change to daylight saving time skips midnight, the clock jumping from 00:00 to 01:00, that date's midnight does not exist.
    =date -d= refuses such a date, and =rotate= skips the run, as the shell script did.
 
-=EB_KEEP_LOGS_NOW= replaces now with a time of your choosing, in seconds since the epoch; nothing else changes.
+=EB_KEEP_LOGS_NOW= replaces now for these age calculations with a time of your choosing, in seconds since the epoch.
+It does not replace the actual completion time written to a metrics file.
 
 ** What was considered and turned down
 

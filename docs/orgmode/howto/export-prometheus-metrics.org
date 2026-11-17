@@ -1,0 +1,79 @@
+#+TITLE: Export metrics to Prometheus
+#+OPTIONS: toc:nil todo:nil num:nil author:nil title:nil
+#+STARTUP: content
+
+* Export metrics to Prometheus
+
+Use the node_exporter textfile collector when =eb-keep-logs= and node_exporter run on the same machine.
+The metrics output is opt-in, so existing commands write no metrics file.
+
+** Choose the collector directory
+
+Start node_exporter with a textfile collector directory:
+
+#+begin_src sh
+node_exporter --collector.textfile.directory=/var/lib/node_exporter/textfile_collector
+#+end_src
+
+For a systemd service, add the option to the service's command line and restart the service.
+As =root=, create the collector directory with the build account as its owner and node_exporter's group as its group:
+
+#+begin_src sh
+install -d -o build-account -g node-exporter -m 0750 \
+  /var/lib/node_exporter/textfile_collector
+#+end_src
+
+Replace =build-account= with the account that keeps and rotates the logs, and =node-exporter= with the group of the node_exporter service account.
+The owner can create the sidecar lock and temporary file, rename the temporary file atomically, and remove stale temporary files.
+The service group can traverse and read the directory.
+Do not create an empty =.prom= file: the first command that uses =--metrics-file= creates a complete exposition with mode 0644.
+
+** Record kept logs
+
+Pass the same metrics path to each =failed= invocation:
+
+#+begin_src sh
+eb-keep-logs failed \
+  --metrics-file /var/lib/node_exporter/textfile_collector/eb-keep-logs.prom \
+  "${status}" "${easyconfig_name}" "${log_dir}" "${tmp_log_dir}"
+#+end_src
+
+Each successfully copied log increments =eb_keep_logs_logs_kept_total=.
+Its written size increments =eb_keep_logs_bytes_kept_total=.
+A retry that copies a log again is another keep operation and increments both counters again.
+
+** Record the last rotation
+
+Pass the path to =rotate= too:
+
+#+begin_src sh
+eb-keep-logs rotate /srv/build-logs \
+  --compress-after 30 --delete-after 90 \
+  --metrics-file /var/lib/node_exporter/textfile_collector/eb-keep-logs.prom
+#+end_src
+
+After rotation completes, =eb_keep_logs_last_prune_timestamp_seconds= is the actual completion Unix timestamp, even when =EB_KEEP_LOGS_NOW= set a different time for run-age calculations.
+The time is chosen while holding the metrics lock, and an older completion never replaces a newer one when rotations finish concurrently.
+The counters remain unchanged.
+A rotation that gives up waiting for its lock does not update the timestamp.
+
+The tool locks a sidecar file, writes a temporary file in the collector directory, and renames it over the metrics file.
+The collector therefore reads either the previous complete exposition or the new one.
+
+** Check the result
+
+Validate the Prometheus text exposition:
+
+#+begin_src sh
+promtool check metrics < /var/lib/node_exporter/textfile_collector/eb-keep-logs.prom
+#+end_src
+
+Then inspect node_exporter's metrics endpoint:
+
+#+begin_src sh
+curl -fsS http://127.0.0.1:9100/metrics |
+  grep '^eb_keep_logs_'
+#+end_src
+
+All three names start with =eb_keep_logs_=.
+When =--metrics-file= is omitted, none of them is written.

@@ -10,8 +10,8 @@ This page describes the Zig build; the shell script =eb-keep-logs= in the reposi
 ** Synopsis
 
 #+begin_example
-eb-keep-logs failed [--syslog TARGET] STATUS NAME LOGDIR [TMP_LOGDIR]
-eb-keep-logs rotate ROOT --compress-after DAYS [--delete-after DAYS] [--lock-timeout SECONDS] [--syslog TARGET]
+eb-keep-logs failed [--syslog TARGET] [--metrics-file PATH] STATUS NAME LOGDIR [TMP_LOGDIR]
+eb-keep-logs rotate ROOT --compress-after DAYS [--delete-after DAYS] [--lock-timeout SECONDS] [--syslog TARGET] [--metrics-file PATH]
 eb-keep-logs why [RUN | --latest] [--target TARGET] [--root ROOT] [--json]
 eb-keep-logs history PACKAGE [--target TARGET] [--root ROOT] [--json]
 eb-keep-logs loads --module NAME [--json] FILE
@@ -45,6 +45,7 @@ eb-keep-logs --version
 | =--delete-after DAYS=, =--delete-after=DAYS=     | =rotate= | Remove whole runs at least =DAYS= old. =DAYS= must be larger than =--compress-after=. Without it, or with an empty value, no run is removed. |
 | =--lock-timeout SECONDS=, =--lock-timeout=SECONDS= | =rotate= | How long to wait for the lock another =rotate= of =ROOT= holds, in seconds, decimal digits; =0= does not wait. Without it, or with an empty value, 600. A value larger than 999999999, which is over 31 years, waits 999999999 seconds. |
 | =--syslog TARGET=, =--syslog=TARGET=             | =failed=, =rotate= | Emit an RFC 5424 or native =systemd-journald= event to =TARGET= (=journald=, =syslog=, =unix:///path=, =journal+unix:///path=, =udp://host:port=, or =tcp://host:port=); overrides =EB_KEEP_LOGS_SYSLOG=. An empty value disables emission. |
+| =--metrics-file PATH=, =--metrics-file=PATH=     | =failed=, =rotate= | Atomically update the Prometheus text exposition at =PATH=. Without it, no metrics file is read or written. |
 | =--latest=                                       | =why=    | Read the newest run under =--root=, by its name; with =--target=, the newest that has that target. The default without =RUN=.               |
 | =--target TARGET=, =--target=TARGET=             | =why=, =history= | Read only the builds in the run's directory =TARGET=; for =history=, in each run's, a run without one passed over. Without it, those in the run's own directory and then in each directory in it, by name. |
 | =--root ROOT=, =--root=ROOT=                     | =why=, =history= | The directory that holds the runs, directories named =YYYYMMDD_HHMMSS=, not symbolic links. Without it, the current directory.               |
@@ -77,7 +78,7 @@ eb-keep-logs --version
   An option given twice takes its last value.
 - =why='s options and =RUN=, and =history='s and =PACKAGE=, come in any order, and an option given twice takes its last value; the value of an option is the next argument, whatever it is, and an empty one is refused.
 - =-h=, =--help= and =--version= count only in the place of the command.
-- =failed= takes no options.
+- =failed='s options and positional arguments may appear in any order.
 
 ** Environment
 
@@ -212,6 +213,23 @@ What =rotate= cannot do it reports on stderr as =eb-keep-logs: MESSAGE=, and goe
 | =cannot update a .licensed-logs: ERROR= | A list could not be replaced; it is left as it is.                                                                                  |
 | =cannot sync a .licensed-logs: ERROR=   | A list was replaced, but its directory could not be synced; after a crash the old list may be back.                                 |
 | =cannot delete ROOT/RUN: ERROR=         | The run could not be removed completely; what was removed stays removed.                                                            |
+
+*** Metrics
+
+With =--metrics-file PATH=, =failed= and =rotate= update one Prometheus text exposition file.
+The file is written to a temporary file in =PATH='s directory, synced, and renamed over =PATH= while a sidecar lock is held.
+An existing valid file supplies the counters and timestamp that the other command owns.
+An invalid file is left unchanged and reported on stderr.
+
+| Metric | Type | Value |
+|--------+------+-------|
+| =eb_keep_logs_logs_kept_total= | counter | Successful log-copy operations by =failed=, including a retry that copies the same destination again. |
+| =eb_keep_logs_bytes_kept_total= | counter | Bytes in those successfully written copies. |
+| =eb_keep_logs_last_prune_timestamp_seconds= | gauge | Actual Unix timestamp when =rotate= most recently completed, including a rotation that found nothing to change. It is chosen under the metrics lock, never moves backwards when rotations complete out of order, is independent of =EB_KEEP_LOGS_NOW=, and is zero until one completes. |
+
+Metrics are values this tool observes while keeping and rotating logs.
+They do not describe dependency gaps, rebuild closures, failure classes, or other stack analysis.
+See [[file:../howto/export-prometheus-metrics.org][Export metrics to Prometheus]] for the node_exporter textfile collector setup.
 
 *** why
 
@@ -507,7 +525,7 @@ The usage =-h=, =--help= and no arguments print on stdout, the same from the she
 eb-keep-logs: keep the logs of EasyBuild builds that a build pipeline would
 otherwise lose, and keep the pipeline's log tree bounded.
 
-  eb-keep-logs failed [--syslog TARGET] STATUS NAME LOGDIR [TMP_LOGDIR]
+  eb-keep-logs failed [--syslog TARGET] [--metrics-file PATH] STATUS NAME LOGDIR [TMP_LOGDIR]
       After `eb` returned STATUS for easyconfig NAME: when STATUS is not 0,
       copy the EasyBuild session log `eb --last-log` names, the failing
       command's output and a meson testlog next to LOGDIR/NAME.stdout.log,
@@ -518,8 +536,12 @@ otherwise lose, and keep the pipeline's log tree bounded.
       --syslog TARGET, --syslog=TARGET
           Emit an RFC 5424 or native systemd-journald event when logs are
           kept or none are found. Default: EB_KEEP_LOGS_SYSLOG, else none.
+      --metrics-file PATH, --metrics-file=PATH
+          Atomically update Prometheus counters for kept logs and bytes.
+          Default: none.
   eb-keep-logs rotate ROOT --compress-after DAYS [--delete-after DAYS]
                            [--lock-timeout SECONDS] [--syslog TARGET]
+                           [--metrics-file PATH]
       In the run directories directly under ROOT (named YYYYMMDD_HHMMSS),
       gzip the *.log and *.txt files of old runs and remove older runs
       whole, leaving alone a run that is still written into. A run's age is
@@ -541,6 +563,8 @@ otherwise lose, and keep the pipeline's log tree bounded.
           Emit an RFC 5424 or native systemd-journald event with the
           compressed and deleted counts. Default: EB_KEEP_LOGS_SYSLOG,
           else none.
+      --metrics-file PATH, --metrics-file=PATH
+          Atomically record when this rotation completed. Default: none.
   eb-keep-logs why [RUN | --latest] [--target TARGET] [--root ROOT] [--json]
       Say why the builds of a run failed: for each failed easyconfig, its
       package and easyconfig, the EasyBuild step it failed in, EasyBuild's

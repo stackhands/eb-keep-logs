@@ -112,6 +112,11 @@ pub fn build(b: *std.Build) void {
     stable_output_test.setCwd(b.path("."));
     stable_output_test.expectExitCode(0);
     stable_output_test.has_side_effects = true;
+    const metrics_test = b.addSystemCommand(&.{ "bash", "-c", "TOOL_BIN=\"$0\" exec bash tests/test_metrics.sh" });
+    metrics_test.addArtifactArg(exe);
+    metrics_test.setCwd(b.path("."));
+    metrics_test.expectExitCode(0);
+    metrics_test.has_side_effects = true;
 
     const test_step = b.step("test", "Run the unit tests, the command-line suites and the differential run");
     test_step.dependOn(&b.addRunArtifact(unit).step);
@@ -128,4 +133,5 @@ pub fn build(b: *std.Build) void {
     test_step.dependOn(&test_bundle_test.step);
     test_step.dependOn(&lifecycle_test.step);
     test_step.dependOn(&stable_output_test.step);
+    test_step.dependOn(&metrics_test.step);
 }
