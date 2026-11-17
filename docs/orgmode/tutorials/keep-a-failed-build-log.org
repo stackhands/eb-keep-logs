@@ -41,6 +41,8 @@ command -v eb-keep-logs
 /home/alice/.local/bin/eb-keep-logs
 #+end_example
 
+The download is the shell script. It runs =failed= and =rotate=. =why= and =history= are in the Zig build only, and the script says so when it is asked for them. [[file:../howto/find-why-a-build-failed.org][Find why a build failed]] says to build that program with =zig build -Drelease=true= and to put it first on =PATH=, ahead of this script.
+
 ** Make a directory for this run's logs
 
 Name it by the date and time, =YYYYMMDD_HHMMSS=, which is how =eb-keep-logs rotate= tells how old a run is:
@@ -184,6 +186,7 @@ cat "$LOGDIR/.licensed-logs"
 
 ** Next steps
 
+- [[file:../howto/find-why-a-build-failed.org][Find why a build failed]], which needs the Zig build, not this script
 - [[file:../howto/call-from-a-pipeline.org][Call eb-keep-logs from a build pipeline]]
 - [[file:../howto/rotate-a-log-tree.org][Rotate a log tree]]
 - [[file:../reference/cli.org][The eb-keep-logs command]]

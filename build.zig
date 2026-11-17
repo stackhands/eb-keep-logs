@@ -62,10 +62,16 @@ pub fn build(b: *std.Build) void {
     why.setCwd(b.path("."));
     why.expectExitCode(0);
     why.has_side_effects = true;
+    // The tutorial has to name which program has why. It does not need the binary.
+    const which = b.addSystemCommand(&.{ "bash", "tests/test_tutorial_which.sh" });
+    which.setCwd(b.path("."));
+    which.expectExitCode(0);
+    which.has_side_effects = true;
 
     const test_step = b.step("test", "Run the unit tests, the command-line suites and the differential run");
     test_step.dependOn(&b.addRunArtifact(unit).step);
     test_step.dependOn(&suite.step);
     test_step.dependOn(&diff.step);
     test_step.dependOn(&why.step);
+    test_step.dependOn(&which.step);
 }
