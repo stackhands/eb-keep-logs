@@ -25,23 +25,24 @@ Every command runs as an ordinary user on a Linux machine with EasyBuild 5.
 
 ** Install eb-keep-logs
 
-# The 0.2.1 release binary keeps no log when EasyBuild 5.3 or later folds the
-# path eb --last-log prints, which later commits fix.  Install the release
-# binary here once a release after 0.2.1 is out, and run the tutorial again.
-Download =eb-keep-logs=, the shell script, at a fixed commit into =~/.local/bin=, and make it executable:
+Install the program from the main branch so =failed= keeps the log on EasyBuild 5.3 or newer and the commands in the [[file:../howto/find-why-a-build-failed.org][Next steps]] exist:
 
 #+begin_src bash
-curl -sSfL -o ~/.local/bin/eb-keep-logs \
-  https://raw.githubusercontent.com/stackhands/eb-keep-logs/5ceaead6b7f1ab7a0f5ddcc0fad14f6d3a51f5cc/eb-keep-logs
-chmod 0755 ~/.local/bin/eb-keep-logs
+git clone https://github.com/stackhands/eb-keep-logs.git
+cd eb-keep-logs
+zig build -Drelease=true
+install -D -m 755 zig-out/bin/eb-keep-logs ~/.local/bin/eb-keep-logs
 command -v eb-keep-logs
+eb-keep-logs --version
 #+end_src
 
 #+begin_example
 /home/alice/.local/bin/eb-keep-logs
+eb-keep-logs 0.2.1 (x86_64-linux-musl, zig 0.17.1, abc1234)
 #+end_example
 
-The download is the shell script. It runs =failed= and =rotate=. =why= and =history= are in the Zig build only, and the script says so when it is asked for them. [[file:../howto/find-why-a-build-failed.org][Find why a build failed]] says to build that program with =zig build -Drelease=true= and to put it first on =PATH=, ahead of this script.
+[[file:../howto/install.org][Install eb-keep-logs]] has the release binary when you do not need the main-branch fix.
+The shell script in the repository runs =failed= and =rotate= only; =why= and =history= are in the Zig build only, and the script says so when it is asked for them.
 
 ** Make a directory for this run's logs
 
@@ -186,9 +187,9 @@ cat "$LOGDIR/.licensed-logs"
 
 ** Next steps
 
-- [[file:../howto/find-why-a-build-failed.org][Find why a build failed]], which needs the Zig build, not this script
+- [[file:../howto/find-why-a-build-failed.org][Find why a build failed]]
 - [[file:../howto/call-from-a-pipeline.org][Call eb-keep-logs from a build pipeline]]
 - [[file:../howto/rotate-a-log-tree.org][Rotate a log tree]]
 - [[file:../reference/cli.org][The eb-keep-logs command]]
 
-Checked with EasyBuild 5.4.2, Lmod 8.6.19 and eb-keep-logs at commit 5ceaead on 2026-11-16.
+Checked with EasyBuild 5.4.2, Lmod 8.6.19 and eb-keep-logs built from main on 2026-11-17.
