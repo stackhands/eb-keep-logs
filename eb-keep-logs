@@ -17,7 +17,7 @@ usage() {
 eb-keep-logs: keep the logs of EasyBuild builds that a build pipeline would
 otherwise lose, and keep the pipeline's log tree bounded.
 
-  eb-keep-logs failed [--syslog TARGET] STATUS NAME LOGDIR [TMP_LOGDIR]
+  eb-keep-logs failed [--syslog TARGET] [--metrics-file PATH] STATUS NAME LOGDIR [TMP_LOGDIR]
       After `eb` returned STATUS for easyconfig NAME: when STATUS is not 0,
       copy the EasyBuild session log `eb --last-log` names, the failing
       command's output and a meson testlog next to LOGDIR/NAME.stdout.log,
@@ -28,8 +28,12 @@ otherwise lose, and keep the pipeline's log tree bounded.
       --syslog TARGET, --syslog=TARGET
           Emit an RFC 5424 or native systemd-journald event when logs are
           kept or none are found. Default: EB_KEEP_LOGS_SYSLOG, else none.
+      --metrics-file PATH, --metrics-file=PATH
+          Atomically update Prometheus counters for kept logs and bytes.
+          Default: none.
   eb-keep-logs rotate ROOT --compress-after DAYS [--delete-after DAYS]
                            [--lock-timeout SECONDS] [--syslog TARGET]
+                           [--metrics-file PATH]
       In the run directories directly under ROOT (named YYYYMMDD_HHMMSS),
       gzip the *.log and *.txt files of old runs and remove older runs
       whole, leaving alone a run that is still written into. A run's age is
@@ -51,6 +55,8 @@ otherwise lose, and keep the pipeline's log tree bounded.
           Emit an RFC 5424 or native systemd-journald event with the
           compressed and deleted counts. Default: EB_KEEP_LOGS_SYSLOG,
           else none.
+      --metrics-file PATH, --metrics-file=PATH
+          Atomically record when this rotation completed. Default: none.
   eb-keep-logs why [RUN | --latest] [--target TARGET] [--root ROOT] [--json]
       Say why the builds of a run failed: for each failed easyconfig, its
       package and easyconfig, the EasyBuild step it failed in, EasyBuild's
@@ -535,8 +541,140 @@ _emit_failed_syslog() {
         "J:EB_KEEP_REASON=${reason}" "${extra[@]}"
 }
 
+# Add two unsigned decimal integers without using Bash's signed arithmetic.
+# Refuse a result beyond the u64 range used by the Zig implementation.
+_add_u64() {
+    local a="$1" b="$2" out="" carry=0 da db sum
+    local i j max=18446744073709551615
+    a="${a#"${a%%[!0]*}"}"; a="${a:-0}"
+    b="${b#"${b%%[!0]*}"}"; b="${b:-0}"
+    i=${#a}; j=${#b}
+    while [ "${i}" -gt 0 ] || [ "${j}" -gt 0 ] || [ "${carry}" -gt 0 ]; do
+        da=0
+        db=0
+        if [ "${i}" -gt 0 ]; then i=$((i - 1)); da="${a:i:1}"; fi
+        if [ "${j}" -gt 0 ]; then j=$((j - 1)); db="${b:j:1}"; fi
+        sum=$((da + db + carry))
+        out="$((sum % 10))${out}"
+        carry=$((sum / 10))
+    done
+    # Decimal strings of equal length are ordered lexically.
+    # shellcheck disable=SC2071
+    if [ "${#out}" -gt "${#max}" ] ||
+        { [ "${#out}" -eq "${#max}" ] && [[ "${out}" > "${max}" ]]; }; then
+        return 1
+    fi
+    printf '%s\n' "${out}"
+}
+
+_u64_gt() {
+    local a="$1" b="$2"
+    a="${a#"${a%%[!0]*}"}"; a="${a:-0}"
+    b="${b#"${b%%[!0]*}"}"; b="${b:-0}"
+    [ "${#a}" -gt "${#b}" ] && return 0
+    [ "${#a}" -lt "${#b}" ] && return 1
+    # Decimal strings of equal length are ordered lexically.
+    # shellcheck disable=SC2071
+    [[ "${a}" > "${b}" ]]
+}
+
+_update_metrics() {
+    local file="$1" add_logs="$2" add_bytes="$3" prune="$4"
+    [ -n "${file}" ] || return 0
+    local dir base lock fd tmp logs=0 bytes=0 last=0 value new_logs new_bytes
+    dir="${file%/*}"; [ "${dir}" != "${file}" ] || dir=.
+    base="${file##*/}"
+    if [ -z "${base}" ] || [ ! -d "${dir}" ]; then
+        echo "eb-keep-logs: cannot update metrics file ${file}: invalid path" >&2
+        return 0
+    fi
+    lock="${dir}/.${base}.lock"
+    if [ -L "${lock}" ] || { [ -e "${lock}" ] && [ ! -f "${lock}" ]; } ||
+        ! { exec {fd}>>"${lock}"; } 2>/dev/null || ! flock "${fd}"; then
+        echo "eb-keep-logs: cannot update metrics file ${file}: cannot lock it" >&2
+        return 0
+    fi
+    if [ -e "${file}" ]; then
+        if [ ! -f "${file}" ] || [ -L "${file}" ]; then
+            echo "eb-keep-logs: cannot update metrics file ${file}: not a regular file" >&2
+            exec {fd}>&-
+            return 0
+        fi
+        value=$(awk '$1 == "eb_keep_logs_logs_kept_total" { if (++n > 1 || $2 !~ /^[0-9]+$/) exit 2; v=$2 } END { if (n) print v }' "${file}")
+        if [ "$?" -ne 0 ]; then
+            echo "eb-keep-logs: cannot update metrics file ${file}: invalid metrics" >&2
+            exec {fd}>&-
+            return 0
+        fi
+        logs=${value:-0}
+        value=$(awk '$1 == "eb_keep_logs_bytes_kept_total" { if (++n > 1 || $2 !~ /^[0-9]+$/) exit 2; v=$2 } END { if (n) print v }' "${file}")
+        if [ "$?" -ne 0 ]; then
+            echo "eb-keep-logs: cannot update metrics file ${file}: invalid metrics" >&2
+            exec {fd}>&-
+            return 0
+        fi
+        bytes=${value:-0}
+        value=$(awk '$1 == "eb_keep_logs_last_prune_timestamp_seconds" { if (++n > 1 || $2 !~ /^[0-9]+$/) exit 2; v=$2 } END { if (n) print v }' "${file}")
+        if [ "$?" -ne 0 ]; then
+            echo "eb-keep-logs: cannot update metrics file ${file}: invalid metrics" >&2
+            exec {fd}>&-
+            return 0
+        fi
+        last=${value:-0}
+    fi
+    if ! new_logs=$(_add_u64 "${logs}" "${add_logs}") ||
+        ! new_bytes=$(_add_u64 "${bytes}" "${add_bytes}"); then
+        echo "eb-keep-logs: cannot update metrics file ${file}: counter overflow" >&2
+        exec {fd}>&-
+        return 0
+    fi
+    logs="${new_logs}"
+    bytes="${new_bytes}"
+    # Choose completion time only after taking the metrics lock. Keep a later
+    # completion already recorded by a concurrent, out-of-order rotation.
+    [ "${prune}" != "now" ] || prune=$(date +%s)
+    if [ -n "${prune}" ] && _u64_gt "${prune}" "${last}"; then
+        last="${prune}"
+    fi
+    tmp=$(mktemp -- "${dir}/.${base}.XXXXXXXX.tmp") || {
+        echo "eb-keep-logs: cannot update metrics file ${file}: cannot create temporary file" >&2
+        exec {fd}>&-
+        return 0
+    }
+    if ! cat > "${tmp}" <<EOF
+# HELP eb_keep_logs_logs_kept_total Log files kept by eb-keep-logs.
+# TYPE eb_keep_logs_logs_kept_total counter
+eb_keep_logs_logs_kept_total ${logs}
+# HELP eb_keep_logs_bytes_kept_total Bytes written to kept log files by eb-keep-logs.
+# TYPE eb_keep_logs_bytes_kept_total counter
+eb_keep_logs_bytes_kept_total ${bytes}
+# HELP eb_keep_logs_last_prune_timestamp_seconds Unix timestamp of the last completed eb-keep-logs rotation.
+# TYPE eb_keep_logs_last_prune_timestamp_seconds gauge
+eb_keep_logs_last_prune_timestamp_seconds ${last}
+EOF
+    then
+        rm -f -- "${tmp}"
+        exec {fd}>&-
+        return 0
+    fi
+    if { [ -e "${file}" ] && ! chmod --reference="${file}" -- "${tmp}"; } ||
+        { [ ! -e "${file}" ] && ! chmod 644 "${tmp}"; }; then
+        echo "eb-keep-logs: cannot update metrics file ${file}: cannot set temporary file mode" >&2
+        rm -f -- "${tmp}"
+        exec {fd}>&-
+        return 0
+    fi
+    if ! sync -f "${tmp}" || ! mv -f -- "${tmp}" "${file}"; then
+        echo "eb-keep-logs: cannot update metrics file ${file}: cannot replace it" >&2
+        rm -f -- "${tmp}"
+    elif ! sync -f "${dir}"; then
+        echo "eb-keep-logs: cannot update metrics file ${file}: cannot sync its directory" >&2
+    fi
+    exec {fd}>&-
+}
+
 cmd_failed() {
-    local pos=() syslog_opt="" have_syslog=0
+    local pos=() syslog_opt="" have_syslog=0 metrics_file="" have_metrics=0
     while [ $# -gt 0 ]; do
         case "$1" in
             --syslog)
@@ -544,6 +682,11 @@ cmd_failed() {
                 syslog_opt="$2"; have_syslog=1; shift 2 ;;
             --syslog=*)
                 syslog_opt="${1#*=}"; have_syslog=1; shift ;;
+            --metrics-file)
+                [ $# -ge 2 ] || die "--metrics-file needs a path"
+                metrics_file="$2"; have_metrics=1; shift 2 ;;
+            --metrics-file=*)
+                metrics_file="${1#*=}"; have_metrics=1; shift ;;
             *) pos+=("$1"); shift ;;
         esac
     done
@@ -552,6 +695,7 @@ cmd_failed() {
     local src dest
     [[ "${status}" =~ ^[0-9]+$ ]] || die "STATUS must be a number, not '${status}'"
     [ -d "${logdir}" ] || die "LOGDIR ${logdir} is not a directory"
+    [ "${have_metrics}" -eq 0 ] || [ -n "${metrics_file}" ] || die "--metrics-file needs a path"
     local syslog_target=""
     _resolve_syslog_pen
     if [ "${have_syslog}" -eq 1 ]; then
@@ -563,6 +707,7 @@ cmd_failed() {
     fi
     logdir=$(_joinable "${logdir}")
     if [ "${status}" -eq 0 ]; then
+        _update_metrics "${metrics_file}" 0 0 ""
         return 0
     fi
     # The failed lines the kept copies hold are also in the build's own stdout
@@ -586,6 +731,7 @@ cmd_failed() {
     if ! command -v eb >/dev/null 2>&1; then
         echo "No EasyBuild log to keep for ${name}: eb is not on PATH."
         _emit_failed_syslog "${syslog_target}" "${status}" "${name}" "${logdir}" 0 0 0 "no-eb"
+        _update_metrics "${metrics_file}" 0 0 ""
         return 0
     fi
     local rc=0
@@ -597,17 +743,19 @@ cmd_failed() {
     if [ "${rc}" -ne 0 ]; then
         echo "No EasyBuild log to keep for ${name}: eb --last-log exited ${rc}."
         _emit_failed_syslog "${syslog_target}" "${status}" "${name}" "${logdir}" 0 0 0 "last-log-failed"
+        _update_metrics "${metrics_file}" 0 0 ""
         return 0
     fi
     if [ -z "${src}" ] || [ ! -f "${src}" ]; then
         echo "No EasyBuild log to keep for ${name}."
         _emit_failed_syslog "${syslog_target}" "${status}" "${name}" "${logdir}" 0 0 0 "no-log"
+        _update_metrics "${metrics_file}" 0 0 ""
         return 0
     fi
     # Without TMP_LOGDIR, `eb --last-log` names the newest log in EasyBuild's
     # default place, which can be a later build's. Nothing is taken from that
     # log; the build's own stdout log still names its failing command.
-    local foreign="" ebout_kept=0 cmd_kept=0 meson_kept=0
+    local foreign="" ebout_kept=0 cmd_kept=0 meson_kept=0 kept_bytes=0
     if [ -z "${explicit_logdir}" ] && grep -q 'processing EasyBuild easyconfig ' "${src}" &&
         ! grep -qF -- "${name}.eb" "${src}"; then
         echo "No EasyBuild log to keep for ${name}: ${src} is another build's log."
@@ -618,6 +766,7 @@ cmd_failed() {
         _private "${dest}" "${logdir}"
         echo "Failed build log: ${dest}"
         ebout_kept=1
+        kept_bytes=$(_add_u64 "${kept_bytes}" "$(stat -c %s "${dest}")")
     fi
 
     # The failing command's own output holds the diagnostic beyond EasyBuild's
@@ -658,6 +807,7 @@ cmd_failed() {
             _list "${dest}" "${logdir}"
             echo "Failed command output: ${dest}"
             cmd_kept=$((cmd_kept + 1))
+            kept_bytes=$(_add_u64 "${kept_bytes}" "$(stat -c %s "${dest}")")
         done
     fi
 
@@ -665,6 +815,7 @@ cmd_failed() {
         local reason="other-build"
         [ "${cmd_kept}" -gt 0 ] && reason="kept"
         _emit_failed_syslog "${syslog_target}" "${status}" "${name}" "${logdir}" 0 "${cmd_kept}" 0 "${reason}"
+        _update_metrics "${metrics_file}" "${cmd_kept}" "${kept_bytes}" ""
         return 0
     fi
     # A meson test step prints only the last 100 lines of a failing test; the
@@ -679,10 +830,12 @@ cmd_failed() {
         _private "${dest}" "${logdir}"
         echo "Failed meson test log: ${dest}"
         meson_kept=1
+        kept_bytes=$(_add_u64 "${kept_bytes}" "$(stat -c %s "${dest}")")
     fi
     local reason="no-log"
     [ $((ebout_kept + cmd_kept + meson_kept)) -gt 0 ] && reason="kept"
     _emit_failed_syslog "${syslog_target}" "${status}" "${name}" "${logdir}" "${ebout_kept}" "${cmd_kept}" "${meson_kept}" "${reason}"
+    _update_metrics "${metrics_file}" "$((ebout_kept + cmd_kept + meson_kept))" "${kept_bytes}" ""
     return 0
 }
 
@@ -758,7 +911,7 @@ _lock_rotate() {
 }
 
 cmd_rotate() {
-    local root="" compress_after="" delete_after="" lock_timeout="" syslog_opt="" have_syslog=0
+    local root="" compress_after="" delete_after="" lock_timeout="" syslog_opt="" have_syslog=0 metrics_file="" have_metrics=0
     while [ $# -gt 0 ]; do
         case "$1" in
             --compress-after) compress_after="${2:-}"; shift 2 ;;
@@ -773,12 +926,17 @@ cmd_rotate() {
                 [ $# -ge 2 ] || die "--syslog needs a target"
                 syslog_opt="$2"; have_syslog=1; shift 2 ;;
             --syslog=*) syslog_opt="${1#*=}"; have_syslog=1; shift ;;
+            --metrics-file)
+                [ $# -ge 2 ] || die "--metrics-file needs a path"
+                metrics_file="$2"; have_metrics=1; shift 2 ;;
+            --metrics-file=*) metrics_file="${1#*=}"; have_metrics=1; shift ;;
             -*) die "unknown option $1" ;;
             *) [ -z "${root}" ] || die "rotate takes one ROOT"; root="$1"; shift ;;
         esac
     done
     [ -n "${root}" ] || die "rotate needs ROOT"
     [ -d "${root}" ] || die "ROOT ${root} is not a directory"
+    [ "${have_metrics}" -eq 0 ] || [ -n "${metrics_file}" ] || die "--metrics-file needs a path"
     [[ "${compress_after}" =~ ^[0-9]+$ ]] || die "--compress-after needs a number of days"
     if [ -n "${delete_after}" ]; then
         [[ "${delete_after}" =~ ^[0-9]+$ ]] || die "--delete-after needs a number of days"
@@ -840,6 +998,7 @@ cmd_rotate() {
     _emit_syslog "${syslog_target}" 6 "EB_ROTATE_DONE" "${summary}" \
         "P:cmd=rotate" "P:root=${root}" "P:compressed=${compressed}" "P:deleted=${deleted}" \
         "J:EB_KEEP_CMD=rotate" "J:EB_ROTATE_ROOT=${root}" "J:EB_ROTATE_COMPRESSED=${compressed}" "J:EB_ROTATE_DELETED=${deleted}"
+    _update_metrics "${metrics_file}" 0 0 "now"
 }
 
 case "${1:-}" in

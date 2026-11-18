@@ -24,4 +24,5 @@ The title names the task.
    rotate-a-log-tree
    mark-licensed-logs
    emit-syslog-events
+   export-prometheus-metrics
 #+end_export
