@@ -1033,9 +1033,11 @@ cmd_rotate() {
         [ "${age}" -ge "${compress_after}" ] || continue
         if [ "${dry_run}" -eq 1 ]; then
             while IFS= read -r -d '' file; do
+                if [ -e "${file}.gz" ] || [ -L "${file}.gz" ]; then continue; fi
+                if [ "$(stat -c '%h' -- "${file}" 2>/dev/null || echo 2)" -gt 1 ]; then continue; fi
                 echo "compress $(realpath "${file%/*}")/${file##*/}"
                 compressed=$((compressed + 1))
-            done < <(find "${run}" -type f \( -name '*.log' -o -name '*.txt' \) -print0 | sort -z)
+            done < <(find "${run}" -type f \( -name '*.log' -o -name '*.txt' \) -print0 | LC_ALL=C sort -z)
             continue
         fi
         while IFS= read -r -d '' file; do
