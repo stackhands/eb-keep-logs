@@ -188,6 +188,11 @@ html_theme_options = {
                     "summary": "Build on EESSI-extend inside a Slurm job's node-local disk, compile your own code with RPATH, list and uninstall per CPU target",
                 },
                 {
+                    "title": "eb-pipeline",
+                    "url": "https://stackhands.github.io/eb-pipeline/",
+                    "summary": "Drive a site's EasyBuild builds from one site file, through eb-stack, eb-staged-rebuild and eb-keep-logs",
+                },
+                {
                     "title": "rfc9162",
                     "url": "https://stackhands.github.io/rfc9162/",
                     "summary": "Append-only Merkle logs hashed as RFC 9162, with tiled storage and signed checkpoints",
