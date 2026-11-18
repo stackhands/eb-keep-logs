@@ -97,5 +97,37 @@ check "selection is exclusive" "$?" "2"
 check "selection refusal" "$(cat "${work}/err")" \
     "eb-keep-logs: usage takes --unused or --active, not both"
 
+cat > "${work}/null-usert.json" <<EOF
+{"userT":null,"resultT":{"exec_path":"${software}/Foo/1.0/bin/foo","build_epoch":"250"}}
+EOF
+null_usert=$("${tool}" usage --software "${software}" --modules "${modules}" --json "${work}/null-usert.json")
+check "userT null keeps resultT hits" "$(python3 -c '
+import json, sys
+o = json.load(sys.stdin)
+foo = next(p for p in o["packages"] if p["module"] == "Foo/1.0")
+assert foo["active"] and foo["hits"] == 1 and foo["last"] == "250"
+print("ok")
+' <<<"${null_usert}")" "ok"
+
+if [ "$(id -u)" -ne 0 ]; then
+    mkdir -p "${work}/sw-perm/Readable/1.0" "${work}/sw-perm/Blocked/1.0"
+    chmod 000 "${work}/sw-perm/Blocked"
+    "${tool}" usage --software "${work}/sw-perm" --modules "${modules}" --json "${work}/xalt.json" > "${work}/perm.out" 2> "${work}/perm.err"
+    perm_rc=$?
+    chmod 755 "${work}/sw-perm/Blocked"
+    check "unreadable software/Name warns on stderr" "$perm_rc:$(grep -c 'cannot open SOFTWARE .*/Blocked' "${work}/perm.err")" "0:1"
+    check "readable software/Name still reported" "$(python3 -c '
+import json, sys
+o = json.load(sys.stdin)
+assert [p["module"] for p in o["packages"]] == ["Readable/1.0"]
+print("ok")
+' <<<"$(cat "${work}/perm.out")")" "ok"
+fi
+
+printf 'not json or lmod\n' > "${work}/garbage.txt"
+"${tool}" usage --software "${software}" --modules "${modules}" --json "${work}/garbage.txt" >/dev/null 2>"${work}/garbage.err"
+check "non-JSON non-Lmod file refused" "$?" "2"
+check "non-JSON refusal message" "$(grep -c 'garbage.txt' "${work}/garbage.err")" "1"
+
 echo "${fails} failed"
 [ "${fails}" -eq 0 ]

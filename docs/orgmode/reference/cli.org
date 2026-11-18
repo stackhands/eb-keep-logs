@@ -445,7 +445,7 @@ The shell script has no =usage=.
 | =--unused= | List installed entries with no hit. |
 | =--active= | List installed entries with at least one hit. |
 | =--json= | Print one JSON document instead of text. |
-| =FILE= | One or more concatenated-XALT-JSON or Lmod usage-log files. A file that cannot be read, or truncated JSON, is refused. |
+| =FILE= | One or more concatenated-XALT-JSON or Lmod usage-log files. Unreadable files, truncated JSON, or files containing neither JSON objects nor Lmod records are refused. |
 
 
 ** lifecycle
