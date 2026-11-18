@@ -91,12 +91,12 @@ Rotations of one tree take turns: each holds an exclusive flock on `ROOT/.eb-kee
 One that starts while another runs waits for it, up to `--lock-timeout` seconds (600; `0` does not wait), and when the wait runs out it changes nothing and exits 75.
 `eb-pipeline`'s `ROOT/.eb-pipeline-rotate.lock` is a separate lock, which `rotate` never takes; a daily job that should wait for eb-pipeline's runs takes that lock around `rotate` with `flock`.
 
-`EB_KEEP_LOGS_NOW`, in seconds since the epoch, sets the time `rotate` dates runs against.
-On a copy of the tree, it previews what a later rotation compresses and removes:
+`--dry-run` prints each file that would be compressed and run that would be deleted, but changes nothing, creates no lock and emits no syslog or journal event.
+`EB_KEEP_LOGS_NOW`, in seconds since the epoch, sets the time `rotate` dates runs against, so the two together preview a later rotation:
 
 ```bash
-cp -a /srv/build-logs /tmp/logs-preview
-EB_KEEP_LOGS_NOW=$(date -d 2027-09-20 +%s) eb-keep-logs rotate /tmp/logs-preview --compress-after 30 --delete-after 365
+EB_KEEP_LOGS_NOW=$(date -d 2027-09-20 +%s) \
+  eb-keep-logs rotate /srv/build-logs --compress-after 30 --delete-after 365 --dry-run
 ```
 
 ## Find why a build failed

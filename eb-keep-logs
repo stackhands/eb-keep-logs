@@ -32,8 +32,8 @@ otherwise lose, and keep the pipeline's log tree bounded.
           Atomically update Prometheus counters for kept logs and bytes.
           Default: none.
   eb-keep-logs rotate ROOT --compress-after DAYS [--delete-after DAYS]
-                           [--lock-timeout SECONDS] [--syslog TARGET]
-                           [--metrics-file PATH]
+                           [--dry-run] [--lock-timeout SECONDS]
+                           [--syslog TARGET] [--metrics-file PATH]
       In the run directories directly under ROOT (named YYYYMMDD_HHMMSS),
       gzip the *.log and *.txt files of old runs and remove older runs
       whole, leaving alone a run that is still written into. A run's age is
@@ -47,6 +47,10 @@ otherwise lose, and keep the pipeline's log tree bounded.
           Remove whole runs at least DAYS old; DAYS must be larger than
           that of --compress-after. Default: none; no run is removed. An
           empty value is the default.
+      --dry-run
+          Print each file that would be compressed and run that would be
+          deleted, but change nothing, create no lock, emit no event and
+          write no metrics.
       --lock-timeout SECONDS, --lock-timeout=SECONDS
           While another rotate holds the lock, wait up to SECONDS for it,
           then give up and exit 75. Default: 600; 0 does not wait. An empty
@@ -56,7 +60,8 @@ otherwise lose, and keep the pipeline's log tree bounded.
           compressed and deleted counts. Default: EB_KEEP_LOGS_SYSLOG,
           else none.
       --metrics-file PATH, --metrics-file=PATH
-          Atomically record when this rotation completed. Default: none.
+          Atomically record when this rotation completed, unless --dry-run
+          is given. Default: none.
   eb-keep-logs why [RUN | --latest] [--target TARGET] [--root ROOT] [--json]
       Say why the builds of a run failed: for each failed easyconfig, its
       package and easyconfig, the EasyBuild step it failed in, EasyBuild's
@@ -911,13 +916,14 @@ _lock_rotate() {
 }
 
 cmd_rotate() {
-    local root="" compress_after="" delete_after="" lock_timeout="" syslog_opt="" have_syslog=0 metrics_file="" have_metrics=0
+    local root="" compress_after="" delete_after="" lock_timeout="" syslog_opt="" have_syslog=0 dry_run=0 metrics_file="" have_metrics=0
     while [ $# -gt 0 ]; do
         case "$1" in
             --compress-after) compress_after="${2:-}"; shift 2 ;;
             --compress-after=*) compress_after="${1#*=}"; shift ;;
             --delete-after) delete_after="${2:-}"; shift 2 ;;
             --delete-after=*) delete_after="${1#*=}"; shift ;;
+            --dry-run) dry_run=1; shift ;;
             --lock-timeout)
                 [ $# -ge 2 ] || die "--lock-timeout needs a number of seconds"
                 lock_timeout="$2"; shift 2 ;;
@@ -960,7 +966,7 @@ cmd_rotate() {
         _resolve_syslog "${EB_KEEP_LOGS_SYSLOG}"
         syslog_target="${SYSLOG_TARGET}"
     fi
-    _lock_rotate "$(_joinable "${root}")/.eb-keep-logs-rotate.lock" "${lock_timeout}"
+    [ "${dry_run}" -eq 1 ] || _lock_rotate "$(_joinable "${root}")/.eb-keep-logs-rotate.lock" "${lock_timeout}"
     local run age file list tmp path compressed=0 deleted=0 live
     live="$(_own_runs "${root}")$(_written_runs "${root}")/"
     for run in "$(_joinable "${root}")"/*/; do
@@ -971,11 +977,23 @@ cmd_rotate() {
         # rotate or by a build that is still going.
         case "${live}" in *"/${run##*/}/"*) continue ;; esac
         if [ -n "${delete_after}" ] && [ "${age}" -ge "${delete_after}" ]; then
+            if [ "${dry_run}" -eq 1 ]; then
+                echo "delete ${run}"
+                deleted=$((deleted + 1))
+                continue
+            fi
             rm -rf -- "${run}"
             deleted=$((deleted + 1))
             continue
         fi
         [ "${age}" -ge "${compress_after}" ] || continue
+        if [ "${dry_run}" -eq 1 ]; then
+            while IFS= read -r -d '' file; do
+                echo "compress $(realpath "${file%/*}")/${file##*/}"
+                compressed=$((compressed + 1))
+            done < <(find "${run}" -type f \( -name '*.log' -o -name '*.txt' \) -print0 | sort -z)
+            continue
+        fi
         while IFS= read -r -d '' file; do
             path="$(realpath "${file%/*}")/${file##*/}"
             # gzip keeps the file's mode, so a closed log stays closed.
@@ -993,8 +1011,13 @@ cmd_rotate() {
         done < <(find "${run}" -type f \( -name '*.log' -o -name '*.txt' \) -print0)
     done
     local summary
-    summary="eb-keep-logs rotate: $(_count "${compressed}" file) compressed, $(_count "${deleted}" run) deleted under ${root}"
+    if [ "${dry_run}" -eq 1 ]; then
+        summary="eb-keep-logs rotate dry-run: $(_count "${compressed}" file) would be compressed, $(_count "${deleted}" run) would be deleted under ${root}"
+    else
+        summary="eb-keep-logs rotate: $(_count "${compressed}" file) compressed, $(_count "${deleted}" run) deleted under ${root}"
+    fi
     echo "${summary}"
+    [ "${dry_run}" -eq 1 ] && return 0
     _emit_syslog "${syslog_target}" 6 "EB_ROTATE_DONE" "${summary}" \
         "P:cmd=rotate" "P:root=${root}" "P:compressed=${compressed}" "P:deleted=${deleted}" \
         "J:EB_KEEP_CMD=rotate" "J:EB_ROTATE_ROOT=${root}" "J:EB_ROTATE_COMPRESSED=${compressed}" "J:EB_ROTATE_DELETED=${deleted}"

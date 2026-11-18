@@ -293,6 +293,19 @@ echo other > "${root}/notarun/E.log"
 EB_KEEP_LOGS_NOW=$(date -d 2026-11-13 +%s)
 export EB_KEEP_LOGS_NOW
 
+check "dry run: lists files and runs without changing them" \
+    "$("${tool}" rotate "${root}" --compress-after 30 --delete-after 90 --dry-run)" \
+    "delete ${root}/20260801_090000
+compress $(realpath "${root}/20261001_120000/site-zen4")/A.stdout.log
+compress $(realpath "${root}/20261001_120000/site-zen4")/B.failed.ebout.log
+eb-keep-logs rotate dry-run: 2 files would be compressed, 1 run would be deleted under ${root}"
+check "dry run: files and runs stay in place" \
+    "$(find "${root}" -name '*.gz' -o -name 'D.stdout.log' | LC_ALL=C sort | tr '\n' ' ')" \
+    "${root}/20260801_090000/D.stdout.log "
+lock_missing=1
+test -e "${root}/.eb-keep-logs-rotate.lock" && lock_missing=0
+check "dry run: creates no lock" "$lock_missing" "1"
+
 "${tool}" rotate "${root}" --compress-after 30 >/dev/null
 check "old run compressed" "$(ls "${root}/20261001_120000/site-zen4" | sort | tr '\n' ' ')" "A.stdout.log.gz B.failed.ebout.log.gz "
 check "compressed content intact" "$(zcat "${root}/20261001_120000/site-zen4/A.stdout.log.gz")" "old"
