@@ -23,6 +23,7 @@ declare -A deliberate=(
     ["rotate, lock is a symbolic link"]="\`rotate\`'s lock file cannot be opened, or is a symbolic link or not a regular file"
     ["why"]="\`why\`"
     ["history"]="\`history\`"
+    ["failures"]="\`failures\`"
     ["loads"]="\`loads\`"
     ["runs"]="\`runs\`"
     ["used"]="\`used\`"
@@ -165,6 +166,7 @@ compare "rotate, a run still written into" rotate "${work}/live" --compress-afte
 kill "${holder}"; wait "${holder}" 2>/dev/null
 compare "why" why --latest --root "${repo_root}/tests/fixtures/build-logs"
 compare "history" history hello --root "${repo_root}/tests/fixtures/build-logs"
+compare "failures" failures --root "${repo_root}/tests/fixtures/build-logs"
 printf 'user=a module=M path=/p host=h time=1\n' > "${work}/loads.log"
 compare "loads" loads --module M "${work}/loads.log"
 printf '%s\n' '{"userT":{"user":"a","exec_path":"/bin/gmx","syshost":"h","start_time":1}}' > "${work}/runs.json"

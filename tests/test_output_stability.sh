@@ -97,6 +97,24 @@ check "why default output unchanged" "$(printf '%s\n' "${why_out}" | head -n 7)"
 hist_out=$(cd "${repo_root}" && "${tool}" history --root tests/fixtures/build-logs hello)
 check "history default output unchanged" "${hist_out}" $'hello: 11 builds under tests/fixtures/build-logs: 3 succeeded, 8 failed\n\nRUN              TARGET          OUTCOME  DURATION  NAME\n20261117_035825  sapphirerapids  failed   48s       hello-2.12.1-GCCcore-14.2.0\n20261117_040032  sapphirerapids  failed   41s       hello-2.12.1-GCCcore-14.2.0\n20261117_040119  sapphirerapids  failed   -         hello-2.12.1-GCCcore-14.2.0\n20261117_040311  sapphirerapids  failed   2m24s     hello-2.12.1-GCCcore-14.2.0\n20261117_040615  sapphirerapids  failed   3m06s     hello-2.12.1-GCCcore-14.2.0\n20261117_040928  sapphirerapids  failed   2m30s     hello-2.12.1-GCCcore-14.2.0\n20261117_041222  generic         success  2m50s     hello-2.12.1-GCCcore-14.2.0\n20261117_041222  sapphirerapids  failed   2m54s     hello-2.12.1-GCCcore-13.3.0\n20261117_041222  sapphirerapids  failed   2m33s     hello-2.12.1-GCCcore-14.2.0\n20261117_042207  sapphirerapids  success  2m40s     hello-2.12.1-GCCcore-13.3.0\n20261117_042207  sapphirerapids  success  2m52s     hello-2.12.1-GCCcore-14.2.0'
 
+expect_fixture() {
+    local label=$1 fixture=$2
+    shift 2
+    (cd "${repo_root}" && "$@") > "${work}/fix.out" 2> "${work}/fix.err"
+    status=$?
+    check "${label}: exit 0" "${status}" "0"
+    check "${label}: stdout byte-identical" "$(cmp -s "${repo_root}/${fixture}" "${work}/fix.out" && echo ok)" "ok"
+    check "${label}: stderr empty" "$([ ! -s "${work}/fix.err" ] && echo ok)" "ok"
+}
+expect_fixture "why text fixture" "tests/fixtures/why/20261117_040615.txt" \
+    "${tool}" why --root tests/fixtures/build-logs 20261117_040615
+expect_fixture "why json fixture" "tests/fixtures/why/20261117_041222.json" \
+    "${tool}" why --json --root tests/fixtures/build-logs 20261117_041222
+expect_fixture "history text fixture" "tests/fixtures/why/history-hello.txt" \
+    "${tool}" history --root tests/fixtures/build-logs hello
+expect_fixture "history json fixture" "tests/fixtures/why/history-hello-2.12.1-GCCcore-13.3.0.json" \
+    "${tool}" history --json --root tests/fixtures/build-logs hello-2.12.1-GCCcore-13.3.0
+
 printf 'user=alice module=GROMACS/2024.1 path=/cvmfs/g.lua host=login01 time=1\n' > "${work}/loads.log"
 check "loads default output unchanged" "$("${tool}" loads --module GROMACS/2024.1 "${work}/loads.log")" \
     "user=alice host=login01 time=1 path=/cvmfs/g.lua"

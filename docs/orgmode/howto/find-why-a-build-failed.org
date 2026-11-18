@@ -85,7 +85,29 @@ Use this after a run in which builds failed, to see for each the EasyBuild step 
 
    =hello= takes every easyconfig whose name starts with =hello-=; =hello-2.12.1-GCCcore-13.3.0= takes that one alone.
    A duration of =-= is one EasyBuild did not print, as when it stopped before building; ask =why= about that run for the reason.
-5. To put the reasons in a script's own summary, read the JSON =--json= prints:
+   Pass =--since DATE=, =--until DATE= and =--failed= to limit =history= to failed builds in a date window.
+5. List failed builds across runs, filtered by recipe or date:
+
+   #+begin_src bash
+   eb-keep-logs failures --root ~/build-logs --package hello --since 2026-11-17
+   #+end_src
+
+   #+begin_example
+   /home/alice/build-logs: 8 failed builds in 7 runs
+
+   RUN              TARGET          STEP         DURATION  NAME
+   20261117_035825  sapphirerapids  fetch        48s       hello-2.12.1-GCCcore-14.2.0
+   20261117_040032  sapphirerapids  patch        41s       hello-2.12.1-GCCcore-14.2.0
+   20261117_040119  sapphirerapids  -            -         hello-2.12.1-GCCcore-14.2.0
+   20261117_040311  sapphirerapids  configure    2m24s     hello-2.12.1-GCCcore-14.2.0
+   20261117_040615  sapphirerapids  build        3m06s     hello-2.12.1-GCCcore-14.2.0
+   20261117_040928  sapphirerapids  build        2m30s     hello-2.12.1-GCCcore-14.2.0
+   20261117_041222  sapphirerapids  sanitycheck  2m54s     hello-2.12.1-GCCcore-13.3.0
+   20261117_041222  sapphirerapids  test         2m33s     hello-2.12.1-GCCcore-14.2.0
+   #+end_example
+
+   Leave out =--package= to list failures across every recipe in the date range, or pass =--package PACKAGE= to =why= to inspect one recipe within a run.
+6. To put the reasons in a script's own summary, read the JSON =--json= prints:
 
    #+begin_src bash
    eb-keep-logs why 20261117_041222 --root ~/build-logs --json \

@@ -112,6 +112,11 @@ pub fn build(b: *std.Build) void {
     stable_output_test.setCwd(b.path("."));
     stable_output_test.expectExitCode(0);
     stable_output_test.has_side_effects = true;
+    const failures_test = b.addSystemCommand(&.{ "bash", "-c", "TOOL_BIN=\"$0\" exec bash tests/test_failures.sh" });
+    failures_test.addArtifactArg(exe);
+    failures_test.setCwd(b.path("."));
+    failures_test.expectExitCode(0);
+    failures_test.has_side_effects = true;
     const metrics_test = b.addSystemCommand(&.{ "bash", "-c", "TOOL_BIN=\"$0\" exec bash tests/test_metrics.sh" });
     metrics_test.addArtifactArg(exe);
     metrics_test.setCwd(b.path("."));
@@ -133,5 +138,6 @@ pub fn build(b: *std.Build) void {
     test_step.dependOn(&test_bundle_test.step);
     test_step.dependOn(&lifecycle_test.step);
     test_step.dependOn(&stable_output_test.step);
+    test_step.dependOn(&failures_test.step);
     test_step.dependOn(&metrics_test.step);
 }

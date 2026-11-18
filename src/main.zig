@@ -79,7 +79,8 @@ const usage_text =
     \\      --metrics-file PATH, --metrics-file=PATH
     \\          Atomically record when this rotation completed, unless --dry-run
     \\          is given. Default: none.
-    \\  eb-keep-logs why [RUN | --latest] [--target TARGET] [--root ROOT] [--json]
+    \\  eb-keep-logs why [RUN | --latest] [--target TARGET] [--package PACKAGE]
+    \\                   [--since DATE] [--until DATE] [--root ROOT] [--json]
     \\      Say why the builds of a run failed: for each failed easyconfig, its
     \\      package and easyconfig, the EasyBuild step it failed in, EasyBuild's
     \\      message, and the line of its kept log that shows the error: the first
@@ -95,12 +96,24 @@ const usage_text =
     \\      --target TARGET, --target=TARGET
     \\          Only the builds in the run's directory TARGET. Default: those in
     \\          the run's own directory and in every directory in it.
+    \\      --package PACKAGE, --package=PACKAGE
+    \\          Only builds matching PACKAGE (an easyconfig name without .eb,
+    \\          a prefix up to a dash, or NAME/VERSION). Default: all builds.
+    \\      --since DATE, --since=DATE
+    \\          Only consider runs at or after DATE when picking --latest.
+    \\          DATE is YYYY-MM-DD, YYYYMMDD, or YYYYMMDD_HHMMSS.
+    \\          Default: none.
+    \\      --until DATE, --until=DATE
+    \\          Only consider runs at or before DATE when picking --latest.
+    \\          DATE is YYYY-MM-DD, YYYYMMDD, or YYYYMMDD_HHMMSS.
+    \\          Default: none.
     \\      --root ROOT, --root=ROOT
     \\          The directory that holds the runs. Default: the current
     \\          directory.
     \\      --json
     \\          Print one line of JSON instead, with schema_version 1.
-    \\  eb-keep-logs history PACKAGE [--target TARGET] [--root ROOT] [--json]
+    \\  eb-keep-logs history PACKAGE [--target TARGET] [--since DATE]
+    \\                       [--until DATE] [--failed] [--root ROOT] [--json]
     \\      Say how each kept build of PACKAGE went, oldest run first: success,
     \\      failed or unknown, and how long EasyBuild took, from its output.
     \\      PACKAGE is an easyconfig's name or its start up to a dash, as hello
@@ -110,6 +123,37 @@ const usage_text =
     \\      --target TARGET, --target=TARGET
     \\          Only the builds in each run's directory TARGET. Default: those in
     \\          each run's own directory and in every directory in it.
+    \\      --since DATE, --since=DATE
+    \\          Only read runs at or after DATE (YYYY-MM-DD, YYYYMMDD, or
+    \\          YYYYMMDD_HHMMSS). Default: none.
+    \\      --until DATE, --until=DATE
+    \\          Only read runs at or before DATE (YYYY-MM-DD, YYYYMMDD, or
+    \\          YYYYMMDD_HHMMSS). Default: none.
+    \\      --failed
+    \\          Only list failed builds.
+    \\      --root ROOT, --root=ROOT
+    \\          The directory that holds the runs. Default: the current
+    \\          directory.
+    \\      --json
+    \\          Print one line of JSON instead, with schema_version 1.
+    \\  eb-keep-logs failures [--package PACKAGE] [--target TARGET]
+    \\                        [--since DATE] [--until DATE] [--root ROOT] [--json]
+    \\      List failed builds across runs under --root, oldest run first.
+    \\      Each row gives the run, target, failed step, duration and build
+    \\      name. Zig build only. Options come in any order.
+    \\      --package PACKAGE, --package=PACKAGE
+    \\          Only failed builds matching PACKAGE (an easyconfig name
+    \\          without .eb, a prefix up to a dash, or NAME/VERSION). Default:
+    \\          all packages.
+    \\      --target TARGET, --target=TARGET
+    \\          Only the builds in each run's directory TARGET. Default: those
+    \\          in each run's own directory and in every directory in it.
+    \\      --since DATE, --since=DATE
+    \\          Only read runs at or after DATE (YYYY-MM-DD, YYYYMMDD, or
+    \\          YYYYMMDD_HHMMSS). Default: none.
+    \\      --until DATE, --until=DATE
+    \\          Only read runs at or before DATE (YYYY-MM-DD, YYYYMMDD, or
+    \\          YYYYMMDD_HHMMSS). Default: none.
     \\      --root ROOT, --root=ROOT
     \\          The directory that holds the runs. Default: the current
     \\          directory.
@@ -307,7 +351,7 @@ const usage_text =
     \\                       directory of zone files.
     \\
     \\Exit status:
-    \\  0   -h, --help or --version, or a failed, rotate, why, history, loads, runs, used, usage, pending, test-bundle, test-compare or lifecycle that
+    \\  0   -h, --help or --version, or a failed, rotate, why, history, failures, loads, runs, used, usage, pending, test-bundle, test-compare or lifecycle that
     \\      accepted its arguments, whatever it could keep, compress, remove or
     \\      read: what it could not do is reported on stderr. used with
     \\      --require-none also exits 2 when any path was listed.
@@ -1341,6 +1385,7 @@ pub fn main(init: std.process.Init) u8 {
     if (std.mem.eql(u8, cmd, "rotate")) return cmdRotate(c, args[2..]);
     if (std.mem.eql(u8, cmd, "why")) return why.cmdWhy(gpa, args[2..]);
     if (std.mem.eql(u8, cmd, "history")) return why.cmdHistory(gpa, args[2..]);
+    if (std.mem.eql(u8, cmd, "failures")) return why.cmdFailures(gpa, args[2..]);
     if (std.mem.eql(u8, cmd, "loads")) return loads.cmdLoads(gpa, args[2..]);
     if (std.mem.eql(u8, cmd, "runs")) return xalt_runs.cmdRuns(gpa, args[2..]);
     if (std.mem.eql(u8, cmd, "used")) return used_cmd.cmdUsed(gpa, args[2..]);
@@ -1353,7 +1398,7 @@ pub fn main(init: std.process.Init) u8 {
         cli.put(1, usage_text);
         return cli.usage_exit;
     }
-    die("unknown command '{s}' (failed, rotate, why, history, loads, runs, used, usage, pending, test-bundle, test-compare, lifecycle, --help)", .{cmd});
+    die("unknown command '{s}' (failed, rotate, why, history, failures, loads, runs, used, usage, pending, test-bundle, test-compare, lifecycle, --help)", .{cmd});
 }
 
 test {
