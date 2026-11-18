@@ -49,8 +49,8 @@ const usage_text =
     \\          Atomically update Prometheus counters for kept logs and bytes.
     \\          Default: none.
     \\  eb-keep-logs rotate ROOT --compress-after DAYS [--delete-after DAYS]
-    \\                           [--lock-timeout SECONDS] [--syslog TARGET]
-    \\                           [--metrics-file PATH]
+    \\                           [--dry-run] [--lock-timeout SECONDS]
+    \\                           [--syslog TARGET] [--metrics-file PATH]
     \\      In the run directories directly under ROOT (named YYYYMMDD_HHMMSS),
     \\      gzip the *.log and *.txt files of old runs and remove older runs
     \\      whole, leaving alone a run that is still written into. A run's age is
@@ -64,6 +64,10 @@ const usage_text =
     \\          Remove whole runs at least DAYS old; DAYS must be larger than
     \\          that of --compress-after. Default: none; no run is removed. An
     \\          empty value is the default.
+    \\      --dry-run
+    \\          Print each file that would be compressed and run that would be
+    \\          deleted, but change nothing, create no lock, emit no event and
+    \\          write no metrics.
     \\      --lock-timeout SECONDS, --lock-timeout=SECONDS
     \\          While another rotate holds the lock, wait up to SECONDS for it,
     \\          then give up and exit 75. Default: 600; 0 does not wait. An empty
@@ -73,7 +77,8 @@ const usage_text =
     \\          compressed and deleted counts. Default: EB_KEEP_LOGS_SYSLOG,
     \\          else none.
     \\      --metrics-file PATH, --metrics-file=PATH
-    \\          Atomically record when this rotation completed. Default: none.
+    \\          Atomically record when this rotation completed, unless --dry-run
+    \\          is given. Default: none.
     \\  eb-keep-logs why [RUN | --latest] [--target TARGET] [--root ROOT] [--json]
     \\      Say why the builds of a run failed: for each failed easyconfig, its
     \\      package and easyconfig, the EasyBuild step it failed in, EasyBuild's
@@ -1001,6 +1006,45 @@ fn compressTree(c: Ctx, arena: Allocator, dir: fsx.fd_t, renames: *Renames, coun
     }
 }
 
+/// Print every *.log and *.txt regular file under `dir` that a rotation would
+/// try to compress, without following symbolic links or changing anything.
+fn previewTree(c: Ctx, arena: Allocator, dir: fsx.fd_t, count: *usize) void {
+    var rb: [sys.path_max]u8 = undefined;
+    const here = arena.dupe(u8, fsx.realpathFd(dir, &rb) catch |err| return warn("cannot resolve a run directory: {t}", .{err})) catch return;
+    var it = fsx.DirIter.init(c.gpa, dir) catch return;
+    defer it.deinit(c.gpa);
+    var files: std.ArrayList([]const u8) = .empty;
+    var subdirs: std.ArrayList([]const u8) = .empty;
+    while (it.next() catch |err| return warn("cannot read {s}: {t}", .{ here, err })) |e| {
+        const t = fsx.entryType(dir, e) catch continue;
+        const n = arena.dupe(u8, e.name) catch return;
+        if (t == fsx.DT.DIR) {
+            subdirs.append(arena, n) catch return;
+        } else if (t == fsx.DT.REG and (std.mem.endsWith(u8, n, ".log") or std.mem.endsWith(u8, n, ".txt"))) {
+            files.append(arena, n) catch return;
+        }
+    }
+    const less = struct {
+        fn lt(_: void, a: []const u8, b: []const u8) bool {
+            return std.mem.lessThan(u8, a, b);
+        }
+    }.lt;
+    std.mem.sort([]const u8, files.items, {}, less);
+    std.mem.sort([]const u8, subdirs.items, {}, less);
+    for (files.items) |n| {
+        cli.out("compress {s}/{s}\n", .{ here, n });
+        count.* += 1;
+    }
+    for (subdirs.items) |n| {
+        const sub = fsx.openDir(dir, n, false) catch |err| {
+            warn("cannot open {s}/{s}: {t}", .{ here, n, err });
+            continue;
+        };
+        defer sys.close(sub);
+        previewTree(c, arena, sub, count);
+    }
+}
+
 /// Rewrite every .licensed-logs under `dir` so it names the compressed
 /// files. Each new list is written beside the old one, synced, renamed over
 /// it and its directory synced, as copyDurable does, so a reader or a crash
@@ -1111,6 +1155,7 @@ fn cmdRotate(c: Ctx, args: []const [:0]const u8) u8 {
     var lock_v: []const u8 = "";
     var syslog_v: ?[]const u8 = null;
     var metrics_file: ?[]const u8 = null;
+    var dry_run = false;
     var have_compress = false;
     var have_delete = false;
     var i: usize = 0;
@@ -1134,6 +1179,8 @@ fn cmdRotate(c: Ctx, args: []const [:0]const u8) u8 {
             metrics_file = args[i];
         } else if (std.mem.startsWith(u8, a, "--metrics-file=")) {
             metrics_file = a["--metrics-file=".len..];
+        } else if (std.mem.eql(u8, a, "--dry-run")) {
+            dry_run = true;
         } else if (std.mem.eql(u8, a, "--compress-after") or std.mem.eql(u8, a, "--delete-after")) {
             const v: ?[]const u8 = if (i + 1 < args.len) args[i + 1] else null;
             if (v == null) die("{s} needs a number of days", .{a});
@@ -1177,17 +1224,21 @@ fn cmdRotate(c: Ctx, args: []const [:0]const u8) u8 {
         std.fmt.parseInt(i64, now_s, 10) catch die("EB_KEEP_LOGS_NOW must be seconds since the epoch, not '{s}'", .{now_s})
     else
         null;
-    const lock = openLock(root) catch |err| die("cannot lock {s}/{s}: {t}", .{ joinable(root_p), rotate_lock, err });
-    defer sys.close(lock);
-    waitLock(lock, lock_timeout) catch |err| switch (err) {
-        error.TimedOut => {
-            cli.err(tool ++ ": another rotate holds the lock {s}/{s}; gave up after {d} s (--lock-timeout)\n", .{ joinable(root_p), rotate_lock, lock_timeout });
-            return lock_busy_exit;
-        },
-        // The file system cannot lock: Lustre without -o flock, NFS without
-        // a lock manager, or NFS for a file open only for reading.
-        else => warn("cannot lock {s}/{s}: {t}; rotating without the lock", .{ joinable(root_p), rotate_lock, err }),
-    };
+    var lock: ?fsx.fd_t = null;
+    if (!dry_run) {
+        lock = openLock(root) catch |err| die("cannot lock {s}/{s}: {t}", .{ joinable(root_p), rotate_lock, err });
+        waitLock(lock.?, lock_timeout) catch |err| switch (err) {
+            error.TimedOut => {
+                sys.close(lock.?);
+                cli.err(tool ++ ": another rotate holds the lock {s}/{s}; gave up after {d} s (--lock-timeout)\n", .{ joinable(root_p), rotate_lock, lock_timeout });
+                return lock_busy_exit;
+            },
+            // The file system cannot lock: Lustre without -o flock, NFS without
+            // a lock manager, or NFS for a file open only for reading.
+            else => warn("cannot lock {s}/{s}: {t}; rotating without the lock", .{ joinable(root_p), rotate_lock, err }),
+        };
+    }
+    defer if (lock) |fd| sys.close(fd);
     const now: i64 = fixed_now orelse realtimeSeconds();
     var zone = localtime.load(c.gpa, c.getenv("TZ"), c.getenv("TZDIR"));
     defer zone.deinit();
@@ -1221,6 +1272,11 @@ fn cmdRotate(c: Ctx, args: []const [:0]const u8) u8 {
         // rotate or by a build that is still going.
         if (contains(own, run) or contains(written, run)) continue;
         if (delete_after) |d| if (age >= @as(i64, @intCast(@min(d, std.math.maxInt(i64))))) {
+            if (dry_run) {
+                cli.out("delete {s}/{s}\n", .{ joinable(root_p), run });
+                deleted += 1;
+                continue;
+            }
             fsx.deleteTree(c.gpa, root, run) catch |err| {
                 warn("cannot delete {s}/{s}: {t}", .{ joinable(root_p), run, err });
                 continue;
@@ -1234,19 +1290,28 @@ fn cmdRotate(c: Ctx, args: []const [:0]const u8) u8 {
             continue;
         };
         defer sys.close(dir);
+        if (dry_run) {
+            previewTree(c, arena, dir, &compressed);
+            continue;
+        }
         var renames: Renames = .empty;
         var n: usize = 0;
         compressTree(c, arena, dir, &renames, &n);
         compressed += n;
         if (renames.count() > 0) followLists(c, dir, &renames);
     }
-    const summary = arena.print("eb-keep-logs rotate: {d} file{s} compressed, {d} run{s} deleted under {s}", .{ compressed, plural(compressed), deleted, plural(deleted), root_p }) catch "eb-keep-logs rotate";
+    const summary = if (dry_run)
+        arena.print("eb-keep-logs rotate dry-run: {d} file{s} would be compressed, {d} run{s} would be deleted under {s}", .{ compressed, plural(compressed), deleted, plural(deleted), root_p }) catch "eb-keep-logs rotate dry-run"
+    else
+        arena.print("eb-keep-logs rotate: {d} file{s} compressed, {d} run{s} deleted under {s}", .{ compressed, plural(compressed), deleted, plural(deleted), root_p }) catch "eb-keep-logs rotate";
     cli.out("{s}\n", .{summary});
-    emitRotateSyslog(c, syslog_target, root_p, compressed, deleted, summary);
-    // Run ages use the snapshot above. The metric chooses its completion time
-    // while holding the metrics lock, after all rotation work and event
-    // emission have completed.
-    updateMetrics(c, metrics_file, 0, 0, true);
+    if (!dry_run) {
+        emitRotateSyslog(c, syslog_target, root_p, compressed, deleted, summary);
+        // Run ages use the snapshot above. The metric chooses its completion time
+        // while holding the metrics lock, after all rotation work and event
+        // emission have completed.
+        updateMetrics(c, metrics_file, 0, 0, true);
+    }
     return 0;
 }
 

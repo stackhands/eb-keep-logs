@@ -133,6 +133,17 @@ compare "rotate, bad syslog target" rotate "${work}/logs" --compress-after 5 --s
 EB_KEEP_LOGS_SYSLOG_PEN=0 compare "failed, bad syslog pen" failed 1 Foo "${work}/logs"
 EB_KEEP_LOGS_SYSLOG_PEN=abc compare "rotate, bad syslog pen" rotate "${work}/logs" --compress-after 5
 EB_KEEP_LOGS_NOW='' compare "rotate, empty EB_KEEP_LOGS_NOW" rotate "${work}/logs" --compress-after 5
+mkdir -p "${work}/preview/20261001_120000"
+echo old > "${work}/preview/20261001_120000/Old.stdout.log"
+run_env=(PATH="${PATH}" EB_KEEP_LOGS_NOW="$(date -d 2026-11-13 +%s)")
+compare "rotate, dry run" rotate "${work}/preview" --compress-after 5 --delete-after 90 --dry-run
+compare "rotate, dry run with metrics-file" rotate "${work}/preview" --compress-after 5 --delete-after 90 --dry-run --metrics-file "${work}/dry.prom"
+if [ -e "${work}/dry.prom" ] || [ -e "${work}/.dry.prom.lock" ]; then
+    echo "DIFF rotate, dry run with metrics-file: wrote metrics or lock" >&2
+    diffs=$((diffs + 1))
+fi
+compare "rotate, dry run with empty metrics-file" rotate "${work}/preview" --compress-after 5 --dry-run --metrics-file ""
+run_env=(PATH="${PATH}")
 compare "rotate, bad lock timeout" rotate "${work}/logs" --compress-after 5 --lock-timeout 1.5
 compare "rotate, lock timeout without a value" rotate "${work}/logs" --compress-after 5 --lock-timeout
 compare "rotate, empty lock timeout" rotate "${work}/logs" --compress-after 5 --lock-timeout=

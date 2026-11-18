@@ -18,20 +18,23 @@ Use this to keep a directory of build runs from growing without end: compress th
    A run's age is the number of whole days from the local midnight of the date in its name.
    =--compress-after DAYS= compresses the =*.log= and =*.txt= files of runs at least =DAYS= old, at any depth.
    =--delete-after DAYS= removes runs at least =DAYS= old, and must be larger; without it, no run is removed.
-2. Try the ages on a copy of the tree, at a later date.
-   =EB_KEEP_LOGS_NOW= sets the time =rotate= takes as now, in seconds since the epoch:
+2. Preview the rotation.
+   =--dry-run= lists every file it would compress and run it would delete, but changes nothing, creates no lock file, emits no syslog or journal event, and writes no metrics.
+   =EB_KEEP_LOGS_NOW= sets the time =rotate= takes as now, in seconds since the epoch, so this also previews the policy at a later date:
 
    #+begin_src bash
-   cp -a ~/build-logs /tmp/build-logs-preview
    EB_KEEP_LOGS_NOW=$(date -d 2027-01-01 +%s) \
-     eb-keep-logs rotate /tmp/build-logs-preview --compress-after 30 --delete-after 365
+     eb-keep-logs rotate ~/build-logs --compress-after 30 --delete-after 365 --dry-run
    #+end_src
 
    #+begin_example
-   eb-keep-logs rotate: 5 files compressed, 0 runs deleted under /tmp/build-logs-preview
+   compress /home/alice/build-logs/20261116_175300/Example-1.0.failed.ebout.log
+   compress /home/alice/build-logs/20261116_175300/Example-1.0.stdout.log
+   eb-keep-logs rotate dry-run: 2 files would be compressed, 0 runs would be deleted under /home/alice/build-logs
    #+end_example
 
    On 2027-01-01 the run is 46 days old: at least 30, less than 365.
+   The preview is a snapshot: it deliberately takes no rotation lock, so preview again when the tree may have changed before the real rotation.
 3. Rotate the tree:
 
    #+begin_src bash
@@ -66,7 +69,7 @@ The summary line counts the files =rotate= compressed and the runs it removed.
 In a compressed run, each log is a =.gz= file with the log's mode:
 
 #+begin_src bash
-ls -l /tmp/build-logs-preview/*/
+ls -l ~/build-logs/*/
 #+end_src
 
 #+begin_example
@@ -83,7 +86,6 @@ drwxrwxr-x 3 alice alice 4096 Nov 16 17:53 easybuild-logs
 |--------------------------------------------------------------------+------------------------------------------------------------------------------------------------------+-----------------------------------------------------------------------|
 | =eb-keep-logs: --compress-after needs a number of days=            | The option is missing, or its value is not a whole number, like =30d=.                               | Give a number of days: =--compress-after 30=.                         |
 | =eb-keep-logs: --delete-after must be later than --compress-after= | =--delete-after= is not larger than =--compress-after=.                                              | Raise =--delete-after=, or leave it out to remove nothing.            |
-| =eb-keep-logs: unknown option --dry-run=                           | =rotate= has no dry run.                                                                             | Try the ages on a copy, as in step 2.                                 |
 | =eb-keep-logs: ROOT PATH is not a directory=                       | The path is wrong, or names a run, not the tree.                                                     | Give the directory that holds the runs.                               |
 | =eb-keep-logs: cannot compress PATH: TooManyLinks=                 | The log has other hard links. The shell script prints =gzip='s own message.                          | Nothing: like =gzip=, =rotate= leaves it as it is.                    |
 | =eb-keep-logs: cannot compress PATH: Exists=                       | =PATH.gz= exists already. The shell script prints =gzip='s own message.                              | Remove or rename one of the two, and rotate again.                    |

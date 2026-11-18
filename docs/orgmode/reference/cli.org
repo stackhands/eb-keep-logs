@@ -11,7 +11,7 @@ This page describes the Zig build; the shell script =eb-keep-logs= in the reposi
 
 #+begin_example
 eb-keep-logs failed [--syslog TARGET] [--metrics-file PATH] STATUS NAME LOGDIR [TMP_LOGDIR]
-eb-keep-logs rotate ROOT --compress-after DAYS [--delete-after DAYS] [--lock-timeout SECONDS] [--syslog TARGET] [--metrics-file PATH]
+eb-keep-logs rotate ROOT --compress-after DAYS [--delete-after DAYS] [--dry-run] [--lock-timeout SECONDS] [--syslog TARGET] [--metrics-file PATH]
 eb-keep-logs why [RUN | --latest] [--target TARGET] [--root ROOT] [--json]
 eb-keep-logs history PACKAGE [--target TARGET] [--root ROOT] [--json]
 eb-keep-logs loads --module NAME [--json] FILE
@@ -43,9 +43,10 @@ eb-keep-logs --version
 |--------------------------------------------------+----------+----------------------------------------------------------------------------------------------------------------------------------------------|
 | =--compress-after DAYS=, =--compress-after=DAYS= | =rotate= | Required. Compress the =*.log= and =*.txt= files, at any depth, of runs at least =DAYS= old. =DAYS= is decimal digits.                       |
 | =--delete-after DAYS=, =--delete-after=DAYS=     | =rotate= | Remove whole runs at least =DAYS= old. =DAYS= must be larger than =--compress-after=. Without it, or with an empty value, no run is removed. |
+| =--dry-run=                                      | =rotate= | Print =compress PATH= for each log file that would be compressed and =delete PATH= for each run that would be removed, followed by a summary; change nothing, create no lock file, emit no syslog or journal event, and write no metrics. |
 | =--lock-timeout SECONDS=, =--lock-timeout=SECONDS= | =rotate= | How long to wait for the lock another =rotate= of =ROOT= holds, in seconds, decimal digits; =0= does not wait. Without it, or with an empty value, 600. A value larger than 999999999, which is over 31 years, waits 999999999 seconds. |
 | =--syslog TARGET=, =--syslog=TARGET=             | =failed=, =rotate= | Emit an RFC 5424 or native =systemd-journald= event to =TARGET= (=journald=, =syslog=, =unix:///path=, =journal+unix:///path=, =udp://host:port=, or =tcp://host:port=); overrides =EB_KEEP_LOGS_SYSLOG=. An empty value disables emission. |
-| =--metrics-file PATH=, =--metrics-file=PATH=     | =failed=, =rotate= | Atomically update the Prometheus text exposition at =PATH=. Without it, no metrics file is read or written. |
+| =--metrics-file PATH=, =--metrics-file=PATH=     | =failed=, =rotate= | Atomically update the Prometheus text exposition at =PATH=, except on =rotate --dry-run=, which writes no metrics. Without it, no metrics file is read or written. |
 | =--latest=                                       | =why=    | Read the newest run under =--root=, by its name; with =--target=, the newest that has that target. The default without =RUN=.               |
 | =--target TARGET=, =--target=TARGET=             | =why=, =history= | Read only the builds in the run's directory =TARGET=; for =history=, in each run's, a run without one passed over. Without it, those in the run's own directory and then in each directory in it, by name. |
 | =--root ROOT=, =--root=ROOT=                     | =why=, =history= | The directory that holds the runs, directories named =YYYYMMDD_HHMMSS=, not symbolic links. Without it, the current directory.               |
@@ -74,6 +75,7 @@ eb-keep-logs --version
 | =--version=                                      |          | Print the version line on stdout and exit 0.                                                                                                 |
 
 - A run's age is the number of whole days from the local midnight of the date in its name; [[file:../explanation/local-time.org][Run ages and local time]] gives the details.
+- =--dry-run= reads the tree and the processes writing into it without taking the rotation lock, so its output is a snapshot, not a reservation. It also skips syslog emission and =--metrics-file= updates.
 - =rotate='s options and =ROOT= come in any order; the value of an option is the next argument, whatever it is.
   An option given twice takes its last value.
 - =why='s options and =RUN=, and =history='s and =PACKAGE=, come in any order, and an option given twice takes its last value; the value of an option is the next argument, whatever it is, and an empty one is refused.
@@ -97,7 +99,7 @@ eb-keep-logs --version
 
 | Status | Meaning                                                                                                                                                                          |
 |--------+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-|      0 | =-h=, =--help= or =--version=, a =failed=, =why= or =history= that accepted its arguments, or a =rotate= that accepted its arguments and did not give up waiting for its lock, whatever it could keep, compress, remove or read: what it could not do is reported, and is no failure. A =why= exits 0 whether or not the run's builds failed, and a =history= whether or not it found a build of the package. |
+|      0 | =-h=, =--help= or =--version=, a =failed=, =why= or =history= that accepted its arguments, or a =rotate= that accepted its arguments and did not give up waiting for its lock, whatever it could keep, compress, remove, preview or read: what it could not do is reported, and is no failure. A =why= exits 0 whether or not the run's builds failed, and a =history= whether or not it found a build of the package. |
 |      2 | The invocation was refused, with =eb-keep-logs: MESSAGE= on stderr; or no command was given, and the usage is on stdout.                                                         |
 |     75 | Another =rotate= held =ROOT='s lock for longer than =--lock-timeout=, and this =rotate= changed nothing; try again later.                                                          |
 
@@ -191,6 +193,8 @@ What =failed= cannot do it reports on stderr as =eb-keep-logs: MESSAGE=, and goe
 | =ROOT/RUN=                          | Removed with everything in it, when old enough for =--delete-after=, without being compressed first. A symbolic link in it is removed, not followed. Removal stops at the first error.                                                                  |
 | =/proc/PID/fd/N=                    | Read, for every process whose descriptors =rotate= may read, after it has the lock: a link with its owner's write bit names a file the process has open for writing, and the run that file is in is left alone. Without =/proc=, no run is left alone for it. |
 
+With =--dry-run= these paths are only read; =ROOT/.eb-keep-logs-rotate.lock= is neither opened nor created, and =--metrics-file= neither reads nor writes any metrics or lock file.
+
 A run that holds the file =rotate='s standard output or standard error goes to, or =EB_PIPELINE_LOG_DIR=, or a file another process has open for writing, as a build that is still going has its log, is left alone, neither compressed nor deleted; a later =rotate= takes it.
 The path is what counts: the path the link in =/proc= names, or for a file removed since, that path with =" (deleted)"= after it, has to start with =ROOT='s, with symbolic links resolved.
 On stdout =rotate= prints one line, with =ROOT= as given:
@@ -217,6 +221,7 @@ What =rotate= cannot do it reports on stderr as =eb-keep-logs: MESSAGE=, and goe
 *** Metrics
 
 With =--metrics-file PATH=, =failed= and =rotate= update one Prometheus text exposition file.
+When =--dry-run= is given to =rotate=, it writes no metrics and leaves any existing metrics file and its sidecar lock untouched.
 The file is written to a temporary file in =PATH='s directory, synced, and renamed over =PATH= while a sidecar lock is held.
 An existing valid file supplies the counters and timestamp that the other command owns.
 An invalid file is left unchanged and reported on stderr.
@@ -225,7 +230,7 @@ An invalid file is left unchanged and reported on stderr.
 |--------+------+-------|
 | =eb_keep_logs_logs_kept_total= | counter | Successful log-copy operations by =failed=, including a retry that copies the same destination again. |
 | =eb_keep_logs_bytes_kept_total= | counter | Bytes in those successfully written copies. |
-| =eb_keep_logs_last_prune_timestamp_seconds= | gauge | Actual Unix timestamp when =rotate= most recently completed, including a rotation that found nothing to change. It is chosen under the metrics lock, never moves backwards when rotations complete out of order, is independent of =EB_KEEP_LOGS_NOW=, and is zero until one completes. |
+| =eb_keep_logs_last_prune_timestamp_seconds= | gauge | Actual Unix timestamp when =rotate= most recently completed (excluding =--dry-run=), including a rotation that found nothing to change. It is chosen under the metrics lock, never moves backwards when rotations complete out of order, is independent of =EB_KEEP_LOGS_NOW=, and is zero until one completes. |
 
 Metrics are values this tool observes while keeping and rotating logs.
 They do not describe dependency gaps, rebuild closures, failure classes, or other stack analysis.
@@ -540,8 +545,8 @@ otherwise lose, and keep the pipeline's log tree bounded.
           Atomically update Prometheus counters for kept logs and bytes.
           Default: none.
   eb-keep-logs rotate ROOT --compress-after DAYS [--delete-after DAYS]
-                           [--lock-timeout SECONDS] [--syslog TARGET]
-                           [--metrics-file PATH]
+                           [--dry-run] [--lock-timeout SECONDS]
+                           [--syslog TARGET] [--metrics-file PATH]
       In the run directories directly under ROOT (named YYYYMMDD_HHMMSS),
       gzip the *.log and *.txt files of old runs and remove older runs
       whole, leaving alone a run that is still written into. A run's age is
@@ -555,6 +560,10 @@ otherwise lose, and keep the pipeline's log tree bounded.
           Remove whole runs at least DAYS old; DAYS must be larger than
           that of --compress-after. Default: none; no run is removed. An
           empty value is the default.
+      --dry-run
+          Print each file that would be compressed and run that would be
+          deleted, but change nothing, create no lock, emit no event and
+          write no metrics.
       --lock-timeout SECONDS, --lock-timeout=SECONDS
           While another rotate holds the lock, wait up to SECONDS for it,
           then give up and exit 75. Default: 600; 0 does not wait. An empty
@@ -564,7 +573,8 @@ otherwise lose, and keep the pipeline's log tree bounded.
           compressed and deleted counts. Default: EB_KEEP_LOGS_SYSLOG,
           else none.
       --metrics-file PATH, --metrics-file=PATH
-          Atomically record when this rotation completed. Default: none.
+          Atomically record when this rotation completed, unless --dry-run
+          is given. Default: none.
   eb-keep-logs why [RUN | --latest] [--target TARGET] [--root ROOT] [--json]
       Say why the builds of a run failed: for each failed easyconfig, its
       package and easyconfig, the EasyBuild step it failed in, EasyBuild's

@@ -9,7 +9,7 @@ on the same invocations.
 
 | | |
 |---|---|
-| commands | `failed STATUS NAME LOGDIR [TMP_LOGDIR]`, `rotate ROOT --compress-after DAYS [--delete-after DAYS] [--lock-timeout SECONDS]`, `-h`, `--help`, `--version` |
+| commands | `failed STATUS NAME LOGDIR [TMP_LOGDIR]`, `rotate ROOT --compress-after DAYS [--delete-after DAYS] [--dry-run] [--lock-timeout SECONDS]`, `-h`, `--help`, `--version` |
 | usage | the same text on stdout for `-h`, `--help` and no arguments |
 | exit codes | 0 on success and on every `failed` that got past its arguments; 2 for a refused invocation, after `eb-keep-logs: MESSAGE` on stderr; 2 with the usage text on stdout for no arguments; 75 when another `rotate` holds ROOT's lock past `--lock-timeout`, after `eb-keep-logs: another rotate holds the lock ROOT/.eb-keep-logs-rotate.lock; gave up after N s (--lock-timeout)` on stderr |
 | one rotate at a time | `rotate` holds an exclusive flock(2) on `ROOT/.eb-keep-logs-rotate.lock`, created when missing, from before it reads ROOT until it exits; it waits up to `--lock-timeout` seconds for it, 600 without the option or with an empty value, 0 not at all, 999999999 at most; it opens the file for reading when it may not write it; a lock file that cannot be opened, or a symbolic link or non-regular file at its name, is refused, exit 2; on a file system that cannot lock, `rotate` says so on stderr and rotates without the lock |
@@ -20,6 +20,7 @@ on the same invocations.
 | run ages | days from the local midnight of the date in the run's name, as `date -d YYYYMMDD` computes it, including TZ rules, except for the zones under unintended differences; a run whose local midnight does not exist is skipped |
 | the run in progress | `rotate` neither compresses nor deletes the run that holds its stdout or stderr, when either is a regular file, or `EB_PIPELINE_LOG_DIR` |
 | runs still written into | after taking its lock, `rotate` reads the links `/proc/PID/fd/N` of every process whose descriptors it may read; a run that holds the path a link with its owner's write bit names, also when the path ends in ` (deleted)`, is neither compressed nor deleted; without `/proc`, no run is left alone for this |
+| rotation preview | `rotate --dry-run` prints each `compress PATH` and `delete PATH` action followed by the counts, changes nothing, creates no lock file, emits no syslog or journal event and writes no metrics; because it takes no lock, the output is a snapshot |
 
 ## Deliberate differences
 

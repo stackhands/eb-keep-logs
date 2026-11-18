@@ -128,6 +128,27 @@ overflow=$(PATH="${work}/bin:${PATH}" "${tool}" failed --metrics-file "${metrics
 case "${overflow}" in *"counter overflow"*|*"Overflow"*) ;; *) exit 1 ;; esac
 [ "$(sha256sum "${metrics}")" = "${before}" ]
 
+# A dry-run rotation writes no metrics, creates no sidecar lock, and leaves
+# an existing exposition untouched even when --metrics-file is given.
+dry_root="${work}/dry-root"
+mkdir -p "${dry_root}/20261001_120000"
+printf 'old\n' > "${dry_root}/20261001_120000/Old.stdout.log"
+dry_new="${work}/collector/dry-new.prom"
+dry_out=$(EB_KEEP_LOGS_NOW=$(date -d 2026-11-13 +%s) "${tool}" rotate "${dry_root}" --compress-after 5 --dry-run --metrics-file "${dry_new}") || exit 1
+case "${dry_out}" in *"eb-keep-logs rotate dry-run: 1 file would be compressed, 0 runs would be deleted under ${dry_root}"*) ;; *) exit 1 ;; esac
+[ ! -e "${dry_new}" ] || exit 1
+[ ! -e "${work}/collector/.dry-new.prom.lock" ] || exit 1
+[ ! -e "${dry_root}/.eb-keep-logs-rotate.lock" ] || exit 1
+[ -f "${dry_root}/20261001_120000/Old.stdout.log" ] || exit 1
+
+dry_existing="${work}/collector/dry-existing.prom"
+cp "${metrics}" "${dry_existing}"
+before=$(sha256sum "${dry_existing}")
+EB_KEEP_LOGS_NOW=$(date -d 2026-11-13 +%s) "${tool}" rotate "${dry_root}" --compress-after 5 --dry-run --metrics-file="${dry_existing}" >/dev/null || exit 1
+[ "$(sha256sum "${dry_existing}")" = "${before}" ] || exit 1
+[ ! -e "${work}/collector/.dry-existing.prom.lock" ] || exit 1
+[ ! -e "${dry_root}/.eb-keep-logs-rotate.lock" ] || exit 1
+
 # No temporary output remains after any successful replacement.
 [ "$(find "${work}/collector" -maxdepth 1 -name '*.tmp' -print | wc -l)" -eq 0 ]
 echo "metrics tests passed"
