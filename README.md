@@ -117,6 +117,11 @@ Both are in the Zig build only.
 
 Pass `--syslog TARGET` (or set `EB_KEEP_LOGS_SYSLOG`) to `failed` or `rotate` to emit structured RFC 5424 messages (`ebKeepLogs@<PEN>`, with `EB_KEEP_LOGS_SYSLOG_PEN` defaulting to `32473`, the IANA RFC 5398 documentation placeholder until a site or project PEN is assigned) or native `systemd-journald` fields (`journald`, `syslog`, `unix:///path`, `journal+unix:///path`, `udp://host:port`, `tcp://host:port`) with stable `MSGID` values (`EB_KEEP_FAILED`, `EB_KEEP_NONE`, `EB_ROTATE_DONE`) without copying log file contents into syslog.
 
+## Plan module lifecycle from usage
+
+`eb-keep-logs usage` compares installed `Name/Version` directories against XALT and Lmod records, and `eb-keep-logs lifecycle --policy policy.toml usage.json` turns that report into a reviewable `keep`, `warn`, `forbid-after`, and `candidate-remove` plan plus Lmod `.modulerc.lua` warnings and forbids.
+It never deletes software or modulefiles, enforces the policy's `min_observation_days`, and calls `eb-stack rebuild-set` when given `--easyconfigs` to identify installed dependents before permitting `candidate-remove`.
+
 ## Tests
 
 ```bash

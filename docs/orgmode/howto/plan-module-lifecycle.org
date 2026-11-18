@@ -1,0 +1,50 @@
+#+TITLE: Plan module lifecycle and deprecation
+#+OPTIONS: toc:nil todo:nil num:nil author:nil title:nil
+#+STARTUP: content
+
+* Plan module lifecycle and deprecation
+
+Use =lifecycle= to turn an =eb-keep-logs usage --json= inventory into a reviewable deprecation plan and an Lmod =.modulerc.lua= file.
+It never deletes software or modulefiles.
+
+1. Collect usage over a bounded observation window with =--since=.
+   =lifecycle= refuses to promote unused modules to =candidate-remove= when =usage= ran without =--since= or over a shorter span than =min_observation_days=:
+
+   #+begin_src bash
+   since=$(date -d '180 days ago' +%s)
+   eb-keep-logs usage \
+     --software /srv/easybuild/software \
+     --modules /srv/easybuild/modules/all \
+     --since "$since" --json \
+     /var/log/xalt/run.json /var/log/lmod/module-usage.log \
+     > usage.json
+   #+end_src
+
+2. Write a TOML policy file (=policy.toml=).
+   Set the minimum observation window, the inactivity thresholds for =warn=, =forbid-after= and =candidate-remove=, the grace period before a forbid date takes effect, and any module patterns to keep unconditionally:
+
+   #+begin_src toml
+   [policy]
+   min_observation_days = 90
+   warn_after_days = 60
+   forbid_after_days = 180
+   remove_after_days = 365
+   forbid_grace_days = 30
+   min_hits = 1
+   keep = ["GCCcore/*", "OpenMPI/*"]
+   #+end_src
+
+3. Run =lifecycle= with your easyconfig tree so =eb-stack rebuild-set= checks installed dependents before any module is marked =candidate-remove=:
+
+   #+begin_src bash
+   eb-keep-logs lifecycle \
+     --policy policy.toml \
+     --easyconfigs /srv/easybuild/easyconfigs \
+     --modulerc-out /tmp/review.modulerc.lua \
+     usage.json
+   #+end_src
+
+   If a candidate still has installed reverse dependents (runtime, build-time or bundle extensions), =lifecycle= holds it at =warn= and lists its dependents instead of marking it =candidate-remove= or emitting a =forbid= directive that could break dependent modules.
+
+4. Review the plan and generated =/tmp/review.modulerc.lua= before installing the =.modulerc.lua= into your module tree or retiring =candidate-remove= entries by hand.
+   Pass =--json= to inspect counts, =observed_days=, =dependents= and =blocked_reason= fields programmatically.

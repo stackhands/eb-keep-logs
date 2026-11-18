@@ -1,0 +1,93 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://stackhands.github.io/eb-keep-logs/reference/json/lifecycle.schema.json",
+  "title": "eb-keep-logs lifecycle --json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "kind",
+    "software",
+    "modules",
+    "policy",
+    "now",
+    "since",
+    "observed_days",
+    "min_observation_days",
+    "observation_satisfied",
+    "dependents_checked",
+    "counts",
+    "entries",
+    "modulerc_lua"
+  ],
+  "properties": {
+    "schema_version": { "type": "integer", "const": 1 },
+    "kind": { "type": "string", "const": "lifecycle" },
+    "software": { "type": "string" },
+    "modules": { "type": "string" },
+    "policy": { "type": "string" },
+    "now": { "type": "string" },
+    "since": { "type": ["string", "null"] },
+    "observed_days": { "type": ["integer", "null"], "minimum": 0 },
+    "min_observation_days": { "type": "integer", "minimum": 1 },
+    "observation_satisfied": { "type": "boolean" },
+    "dependents_checked": { "type": "boolean" },
+    "counts": { "$ref": "#/$defs/counts" },
+    "entries": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/entry" }
+    },
+    "modulerc_lua": { "type": "string" }
+  },
+  "$defs": {
+    "counts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["keep", "warn", "forbid-after", "candidate-remove"],
+      "properties": {
+        "keep": { "type": "integer", "minimum": 0 },
+        "warn": { "type": "integer", "minimum": 0 },
+        "forbid-after": { "type": "integer", "minimum": 0 },
+        "candidate-remove": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "entry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "version",
+        "module",
+        "easyconfig",
+        "action",
+        "hits",
+        "last",
+        "idle_days",
+        "forbid_after",
+        "dependents",
+        "blocked_reason",
+        "reason"
+      ],
+      "properties": {
+        "name": { "type": "string" },
+        "version": { "type": "string" },
+        "module": { "type": "string" },
+        "easyconfig": { "type": "string" },
+        "action": {
+          "type": "string",
+          "enum": ["keep", "warn", "forbid-after", "candidate-remove"]
+        },
+        "hits": { "type": "integer", "minimum": 0 },
+        "last": { "type": ["string", "null"] },
+        "idle_days": { "type": ["integer", "null"], "minimum": 0 },
+        "forbid_after": { "type": ["string", "null"] },
+        "dependents": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "blocked_reason": { "type": ["string", "null"] },
+        "reason": { "type": "string" }
+      }
+    }
+  }
+}

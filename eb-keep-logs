@@ -224,6 +224,40 @@ otherwise lose, and keep the pipeline's log tree bounded.
           Print one line of JSON instead of text. Default: text.
       BUNDLE
           Two or more test-bundle JSON files. Required.
+  eb-keep-logs lifecycle --policy FILE [--modulerc-out FILE]
+                         [--easyconfigs DIR ...] [--easystack FILE ...]
+                         [--eb-stack PATH] [--rebuild-set FILE]
+                         [--now EPOCH] [--json] FILE
+      Generate a reversible lifecycle plan and Lmod .modulerc.lua
+      warnings/forbids from usage --json output and a TOML policy. Never
+      deletes software or modulefiles. Requires a minimum observation
+      window and checks installed dependents via eb-stack rebuild-set
+      before allowing candidate-remove. Zig build only.
+      --policy FILE, --policy=FILE
+          TOML lifecycle policy file. Required.
+      --modulerc-out FILE, --modulerc-out=FILE
+          Write the generated Lmod .modulerc.lua warnings and forbids
+          durably to FILE. Default: none; no file is written.
+      --easyconfigs DIR, --easyconfigs=DIR
+          Easyconfig tree passed to eb-stack rebuild-set to identify
+          dependents of candidate removals. Repeatable. Default: none.
+      --easystack FILE, --easystack=FILE
+          Deployed easystack YAML passed to eb-stack rebuild-set.
+          Repeatable. Default: none.
+      --eb-stack PATH, --eb-stack=PATH
+          Path to the eb-stack executable. Default: eb-stack on PATH.
+      --rebuild-set FILE, --rebuild-set=FILE
+          Precomputed eb-stack rebuild-set.json report instead of
+          running eb-stack. Default: none.
+      --now EPOCH, --now=EPOCH
+          Reference epoch time in seconds for idle age and observation
+          window checks. Default: the environment time override, else
+          the current time.
+      --json
+          Print one line of JSON instead, with schema_version 1.
+      FILE
+          JSON output produced by eb-keep-logs usage --json (with
+          selection "all"). Required.
   eb-keep-logs -h | --help
       Print this help on stdout and exit 0.
   eb-keep-logs --version
@@ -233,8 +267,8 @@ Environment:
   PATH                 Where failed looks up eb.
   EASYBUILD_TMPDIR     failed copies a command's output only from below it;
                        unset or empty, it copies none.
-  EB_KEEP_LOGS_NOW     The time rotate takes as now, in seconds since the
-                       epoch; unset or empty, the current time.
+  EB_KEEP_LOGS_NOW     The time rotate and lifecycle take as now, in seconds
+                       since the epoch; unset or empty, the current time.
   EB_PIPELINE_LOG_DIR  rotate leaves alone the run that holds this path.
   EB_KEEP_LOGS_SYSLOG  Default --syslog target (journald, syslog, unix:///...,
                        journal+unix:///..., udp://host:port, tcp://host:port).
@@ -245,7 +279,7 @@ Environment:
                        directory of zone files.
 
 Exit status:
-  0   -h, --help or --version, or a failed, rotate, why, history, loads, runs, used, usage, pending, test-bundle or test-compare that
+  0   -h, --help or --version, or a failed, rotate, why, history, loads, runs, used, usage, pending, test-bundle, test-compare or lifecycle that
       accepted its arguments, whatever it could keep, compress, remove or
       read: what it could not do is reported on stderr. used with
       --require-none also exits 2 when any path was listed.
@@ -813,7 +847,7 @@ case "${1:-}" in
     --version) echo "eb-keep-logs ${VERSION}" ;;
     failed) shift; cmd_failed "$@" ;;
     rotate) shift; cmd_rotate "$@" ;;
-    why | history | loads | runs | used | usage | pending | test-bundle | test-compare) die "$1 is in the Zig build only" ;;
+    why | history | loads | runs | used | usage | pending | test-bundle | test-compare | lifecycle) die "$1 is in the Zig build only" ;;
     "") usage; exit 2 ;;
-    *) die "unknown command '$1' (failed, rotate, why, history, loads, runs, used, usage, pending, test-bundle, test-compare, --help)" ;;
+    *) die "unknown command '$1' (failed, rotate, why, history, loads, runs, used, usage, pending, test-bundle, test-compare, lifecycle, --help)" ;;
 esac

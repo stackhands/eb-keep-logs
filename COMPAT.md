@@ -33,6 +33,7 @@ on the same invocations.
 | `used` | refused with `eb-keep-logs: used is in the Zig build only`, exit 2 | lists paths under a prefix in XALT and Lmod records |
 | `usage` | refused with `eb-keep-logs: usage is in the Zig build only`, exit 2 | classifies installed software by XALT and Lmod usage |
 | `pending` | refused with `eb-keep-logs: pending is in the Zig build only`, exit 2 | prints what a dry-run or missing-modules report still has to build |
+| `lifecycle` | refused with `eb-keep-logs: lifecycle is in the Zig build only`, exit 2 | emits a reversible lifecycle plan and `.modulerc.lua` warnings/forbids from usage reports |
 | `--compress-after` or `--delete-after` with no value after it | never returns | refused, exit 2 |
 | `EB_KEEP_LOGS_NOW` not empty and not an integer | evaluated as shell arithmetic | refused, exit 2 |
 | `rotate`'s lock file cannot be opened, or is a symbolic link or not a regular file | `eb-keep-logs: cannot lock PATH`, exit 2, from a look at the name just before it is opened | `eb-keep-logs: cannot lock PATH: ERROR`, exit 2, from the open itself |

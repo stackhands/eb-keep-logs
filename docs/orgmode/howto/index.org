@@ -19,6 +19,7 @@ The title names the task.
    check-prefix-use
    review-unused-software
    compare-flaky-test-bundles
+   plan-module-lifecycle
    what-a-dry-run-would-build
    rotate-a-log-tree
    mark-licensed-logs

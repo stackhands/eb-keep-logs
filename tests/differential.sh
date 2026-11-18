@@ -28,6 +28,7 @@ declare -A deliberate=(
     ["used"]="\`used\`"
     ["usage"]="\`usage\`"
     ["pending"]="\`pending\`"
+    ["lifecycle"]="\`lifecycle\`"
 )
 compat_deliberate=$(sed -n '/^## Deliberate differences$/,/^## /p' "${repo_root}/COMPAT.md")
 # The environment both runs get, as env(1) takes it.
@@ -163,6 +164,9 @@ mkdir -p "${work}/software/GROMACS/1.0" "${work}/modules"
 compare "usage" usage --software "${work}/software" --modules "${work}/modules" "${work}/used.json"
 printf '%s\n' ' * [ ] flex-2.6.4.eb (module: flex/2.6.4)' > "${work}/dry.txt"
 compare "pending" pending "${work}/dry.txt"
+printf '%s\n' 'min_observation_days = 90' 'warn_after_days = 60' 'forbid_after_days = 180' 'remove_after_days = 365' > "${work}/policy.toml"
+"${TOOL_BIN}" usage --software "${work}/software" --modules "${work}/modules" --json "${work}/used.json" > "${work}/usage.json"
+compare "lifecycle" lifecycle --policy "${work}/policy.toml" "${work}/usage.json"
 
 echo "${diffs} differences"
 [ "${diffs}" -eq 0 ]

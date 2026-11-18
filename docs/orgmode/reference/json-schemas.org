@@ -4,7 +4,7 @@
 
 * JSON output schemas
 
-The Zig build's =--json= on =why=, =history=, =loads=, =runs=, =used=, =usage=, =pending= and =test-compare= prints one line of JSON with =schema_version= 1.
+The Zig build's =--json= on =why=, =history=, =loads=, =runs=, =used=, =usage=, =pending=, =test-compare= and =lifecycle= prints one line of JSON with =schema_version= 1.
 The =test-bundle= command always writes one JSON document with =schema_version= 1.
 The shell script refuses those commands; see [[file:compatibility.org][Compatibility]].
 Each document is validated in CI against a JSON Schema file in the repository tree under =docs/orgmode/reference/json/=.
@@ -17,12 +17,13 @@ The schemas use draft 2020-12; a new =schema_version= may drop or rename a key, 
 | =loads=  | =docs/orgmode/reference/json/loads.schema.json= |
 | =runs=   | =docs/orgmode/reference/json/runs.schema.json= |
 | =used=   | =docs/orgmode/reference/json/used.schema.json= |
-| =usage=  | =docs/orgmode/reference/json/usage.schema.json= |
-| =pending= | =docs/orgmode/reference/json/pending.schema.json= |
+| =usage=     | =docs/orgmode/reference/json/usage.schema.json= |
+| =pending=   | =docs/orgmode/reference/json/pending.schema.json= |
 | =test-bundle= | =docs/orgmode/reference/json/test-bundle.schema.json= |
 | =test-compare= | =docs/orgmode/reference/json/test-compare.schema.json= |
+| =lifecycle= | =docs/orgmode/reference/json/lifecycle.schema.json= |
 
-Field names and semantics for =why=, =history=, =used= and =usage= are under [[file:cli.org][The eb-keep-logs command]].
+Field names and semantics for =why=, =history=, =used=, =usage= and =lifecycle= are under [[file:cli.org][The eb-keep-logs command]].
 =loads=, =runs=, =pending=, =test-bundle= and =test-compare= document their JSON shape in the same page.
 
 ** See also
