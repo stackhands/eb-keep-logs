@@ -4,16 +4,17 @@
 
 * The eb-keep-logs command
 
-=eb-keep-logs= keeps the logs of a failed EasyBuild build, compresses and removes the old runs of a log tree, says from the kept logs why a run's builds failed, lists how a package's builds went run by run, reads who loaded a module from Lmod's usage log, reads who ran an executable from an XALT run record, lists paths under an install prefix from those records, classifies installed software by its recorded use, reads what an EasyBuild dry-run or missing-modules report still has to build, writes a flaky-test evidence bundle, and compares such bundles across sites.
-This page describes the Zig build; the shell script =eb-keep-logs= in the repository behaves the same, except as [[file:compatibility.org][Compatibility]] lists: it has no =why=, =history=, =loads=, =runs=, =used=, =usage= or =pending=.
+=eb-keep-logs= keeps the logs of a failed EasyBuild build, compresses and removes the old runs of a log tree, says from the kept logs why a run's builds failed, lists how a package's builds went run by run, lists failed builds across runs filtered by recipe or date, reads who loaded a module from Lmod's usage log, reads who ran an executable from an XALT run record, lists paths under an install prefix from those records, classifies installed software by its recorded use, reads what an EasyBuild dry-run or missing-modules report still has to build, writes a flaky-test evidence bundle, and compares such bundles across sites.
+This page describes the Zig build; the shell script =eb-keep-logs= in the repository behaves the same, except as [[file:compatibility.org][Compatibility]] lists: it has no =why=, =history=, =failures=, =loads=, =runs=, =used=, =usage= or =pending=.
 
 ** Synopsis
 
 #+begin_example
 eb-keep-logs failed [--syslog TARGET] [--metrics-file PATH] STATUS NAME LOGDIR [TMP_LOGDIR]
 eb-keep-logs rotate ROOT --compress-after DAYS [--delete-after DAYS] [--dry-run] [--lock-timeout SECONDS] [--syslog TARGET] [--metrics-file PATH]
-eb-keep-logs why [RUN | --latest] [--target TARGET] [--root ROOT] [--json]
-eb-keep-logs history PACKAGE [--target TARGET] [--root ROOT] [--json]
+eb-keep-logs why [RUN | --latest] [--target TARGET] [--package PACKAGE] [--since DATE] [--until DATE] [--root ROOT] [--json]
+eb-keep-logs history PACKAGE [--target TARGET] [--since DATE] [--until DATE] [--failed] [--root ROOT] [--json]
+eb-keep-logs failures [--package PACKAGE] [--target TARGET] [--since DATE] [--until DATE] [--root ROOT] [--json]
 eb-keep-logs loads --module NAME [--json] FILE
 eb-keep-logs runs --exec PATH [--json] FILE
 eb-keep-logs used --prefix PREFIX [--json] [--require-none] FILE...
@@ -48,9 +49,13 @@ eb-keep-logs --version
 | =--syslog TARGET=, =--syslog=TARGET=             | =failed=, =rotate= | Emit an RFC 5424 or native =systemd-journald= event to =TARGET= (=journald=, =syslog=, =unix:///path=, =journal+unix:///path=, =udp://host:port=, or =tcp://host:port=); overrides =EB_KEEP_LOGS_SYSLOG=. An empty value disables emission. |
 | =--metrics-file PATH=, =--metrics-file=PATH=     | =failed=, =rotate= | Atomically update the Prometheus text exposition at =PATH=, except on =rotate --dry-run=, which writes no metrics. Without it, no metrics file is read or written. |
 | =--latest=                                       | =why=    | Read the newest run under =--root=, by its name; with =--target=, the newest that has that target. The default without =RUN=.               |
-| =--target TARGET=, =--target=TARGET=             | =why=, =history= | Read only the builds in the run's directory =TARGET=; for =history=, in each run's, a run without one passed over. Without it, those in the run's own directory and then in each directory in it, by name. |
-| =--root ROOT=, =--root=ROOT=                     | =why=, =history= | The directory that holds the runs, directories named =YYYYMMDD_HHMMSS=, not symbolic links. Without it, the current directory.               |
-| =--json=                                         | =why=, =history=, =loads=, =runs=, =pending= | Print one line of JSON instead of the report; its keys are under [[file:json-schemas.org][JSON schemas]] and below.                           |
+| =--target TARGET=, =--target=TARGET=             | =why=, =history=, =failures= | Read only the builds in the run's directory =TARGET=; for =history= and =failures=, in each run's, a run without one passed over. Without it, those in the run's own directory and then in each directory in it, by name. |
+| =--package PACKAGE=, =--package=PACKAGE=         | =why=, =failures= | Read only builds whose easyconfig name matches =PACKAGE= (prefix up to a dash, or =NAME/VERSION=). Default: all builds. |
+| =--since DATE=, =--since=DATE=                   | =why=, =history=, =failures= | Bound candidate runs to those at or after =DATE= (=YYYY-MM-DD=, =YYYYMMDD=, or =YYYYMMDD_HHMMSS=); for =why=, applies when picking =--latest=. |
+| =--until DATE=, =--until=DATE=                   | =why=, =history=, =failures= | Bound candidate runs to those at or before =DATE= (=YYYY-MM-DD=, =YYYYMMDD=, or =YYYYMMDD_HHMMSS=); for =why=, applies when picking =--latest=. |
+| =--failed=                                       | =history= | Print only failed builds.                                                                                                                    |
+| =--root ROOT=, =--root=ROOT=                     | =why=, =history=, =failures= | The directory that holds the runs, directories named =YYYYMMDD_HHMMSS=, not symbolic links. Without it, the current directory. |
+| =--json=                                         | =why=, =history=, =failures=, =loads=, =runs=, =pending= | Print one line of JSON instead of the report; its keys are under [[file:json-schemas.org][JSON schemas]] and below. |
 | =--software DIR=, =--software=DIR=               | =usage=  | Required. Read installed software from the direct =Name/Version= directories below =DIR=.                                                   |
 | =--modules DIR=, =--modules=DIR=                 | =usage=  | Required. Count an Lmod record only when its module-file path is =DIR= or below it.                                                          |
 | =--since EPOCH=, =--since=EPOCH=                 | =usage=  | Count records at or after the non-negative epoch time; leave out records with no numeric time.                                              |
@@ -105,7 +110,7 @@ eb-keep-logs --version
 
 | =MESSAGE=                                                       | Cause                                                                                         |
 |-----------------------------------------------------------------+-----------------------------------------------------------------------------------------------|
-| =unknown command 'WORD' (failed, rotate, why, history, loads, runs, used, usage, pending, test-bundle, test-compare, --help)=          | The first argument is none of the commands.                                                   |
+| =unknown command 'WORD' (failed, rotate, why, history, failures, loads, runs, used, usage, pending, test-bundle, test-compare, lifecycle, --help)=          | The first argument is none of the commands.                                                   |
 | =failed needs STATUS NAME LOGDIR [TMP_LOGDIR]=                  | =failed= got fewer than three arguments.                                                      |
 | =STATUS must be a number, not 'STATUS'=                         | =STATUS= is empty or holds something other than digits.                                       |
 | =LOGDIR LOGDIR is not a directory=                              | =LOGDIR= does not name a directory that can be opened.                                        |
@@ -347,6 +352,22 @@ With =--json=, =history= prints one line of JSON instead, its keys in this order
 
 What =history= cannot read it reports on stderr as =why= does, a run that cannot be opened with =cannot open PATH: ERROR= too, and goes on with the rest; a build whose output could not be read is still listed.
 
+*** failures
+
+=failures= only reads, scanning the runs under =ROOT= oldest first and filtering by =--since=, =--until=, =--target= and =--package=.
+For each failed build it reads the kept session log (or =NAME.stdout.log= when no session log exists) to report the failed EasyBuild step and duration:
+
+#+begin_example
+tests/fixtures/build-logs: 8 failed builds in 7 runs
+
+RUN              TARGET          STEP         DURATION  NAME
+20261117_035825  sapphirerapids  fetch        48s       hello-2.12.1-GCCcore-14.2.0
+20261117_040032  sapphirerapids  patch        41s       hello-2.12.1-GCCcore-14.2.0
+#+end_example
+
+With no matching failure, it prints =ROOT: 0 failed builds in 0 runs=.
+With =--json=, =failures= prints one line of JSON with =schema_version= 1, =kind= ="failures"=, =root=, =package=, =target=, =since=, =until=, =counts= (={"runs": N, "failed": N}=), and =failures= (each item with =run=, =target=, =name=, =package=, =easyconfig=, =step=, =message=, =duration_s=, and =log=).
+
 ** loads
 
 =loads --module NAME [--json] FILE= prints who loaded =NAME=, from Lmod's ModuleUsageTracking lines in =FILE=.
@@ -575,7 +596,8 @@ otherwise lose, and keep the pipeline's log tree bounded.
       --metrics-file PATH, --metrics-file=PATH
           Atomically record when this rotation completed, unless --dry-run
           is given. Default: none.
-  eb-keep-logs why [RUN | --latest] [--target TARGET] [--root ROOT] [--json]
+  eb-keep-logs why [RUN | --latest] [--target TARGET] [--package PACKAGE]
+                   [--since DATE] [--until DATE] [--root ROOT] [--json]
       Say why the builds of a run failed: for each failed easyconfig, its
       package and easyconfig, the EasyBuild step it failed in, EasyBuild's
       message, and the line of its kept log that shows the error: the first
@@ -591,12 +613,24 @@ otherwise lose, and keep the pipeline's log tree bounded.
       --target TARGET, --target=TARGET
           Only the builds in the run's directory TARGET. Default: those in
           the run's own directory and in every directory in it.
+      --package PACKAGE, --package=PACKAGE
+          Only builds matching PACKAGE (an easyconfig name without .eb,
+          a prefix up to a dash, or NAME/VERSION). Default: all builds.
+      --since DATE, --since=DATE
+          Only consider runs at or after DATE when picking --latest.
+          DATE is YYYY-MM-DD, YYYYMMDD, or YYYYMMDD_HHMMSS.
+          Default: none.
+      --until DATE, --until=DATE
+          Only consider runs at or before DATE when picking --latest.
+          DATE is YYYY-MM-DD, YYYYMMDD, or YYYYMMDD_HHMMSS.
+          Default: none.
       --root ROOT, --root=ROOT
           The directory that holds the runs. Default: the current
           directory.
       --json
           Print one line of JSON instead, with schema_version 1.
-  eb-keep-logs history PACKAGE [--target TARGET] [--root ROOT] [--json]
+  eb-keep-logs history PACKAGE [--target TARGET] [--since DATE]
+                       [--until DATE] [--failed] [--root ROOT] [--json]
       Say how each kept build of PACKAGE went, oldest run first: success,
       failed or unknown, and how long EasyBuild took, from its output.
       PACKAGE is an easyconfig's name or its start up to a dash, as hello
@@ -606,6 +640,37 @@ otherwise lose, and keep the pipeline's log tree bounded.
       --target TARGET, --target=TARGET
           Only the builds in each run's directory TARGET. Default: those in
           each run's own directory and in every directory in it.
+      --since DATE, --since=DATE
+          Only read runs at or after DATE (YYYY-MM-DD, YYYYMMDD, or
+          YYYYMMDD_HHMMSS). Default: none.
+      --until DATE, --until=DATE
+          Only read runs at or before DATE (YYYY-MM-DD, YYYYMMDD, or
+          YYYYMMDD_HHMMSS). Default: none.
+      --failed
+          Only list failed builds.
+      --root ROOT, --root=ROOT
+          The directory that holds the runs. Default: the current
+          directory.
+      --json
+          Print one line of JSON instead, with schema_version 1.
+  eb-keep-logs failures [--package PACKAGE] [--target TARGET]
+                        [--since DATE] [--until DATE] [--root ROOT] [--json]
+      List failed builds across runs under --root, oldest run first.
+      Each row gives the run, target, failed step, duration and build
+      name. Zig build only. Options come in any order.
+      --package PACKAGE, --package=PACKAGE
+          Only failed builds matching PACKAGE (an easyconfig name
+          without .eb, a prefix up to a dash, or NAME/VERSION). Default:
+          all packages.
+      --target TARGET, --target=TARGET
+          Only the builds in each run's directory TARGET. Default: those
+          in each run's own directory and in every directory in it.
+      --since DATE, --since=DATE
+          Only read runs at or after DATE (YYYY-MM-DD, YYYYMMDD, or
+          YYYYMMDD_HHMMSS). Default: none.
+      --until DATE, --until=DATE
+          Only read runs at or before DATE (YYYY-MM-DD, YYYYMMDD, or
+          YYYYMMDD_HHMMSS). Default: none.
       --root ROOT, --root=ROOT
           The directory that holds the runs. Default: the current
           directory.
@@ -803,7 +868,7 @@ Environment:
                        directory of zone files.
 
 Exit status:
-  0   -h, --help or --version, or a failed, rotate, why, history, loads, runs, used, usage, pending, test-bundle, test-compare or lifecycle that
+  0   -h, --help or --version, or a failed, rotate, why, history, failures, loads, runs, used, usage, pending, test-bundle, test-compare or lifecycle that
       accepted its arguments, whatever it could keep, compress, remove or
       read: what it could not do is reported on stderr. used with
       --require-none also exits 2 when any path was listed.

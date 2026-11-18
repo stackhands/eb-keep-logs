@@ -29,6 +29,7 @@ on the same invocations.
 | `--version` | `eb-keep-logs 0.1.0` | `eb-keep-logs 0.2.1 (TARGET, MODE, zig VERSION, COMMIT)`; the first two words are unchanged |
 | `why` | refused with `eb-keep-logs: why is in the Zig build only`, exit 2 | says why the run's builds failed, from their kept logs, read through gzip when rotated |
 | `history` | refused with `eb-keep-logs: history is in the Zig build only`, exit 2 | lists how each kept build of a package went, run by run |
+| `failures` | refused with `eb-keep-logs: failures is in the Zig build only`, exit 2 | lists failed builds across runs, filtered by recipe or date |
 | `loads` | refused with `eb-keep-logs: loads is in the Zig build only`, exit 2 | prints who loaded a module, from Lmod's ModuleUsageTracking lines |
 | `runs` | refused with `eb-keep-logs: runs is in the Zig build only`, exit 2 | prints who ran an executable, from XALT run records |
 | `used` | refused with `eb-keep-logs: used is in the Zig build only`, exit 2 | lists paths under a prefix in XALT and Lmod records |

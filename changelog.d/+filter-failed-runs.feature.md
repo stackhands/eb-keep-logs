@@ -1,0 +1,1 @@
+`eb-keep-logs failures` and opt-in `--package`, `--since`, `--until` and `--failed` filters on `why` and `history` filter failed builds across `YYYYMMDD_HHMMSS` runs by recipe or date, with schema-validated `--json` output and unchanged default command outputs.

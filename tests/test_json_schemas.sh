@@ -66,6 +66,7 @@ run() {
 
 run "why" validate why why --json "${logs}/20261117_041222"
 run "history" validate history history --json --root "${logs}" hello-2.12.1-GCCcore-13.3.0
+run "failures" validate failures failures --json --root "${logs}" --package hello --since 2026-11-17
 run "loads" validate loads loads --module GROMACS/2024.1 --json "${work}/moduleUsage.log"
 run "runs" validate runs runs --exec gmx --json "${work}/runs.json"
 run "pending dry-run" validate pending pending --json "${work}/dry.txt"

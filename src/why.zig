@@ -2,7 +2,8 @@
 //! and say why its builds failed: for each, the EasyBuild step it failed
 //! in, EasyBuild's message, and the line of its log that shows the error,
 //! with the lines around it. `history`: how each kept build of a package
-//! went, run by run, from EasyBuild's output.
+//! went, run by run, from EasyBuild's output. `failures`: list failed
+//! builds across runs under `--root`, filtered by recipe or date.
 const std = @import("std");
 const common = @import("zig_common");
 const sys = common.sys;
@@ -754,23 +755,147 @@ fn emit(gpa: Allocator, r: anytype, as_json: bool, comptime writeText: fn (*std.
 }
 
 const why_help =
-    \\eb-keep-logs why [RUN | --latest] [--target TARGET] [--root ROOT] [--json]
+    \\eb-keep-logs why [RUN | --latest] [--target TARGET] [--package PACKAGE] [--since DATE] [--until DATE] [--root ROOT] [--json]
     \\
     \\Say why the builds of one run failed, from the logs it kept.
     \\With no RUN, the newest run under --root is read. --root defaults to
     \\the current directory. A run is a directory named YYYYMMDD_HHMMSS.
-    \\--target reads only that directory of the run. --json prints one document.
+    \\--target reads only that directory of the run. --package filters builds
+    \\by recipe. --since and --until bound --latest by run date. --json prints
+    \\one document.
     \\
 ;
 
 const history_help =
-    \\eb-keep-logs history PACKAGE [--target TARGET] [--root ROOT] [--json]
+    \\eb-keep-logs history PACKAGE [--target TARGET] [--since DATE] [--until DATE] [--failed] [--root ROOT] [--json]
     \\
     \\PACKAGE is the easyconfig's name without .eb, or NAME/VERSION.
     \\--root defaults to the current directory. A run is a directory named YYYYMMDD_HHMMSS.
-    \\--target reads only that directory of each run. --json prints one document.
+    \\--target reads only that directory of each run. --since and --until bound
+    \\runs by date. --failed lists only failed builds. --json prints one document.
     \\
 ;
+
+const failures_help =
+    \\eb-keep-logs failures [--package PACKAGE] [--target TARGET] [--since DATE] [--until DATE] [--root ROOT] [--json]
+    \\
+    \\List failed builds across runs under --root, oldest run first.
+    \\--package takes an easyconfig name without .eb, a prefix up to a dash,
+    \\or NAME/VERSION. --since and --until take YYYY-MM-DD, YYYYMMDD, or
+    \\YYYYMMDD_HHMMSS. --root defaults to the current directory. --json prints
+    \\one document.
+    \\
+;
+
+fn isLeapYear(year: u32) bool {
+    return (year % 4 == 0 and year % 100 != 0) or (year % 400 == 0);
+}
+
+fn daysInMonth(year: u32, month: u32) u32 {
+    return switch (month) {
+        1, 3, 5, 7, 8, 10, 12 => 31,
+        4, 6, 9, 11 => 30,
+        2 => if (isLeapYear(year)) 29 else 28,
+        else => 0,
+    };
+}
+
+fn parseDigits(s: []const u8) ?u32 {
+    if (!isNumber(s)) return null;
+    return std.fmt.parseInt(u32, s, 10) catch null;
+}
+
+/// Normalize a `--since` or `--until` date (`YYYY-MM-DD`, `YYYYMMDD`, or
+/// `YYYYMMDD_HHMMSS`) into a 15-byte `YYYYMMDD_HHMMSS` bound for comparing
+/// against run directory names.
+fn parseDateBound(raw: []const u8, is_until: bool) error{InvalidDate}![15]u8 {
+    var out: [15]u8 = undefined;
+    var y_s: []const u8 = undefined;
+    var m_s: []const u8 = undefined;
+    var d_s: []const u8 = undefined;
+    var hh_s: []const u8 = if (is_until) "23" else "00";
+    var mm_s: []const u8 = if (is_until) "59" else "00";
+    var ss_s: []const u8 = if (is_until) "59" else "00";
+
+    if (raw.len == 10 and raw[4] == '-' and raw[7] == '-') {
+        y_s = raw[0..4];
+        m_s = raw[5..7];
+        d_s = raw[8..10];
+    } else if (raw.len == 8) {
+        y_s = raw[0..4];
+        m_s = raw[4..6];
+        d_s = raw[6..8];
+    } else if (raw.len == 15 and isRunName(raw)) {
+        y_s = raw[0..4];
+        m_s = raw[4..6];
+        d_s = raw[6..8];
+        hh_s = raw[9..11];
+        mm_s = raw[11..13];
+        ss_s = raw[13..15];
+    } else {
+        return error.InvalidDate;
+    }
+
+    const year = parseDigits(y_s) orelse return error.InvalidDate;
+    const month = parseDigits(m_s) orelse return error.InvalidDate;
+    const day = parseDigits(d_s) orelse return error.InvalidDate;
+    if (month < 1 or month > 12) return error.InvalidDate;
+    if (day < 1 or day > daysInMonth(year, month)) return error.InvalidDate;
+
+    const hh = parseDigits(hh_s) orelse return error.InvalidDate;
+    const mm = parseDigits(mm_s) orelse return error.InvalidDate;
+    const ss = parseDigits(ss_s) orelse return error.InvalidDate;
+    if (hh > 23 or mm > 59 or ss > 59) return error.InvalidDate;
+
+    @memcpy(out[0..4], y_s);
+    @memcpy(out[4..6], m_s);
+    @memcpy(out[6..8], d_s);
+    out[8] = '_';
+    @memcpy(out[9..11], hh_s);
+    @memcpy(out[11..13], mm_s);
+    @memcpy(out[13..15], ss_s);
+    return out;
+}
+
+const DateFilter = struct {
+    since_bound: ?[15]u8 = null,
+    until_bound: ?[15]u8 = null,
+
+    fn init(since_raw: ?[]const u8, until_raw: ?[]const u8) DateFilter {
+        var f: DateFilter = .{};
+        if (since_raw) |s| {
+            f.since_bound = parseDateBound(s, false) catch
+                die("--since needs YYYY-MM-DD, YYYYMMDD, or YYYYMMDD_HHMMSS", .{});
+        }
+        if (until_raw) |u| {
+            f.until_bound = parseDateBound(u, true) catch
+                die("--until needs YYYY-MM-DD, YYYYMMDD, or YYYYMMDD_HHMMSS", .{});
+        }
+        if (f.since_bound != null and f.until_bound != null) {
+            if (std.mem.order(u8, &f.since_bound.?, &f.until_bound.?) == .gt) {
+                die("--until must not be earlier than --since", .{});
+            }
+        }
+        return f;
+    }
+
+    fn active(self: DateFilter) bool {
+        return self.since_bound != null or self.until_bound != null;
+    }
+
+    fn matches(self: DateFilter, run: []const u8) bool {
+        if (self.since_bound) |sb| if (std.mem.order(u8, run, &sb) == .lt) return false;
+        if (self.until_bound) |ub| if (std.mem.order(u8, run, &ub) == .gt) return false;
+        return true;
+    }
+};
+
+fn normalizePackage(arena: Allocator, raw: []const u8) Allocator.Error![]const u8 {
+    // A module name, NAME/VERSION, is the easyconfig's NAME-VERSION.
+    const package = try arena.dupe(u8, raw);
+    std.mem.replaceScalar(u8, package, '/', '-');
+    return package;
+}
 
 fn wantsHelp(args: []const [:0]const u8) bool {
     for (args) |a| {
@@ -779,8 +904,8 @@ fn wantsHelp(args: []const [:0]const u8) bool {
     return false;
 }
 
-/// `why [RUN | --latest] [--target TARGET] [--root ROOT] [--json]`: print
-/// why the builds of a run failed, from the logs it kept. Returns 0 once
+/// `why [RUN | --latest] [--target TARGET] [--package PACKAGE] [--since DATE] [--until DATE] [--root ROOT] [--json]`:
+/// print why the builds of a run failed, from the logs it kept. Returns 0 once
 /// its arguments are accepted, whatever it could read; a refused
 /// invocation exits 2. `-h` and `--help` print what to pass and return 0.
 pub fn cmdWhy(gpa: Allocator, args: []const [:0]const u8) u8 {
@@ -791,6 +916,9 @@ pub fn cmdWhy(gpa: Allocator, args: []const [:0]const u8) u8 {
     var run_arg: ?[]const u8 = null;
     var latest = false;
     var target: ?[]const u8 = null;
+    var package_arg: ?[]const u8 = null;
+    var since_raw: ?[]const u8 = null;
+    var until_raw: ?[]const u8 = null;
     var root_arg: ?[]const u8 = null;
     var as_json = false;
     var i: usize = 0;
@@ -802,6 +930,12 @@ pub fn cmdWhy(gpa: Allocator, args: []const [:0]const u8) u8 {
             as_json = true;
         } else if (optionValue(args, &i, "--target", "a target")) |v| {
             target = v;
+        } else if (optionValue(args, &i, "--package", "a package")) |v| {
+            package_arg = v;
+        } else if (optionValue(args, &i, "--since", "a date")) |v| {
+            since_raw = v;
+        } else if (optionValue(args, &i, "--until", "a date")) |v| {
+            until_raw = v;
         } else if (optionValue(args, &i, "--root", "a directory")) |v| {
             root_arg = v;
         } else if (a.len > 0 and a[0] == '-') {
@@ -812,12 +946,15 @@ pub fn cmdWhy(gpa: Allocator, args: []const [:0]const u8) u8 {
         }
     }
     if (run_arg != null and latest) die("why takes RUN or --latest, not both", .{});
+    if (run_arg != null and (since_raw != null or until_raw != null)) die("why takes RUN or --since/--until, not both", .{});
     if (run_arg) |r| if (r.len == 0) die("RUN must not be empty", .{});
+    const date_filter = DateFilter.init(since_raw, until_raw);
 
     var arena_state = std.heap.ArenaAllocator.init(gpa);
     defer arena_state.deinit();
     const arena = arena_state.allocator();
     const oom = "out of memory";
+    const package_filter: ?[]const u8 = if (package_arg) |p| normalizePackage(arena, p) catch die(oom, .{}) else null;
 
     const root_s = root_arg orelse ".";
     const root = fsx.openDir(fsx.cwd, root_s, true) catch die("ROOT {s} is not a directory", .{root_s});
@@ -827,9 +964,14 @@ pub fn cmdWhy(gpa: Allocator, args: []const [:0]const u8) u8 {
         var k = runs.len;
         while (k > 0) {
             k -= 1;
+            if (!date_filter.matches(runs[k])) continue;
             const t = target orelse break :blk runs[k];
             const p = std.fs.path.join(arena, &.{ runs[k], t }) catch die(oom, .{});
             if (isDirAt(root, p)) break :blk runs[k];
+        }
+        if (date_filter.active()) {
+            if (target) |t| die("no run under {s} in the date range has a target {s}", .{ root_s, t });
+            die("no run under {s} matches the date range", .{root_s});
         }
         if (target) |t| die("no run under {s} has a target {s}. Give --target a directory of that run", .{ root_s, t });
         die("no run under {s}; it holds no directory named YYYYMMDD_HHMMSS. Give --root the directory of the runs, or name one run", .{root_s});
@@ -852,6 +994,7 @@ pub fn cmdWhy(gpa: Allocator, args: []const [:0]const u8) u8 {
         defer sys.close(dir);
         const builds = buildsIn(gpa, arena, dir, dir_s) catch die(oom, .{});
         for (builds) |b| {
+            if (package_filter) |pf| if (!isBuildOf(b.name, pf)) continue;
             const v = outcomeOf(gpa, arena, dir, dir_s, b) catch die(oom, .{});
             counts.add(v.outcome);
             if (v.outcome != .failed) continue;
@@ -930,8 +1073,8 @@ fn writeHistory(w: *std.Io.Writer, r: HistoryReport) std.Io.Writer.Error!void {
     for (r.builds) |b| try writeRow(w, .{ b.run, b.target orelse "-", @tagName(b.outcome), durationText(&buf, b.duration_s), b.name }, widths);
 }
 
-/// `history PACKAGE [--target TARGET] [--root ROOT] [--json]`: print how
-/// each build of PACKAGE kept under ROOT went, oldest run first. Returns 0
+/// `history PACKAGE [--target TARGET] [--since DATE] [--until DATE] [--failed] [--root ROOT] [--json]`:
+/// print how each build of PACKAGE kept under ROOT went, oldest run first. Returns 0
 /// once its arguments are accepted, whatever it could read; a refused
 /// invocation exits 2.
 pub fn cmdHistory(gpa: Allocator, args: []const [:0]const u8) u8 {
@@ -941,6 +1084,9 @@ pub fn cmdHistory(gpa: Allocator, args: []const [:0]const u8) u8 {
     }
     var package_arg: ?[]const u8 = null;
     var target: ?[]const u8 = null;
+    var since_raw: ?[]const u8 = null;
+    var until_raw: ?[]const u8 = null;
+    var failed_only = false;
     var root_arg: ?[]const u8 = null;
     var as_json = false;
     var i: usize = 0;
@@ -948,8 +1094,14 @@ pub fn cmdHistory(gpa: Allocator, args: []const [:0]const u8) u8 {
         const a = args[i];
         if (std.mem.eql(u8, a, "--json")) {
             as_json = true;
+        } else if (std.mem.eql(u8, a, "--failed")) {
+            failed_only = true;
         } else if (optionValue(args, &i, "--target", "a target")) |v| {
             target = v;
+        } else if (optionValue(args, &i, "--since", "a date")) |v| {
+            since_raw = v;
+        } else if (optionValue(args, &i, "--until", "a date")) |v| {
+            until_raw = v;
         } else if (optionValue(args, &i, "--root", "a directory")) |v| {
             root_arg = v;
         } else if (a.len > 0 and a[0] == '-') {
@@ -961,14 +1113,13 @@ pub fn cmdHistory(gpa: Allocator, args: []const [:0]const u8) u8 {
     }
     const package_s = package_arg orelse die("history needs PACKAGE: the easyconfig name without .eb, or NAME/VERSION", .{});
     if (package_s.len == 0) die("PACKAGE must not be empty", .{});
+    const date_filter = DateFilter.init(since_raw, until_raw);
 
     var arena_state = std.heap.ArenaAllocator.init(gpa);
     defer arena_state.deinit();
     const arena = arena_state.allocator();
     const oom = "out of memory";
-    // A module name, NAME/VERSION, is the easyconfig's NAME-VERSION.
-    const package = arena.dupe(u8, package_s) catch die(oom, .{});
-    std.mem.replaceScalar(u8, package, '/', '-');
+    const package = normalizePackage(arena, package_s) catch die(oom, .{});
 
     const root_s = root_arg orelse ".";
     const root = fsx.openDir(fsx.cwd, root_s, true) catch die("ROOT {s} is not a directory", .{root_s});
@@ -977,6 +1128,7 @@ pub fn cmdHistory(gpa: Allocator, args: []const [:0]const u8) u8 {
     var kept: std.ArrayList(Kept) = .empty;
     const runs = runsIn(gpa, arena, root, root_s) catch die(oom, .{});
     for (runs) |r| {
+        if (!date_filter.matches(r)) continue;
         const run_s = std.fs.path.join(arena, &.{ root_s, r }) catch die(oom, .{});
         const run = fsx.openDir(root, r, false) catch |err| {
             warn("cannot open {s}: {t}", .{ run_s, err });
@@ -994,6 +1146,7 @@ pub fn cmdHistory(gpa: Allocator, args: []const [:0]const u8) u8 {
             for (builds) |b| {
                 if (!isBuildOf(b.name, package)) continue;
                 const v = outcomeOf(gpa, arena, dir, dir_s, b) catch die(oom, .{});
+                if (failed_only and v.outcome != .failed) continue;
                 counts.add(v.outcome);
                 const log = std.fs.path.join(arena, &.{ dir_s, b.stdout orelse b.session.? }) catch die(oom, .{});
                 kept.append(arena, .{
@@ -1014,6 +1167,164 @@ pub fn cmdHistory(gpa: Allocator, args: []const [:0]const u8) u8 {
         .builds = kept.items,
     };
     emit(gpa, report, as_json, writeHistory);
+    return 0;
+}
+
+const FailedRunItem = struct {
+    run: []const u8,
+    target: ?[]const u8,
+    name: []const u8,
+    package: ?[]const u8,
+    easyconfig: ?[]const u8,
+    step: ?[]const u8,
+    message: ?[]const u8,
+    duration_s: ?u64,
+    log: []const u8,
+};
+
+const FailuresCounts = struct {
+    runs: usize,
+    failed: usize,
+};
+
+const FailuresReport = struct {
+    schema_version: u32 = schema_version,
+    kind: []const u8 = "failures",
+    root: []const u8,
+    package: ?[]const u8,
+    target: ?[]const u8,
+    since: ?[]const u8,
+    until: ?[]const u8,
+    counts: FailuresCounts,
+    failures: []const FailedRunItem,
+};
+
+fn writeFailures(w: *std.Io.Writer, r: FailuresReport) std.Io.Writer.Error!void {
+    const total = r.failures.len;
+    if (total == 0) {
+        try w.print("{s}: 0 failed builds in 0 runs\n", .{r.root});
+        return;
+    }
+    try w.print("{s}: {d} failed build{s} in {d} run{s}\n\n", .{ r.root, total, plural(total), r.counts.runs, plural(r.counts.runs) });
+    const header = [5][]const u8{ "RUN", "TARGET", "STEP", "DURATION", "NAME" };
+    var widths: [4]usize = undefined;
+    for (header[0..4], &widths) |h, *n| n.* = h.len;
+    var buf: [24]u8 = undefined;
+    for (r.failures) |f| {
+        const target_s: []const u8 = f.target orelse "-";
+        const step_s: []const u8 = f.step orelse "-";
+        widths[0] = @max(widths[0], f.run.len);
+        widths[1] = @max(widths[1], target_s.len);
+        widths[2] = @max(widths[2], step_s.len);
+        widths[3] = @max(widths[3], durationText(&buf, f.duration_s).len);
+    }
+    try writeRow(w, header, widths);
+    for (r.failures) |f| {
+        try writeRow(w, .{ f.run, f.target orelse "-", f.step orelse "-", durationText(&buf, f.duration_s), f.name }, widths);
+    }
+}
+
+/// `failures [--package PACKAGE] [--target TARGET] [--since DATE] [--until DATE] [--root ROOT] [--json]`:
+/// list failed builds across runs under ROOT, oldest run first. Returns 0 once
+/// its arguments are accepted, whatever it could read; a refused invocation
+/// exits 2. `-h` and `--help` print what to pass and return 0.
+pub fn cmdFailures(gpa: Allocator, args: []const [:0]const u8) u8 {
+    if (wantsHelp(args)) {
+        cli.put(1, failures_help);
+        return 0;
+    }
+    var package_arg: ?[]const u8 = null;
+    var target: ?[]const u8 = null;
+    var since_raw: ?[]const u8 = null;
+    var until_raw: ?[]const u8 = null;
+    var root_arg: ?[]const u8 = null;
+    var as_json = false;
+    var i: usize = 0;
+    while (i < args.len) : (i += 1) {
+        const a = args[i];
+        if (std.mem.eql(u8, a, "--json")) {
+            as_json = true;
+        } else if (optionValue(args, &i, "--package", "a package")) |v| {
+            package_arg = v;
+        } else if (optionValue(args, &i, "--target", "a target")) |v| {
+            target = v;
+        } else if (optionValue(args, &i, "--since", "a date")) |v| {
+            since_raw = v;
+        } else if (optionValue(args, &i, "--until", "a date")) |v| {
+            until_raw = v;
+        } else if (optionValue(args, &i, "--root", "a directory")) |v| {
+            root_arg = v;
+        } else if (a.len > 0 and a[0] == '-') {
+            die("unknown option {s}", .{a});
+        } else {
+            die("failures takes no positional argument, got '{s}'", .{a});
+        }
+    }
+    const date_filter = DateFilter.init(since_raw, until_raw);
+
+    var arena_state = std.heap.ArenaAllocator.init(gpa);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+    const oom = "out of memory";
+    const package_filter: ?[]const u8 = if (package_arg) |p| normalizePackage(arena, p) catch die(oom, .{}) else null;
+
+    const root_s = root_arg orelse ".";
+    const root = fsx.openDir(fsx.cwd, root_s, true) catch die("ROOT {s} is not a directory", .{root_s});
+    defer sys.close(root);
+    var failed_runs: usize = 0;
+    var items: std.ArrayList(FailedRunItem) = .empty;
+    const runs = runsIn(gpa, arena, root, root_s) catch die(oom, .{});
+    for (runs) |r| {
+        if (!date_filter.matches(r)) continue;
+        const run_s = std.fs.path.join(arena, &.{ root_s, r }) catch die(oom, .{});
+        const run = fsx.openDir(root, r, false) catch |err| {
+            warn("cannot open {s}: {t}", .{ run_s, err });
+            continue;
+        };
+        defer sys.close(run);
+        const targets: []const []const u8 = if (target) |t|
+            (if (isDirAt(run, t)) arena.dupe([]const u8, &.{t}) catch die(oom, .{}) else &.{})
+        else
+            targetsIn(gpa, arena, run, run_s) catch die(oom, .{});
+        var run_had_failure = false;
+        for (targets) |t| {
+            const dir, const dir_s = (openBuilds(arena, run, run_s, t) catch die(oom, .{})) orelse continue;
+            defer sys.close(dir);
+            const builds = buildsIn(gpa, arena, dir, dir_s) catch die(oom, .{});
+            for (builds) |b| {
+                if (package_filter) |pf| if (!isBuildOf(b.name, pf)) continue;
+                const v = outcomeOf(gpa, arena, dir, dir_s, b) catch die(oom, .{});
+                if (v.outcome != .failed) continue;
+                const f = failureOf(gpa, arena, dir, dir_s, t, b, v) catch die(oom, .{});
+                run_had_failure = true;
+                items.append(arena, .{
+                    .run = r,
+                    .target = f.target,
+                    .name = f.name,
+                    .package = f.package,
+                    .easyconfig = f.easyconfig,
+                    .step = f.step,
+                    .message = f.message,
+                    .duration_s = f.duration_s,
+                    .log = f.log.?,
+                }) catch die(oom, .{});
+            }
+        }
+        if (run_had_failure) failed_runs += 1;
+    }
+    const report: FailuresReport = .{
+        .root = utf8(arena, root_s) catch die(oom, .{}),
+        .package = if (package_arg) |p| utf8(arena, p) catch die(oom, .{}) else null,
+        .target = if (target) |t| utf8(arena, t) catch die(oom, .{}) else null,
+        .since = if (since_raw) |s| utf8(arena, s) catch die(oom, .{}) else null,
+        .until = if (until_raw) |u| utf8(arena, u) catch die(oom, .{}) else null,
+        .counts = .{
+            .runs = failed_runs,
+            .failed = items.items.len,
+        },
+        .failures = items.items,
+    };
+    emit(gpa, report, as_json, writeFailures);
     return 0;
 }
 
@@ -1283,4 +1594,35 @@ test "isBuildOf takes a name or its start up to a dash" {
     try testing.expect(!isBuildOf(name, "hell"));
     try testing.expect(!isBuildOf(name, "hello-2.12"));
     try testing.expect(isBuildOf("hello-world-1.0", "hello"));
+}
+
+test "parseDateBound normalizes dates and rejects invalid ones" {
+    try testing.expectEqualStrings("20261117_000000", &(try parseDateBound("2026-11-17", false)));
+    try testing.expectEqualStrings("20261117_235959", &(try parseDateBound("2026-11-17", true)));
+    try testing.expectEqualStrings("20261117_000000", &(try parseDateBound("20261117", false)));
+    try testing.expectEqualStrings("20261117_235959", &(try parseDateBound("20261117", true)));
+    try testing.expectEqualStrings("20261117_040615", &(try parseDateBound("20261117_040615", false)));
+    try testing.expectEqualStrings("20261117_040615", &(try parseDateBound("20261117_040615", true)));
+    try testing.expectEqualStrings("20240229_000000", &(try parseDateBound("2024-02-29", false)));
+
+    try testing.expectError(error.InvalidDate, parseDateBound("", false));
+    try testing.expectError(error.InvalidDate, parseDateBound("2026-02-29", false));
+    try testing.expectError(error.InvalidDate, parseDateBound("2026-13-01", false));
+    try testing.expectError(error.InvalidDate, parseDateBound("2026-11-00", false));
+    try testing.expectError(error.InvalidDate, parseDateBound("20261117_240000", false));
+    try testing.expectError(error.InvalidDate, parseDateBound("20261117_126000", false));
+    try testing.expectError(error.InvalidDate, parseDateBound("20261117_120060", false));
+    try testing.expectError(error.InvalidDate, parseDateBound("not-a-date", false));
+}
+
+test "DateFilter matches runs within inclusive bounds" {
+    const f: DateFilter = .{
+        .since_bound = try parseDateBound("2026-11-17", false),
+        .until_bound = try parseDateBound("20261117_041222", true),
+    };
+    try testing.expect(!f.matches("20261116_235959"));
+    try testing.expect(f.matches("20261117_000000"));
+    try testing.expect(f.matches("20261117_040615"));
+    try testing.expect(f.matches("20261117_041222"));
+    try testing.expect(!f.matches("20261117_041223"));
 }
