@@ -12,9 +12,13 @@ Keep the logs of EasyBuild builds that a build pipeline would otherwise lose, an
 
 Documentation: <https://stackhands.github.io/eb-keep-logs/>
 
-A failed build's EasyBuild log stays in EasyBuild's tmpdir on the build node, which disappears with the job.
-Parsing EasyBuild's stdout for the log path is unreliable, because EasyBuild wraps the "Results of the build can be found in the log file(s)" line.
-`eb-keep-logs failed` asks `eb --last-log` for the path and keeps a copy.
+For the EasyBuild log alone you do not need this tool.
+Give `eb` a `--tmp-logdir` on durable storage and copy the file `eb --last-log` names, as EESSI's [`EESSI-install-software.sh`](https://github.com/EESSI/software-layer-scripts/blob/main/EESSI-install-software.sh) does after a failed build.
+
+The EasyBuild log already holds a failed command's output.
+What it does not hold is a failed meson test step's full test log, which stays in the build directory and goes with the job's node-local disk.
+`eb-keep-logs failed` keeps that log, the failing command's `out.txt` and `err.txt` from `run-shell-cmd-output/` as plain files, and the EasyBuild log, closed to other users and listed in `.licensed-logs`, because a failed compile line of licensed software can print the licence number.
+It asks `eb --last-log` for the log's path rather than parsing stdout, where EasyBuild wraps the "Results of the build can be found in the log file(s)" line.
 It passes `--output-style=basic`, because EasyBuild 5.3 and later fold that path at the terminal width, 80 columns on a pipe; an `eb` older than 4.5 refuses the option and is asked again without it.
 
 ## Install
@@ -141,11 +145,12 @@ eb-keep-logs is one of the [stackhands](https://github.com/stackhands) tools for
 
 | Tool | Job | Docs |
 |---|---|---|
-| [eb-stack](https://github.com/stackhands/eb-stack) | Solve, shard and plan an EasyBuild build list; admit builds under a scratch inode budget | [docs](https://eb-stack.rgoswami.me/) |
-| [eb-staged-rebuild](https://github.com/stackhands/eb-staged-rebuild) | Rebuild an installation in a staged tree and swap it in, so running jobs keep their paths | [docs](https://stackhands.github.io/eb-staged-rebuild/) |
-| [eessi-arch-guard](https://github.com/stackhands/eessi-arch-guard) | Reload EESSI in a Slurm task that inherited it for another CPU or GPU | [docs](https://stackhands.github.io/eessi-arch-guard/) |
-| [eb-local](https://github.com/stackhands/eb-local) | Install software with EasyBuild on top of EESSI into a directory a user or project owns | [docs](https://stackhands.github.io/eb-local/) |
-| **eb-keep-logs** | Keep a failed build's EasyBuild log and command output; rotate a pipeline's log tree | [docs](https://stackhands.github.io/eb-keep-logs/) |
+| [eb-stack](https://github.com/stackhands/eb-stack) | Turn conda-forge, Spack, PyPI, CRAN and Cargo recipes into easyconfigs; solve, shard and plan an EasyBuild build list | [docs](https://eb-stack.rgoswami.me/) |
+| [eb-staged-rebuild](https://github.com/stackhands/eb-staged-rebuild) | Rebuild an installation beside the live one and swap it in, for a stack outside CernVM-FS that jobs read during the rebuild | [docs](https://stackhands.github.io/eb-staged-rebuild/) |
+| [eessi-arch-guard](https://github.com/stackhands/eessi-arch-guard) | Reload EESSI in a Slurm task that inherited a stack loaded for another CPU or GPU, as srun from a login shell does | [docs](https://stackhands.github.io/eessi-arch-guard/) |
+| [eb-local](https://github.com/stackhands/eb-local) | Build on EESSI-extend inside a Slurm job's node-local disk, compile your own code with RPATH, list and uninstall per CPU target | [docs](https://stackhands.github.io/eb-local/) |
+| **eb-keep-logs** | Keep a failed EasyBuild command's own output, which --tmp-logdir does not; rotate a pipeline's log tree | [docs](https://stackhands.github.io/eb-keep-logs/) |
+| [eb-pipeline](https://github.com/stackhands/eb-pipeline) | Drive a site's EasyBuild builds from one site file, through eb-stack, eb-staged-rebuild and eb-keep-logs | [docs](https://stackhands.github.io/eb-pipeline/) |
 | [rfc9162](https://github.com/stackhands/rfc9162) | Append-only Merkle logs hashed as RFC 9162, with tiled storage and signed checkpoints | [docs](https://stackhands.github.io/rfc9162/) |
 | [zig-common](https://github.com/stackhands/zig-common) | The shared Zig library under the Zig tools: system calls, checked files, child processes | [docs](https://stackhands.github.io/zig-common/) |
 <!-- stackhands:end -->
