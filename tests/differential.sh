@@ -134,8 +134,14 @@ compare "rotate, bad syslog target" rotate "${work}/logs" --compress-after 5 --s
 EB_KEEP_LOGS_SYSLOG_PEN=0 compare "failed, bad syslog pen" failed 1 Foo "${work}/logs"
 EB_KEEP_LOGS_SYSLOG_PEN=abc compare "rotate, bad syslog pen" rotate "${work}/logs" --compress-after 5
 EB_KEEP_LOGS_NOW='' compare "rotate, empty EB_KEEP_LOGS_NOW" rotate "${work}/logs" --compress-after 5
-mkdir -p "${work}/preview/20261001_120000"
-echo old > "${work}/preview/20261001_120000/Old.stdout.log"
+mkdir -p "${work}/preview/20261001_120000/sub"
+echo old > "${work}/preview/20261001_120000/a.log"
+echo old > "${work}/preview/20261001_120000/sub/b.log"
+echo old > "${work}/preview/20261001_120000/z.log"
+echo old > "${work}/preview/20261001_120000/skip.log"
+echo gz > "${work}/preview/20261001_120000/skip.log.gz"
+echo link > "${work}/preview/20261001_120000/linked.log"
+ln "${work}/preview/20261001_120000/linked.log" "${work}/preview/20261001_120000/linked.hardlink"
 run_env=(PATH="${PATH}" EB_KEEP_LOGS_NOW="$(date -d 2026-11-13 +%s)")
 compare "rotate, dry run" rotate "${work}/preview" --compress-after 5 --delete-after 90 --dry-run
 compare "rotate, dry run with metrics-file" rotate "${work}/preview" --compress-after 5 --delete-after 90 --dry-run --metrics-file "${work}/dry.prom"
@@ -144,6 +150,19 @@ if [ -e "${work}/dry.prom" ] || [ -e "${work}/.dry.prom.lock" ]; then
     diffs=$((diffs + 1))
 fi
 compare "rotate, dry run with empty metrics-file" rotate "${work}/preview" --compress-after 5 --dry-run --metrics-file ""
+EB_KEEP_LOGS_NOW="$(date -d 2026-11-13 +%s)" "${OLD_BIN}" rotate "${work}/preview" --compress-after 5 --dry-run > "${work}/dry-parity-old.out" 2> "${work}/dry-parity-old.err"
+EB_KEEP_LOGS_NOW="$(date -d 2026-11-13 +%s)" "${TOOL_BIN}" rotate "${work}/preview" --compress-after 5 --dry-run > "${work}/dry-parity-new.out" 2> "${work}/dry-parity-new.err"
+if ! cmp -s "${work}/dry-parity-old.out" "${work}/dry-parity-new.out" || ! cmp -s "${work}/dry-parity-old.err" "${work}/dry-parity-new.err"; then
+    echo "DIFF rotate, dry-run raw bytes differ between shell and Zig" >&2
+    diffs=$((diffs + 1))
+fi
+dry_count=$(sed -nE 's/^eb-keep-logs rotate dry-run: ([0-9]+) files? would be compressed.*/\1/p' "${work}/dry-parity-old.out")
+rot_out=$(EB_KEEP_LOGS_NOW="$(date -d 2026-11-13 +%s)" "${TOOL_BIN}" rotate "${work}/preview" --compress-after 5 2>/dev/null)
+rot_count=$(sed -nE 's/^eb-keep-logs rotate: ([0-9]+) files? compressed.*/\1/p' <<< "${rot_out}")
+if [ "${dry_count}" != "3" ] || [ "${dry_count}" != "${rot_count}" ]; then
+    echo "DIFF rotate, dry-run count (${dry_count}) != rotate count (${rot_count})" >&2
+    diffs=$((diffs + 1))
+fi
 run_env=(PATH="${PATH}")
 compare "rotate, bad lock timeout" rotate "${work}/logs" --compress-after 5 --lock-timeout 1.5
 compare "rotate, lock timeout without a value" rotate "${work}/logs" --compress-after 5 --lock-timeout

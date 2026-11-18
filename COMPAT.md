@@ -20,7 +20,7 @@ on the same invocations.
 | run ages | days from the local midnight of the date in the run's name, as `date -d YYYYMMDD` computes it, including TZ rules, except for the zones under unintended differences; a run whose local midnight does not exist is skipped |
 | the run in progress | `rotate` neither compresses nor deletes the run that holds its stdout or stderr, when either is a regular file, or `EB_PIPELINE_LOG_DIR` |
 | runs still written into | after taking its lock, `rotate` reads the links `/proc/PID/fd/N` of every process whose descriptors it may read; a run that holds the path a link with its owner's write bit names, also when the path ends in ` (deleted)`, is neither compressed nor deleted; without `/proc`, no run is left alone for this |
-| rotation preview | `rotate --dry-run` prints each `compress PATH` and `delete PATH` action followed by the counts, changes nothing, creates no lock file, emits no syslog or journal event and writes no metrics; because it takes no lock, the output is a snapshot |
+| rotation preview | `rotate --dry-run` prints each `compress PATH` (sorted bytewise per run, skipping files with an existing `.gz` or other hard links) and `delete PATH` action followed by the counts, changes nothing, creates no lock file, emits no syslog or journal event and writes no metrics; because it takes no lock, the output is a snapshot |
 
 ## Deliberate differences
 

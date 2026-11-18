@@ -306,6 +306,23 @@ lock_missing=1
 test -e "${root}/.eb-keep-logs-rotate.lock" && lock_missing=0
 check "dry run: creates no lock" "$lock_missing" "1"
 
+skip_root="${work}/dry-skip"
+mkdir -p "${skip_root}/20261001_120000/sub"
+printf 'a\n' > "${skip_root}/20261001_120000/a.log"
+printf 'b\n' > "${skip_root}/20261001_120000/sub/b.log"
+printf 'z\n' > "${skip_root}/20261001_120000/z.log"
+printf 's\n' > "${skip_root}/20261001_120000/skip.log"
+printf 'gz\n' > "${skip_root}/20261001_120000/skip.log.gz"
+printf 'l\n' > "${skip_root}/20261001_120000/link.log"
+ln "${skip_root}/20261001_120000/link.log" "${skip_root}/20261001_120000/link.hard"
+skip_real=$(realpath "${skip_root}/20261001_120000")
+check "dry run: sorted across subdirs and skips .gz and hard links" \
+    "$("${tool}" rotate "${skip_root}" --compress-after 30 --dry-run)" \
+    "compress ${skip_real}/a.log
+compress ${skip_real}/sub/b.log
+compress ${skip_real}/z.log
+eb-keep-logs rotate dry-run: 3 files would be compressed, 0 runs would be deleted under ${skip_root}"
+
 "${tool}" rotate "${root}" --compress-after 30 >/dev/null
 check "old run compressed" "$(ls "${root}/20261001_120000/site-zen4" | sort | tr '\n' ' ')" "A.stdout.log.gz B.failed.ebout.log.gz "
 check "compressed content intact" "$(zcat "${root}/20261001_120000/site-zen4/A.stdout.log.gz")" "old"

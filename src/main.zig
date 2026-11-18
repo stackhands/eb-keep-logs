@@ -1050,9 +1050,10 @@ fn compressTree(c: Ctx, arena: Allocator, dir: fsx.fd_t, renames: *Renames, coun
     }
 }
 
-/// Print every *.log and *.txt regular file under `dir` that a rotation would
-/// try to compress, without following symbolic links or changing anything.
-fn previewTree(c: Ctx, arena: Allocator, dir: fsx.fd_t, count: *usize) void {
+/// Collect every *.log and *.txt regular file under `dir` that a rotation
+/// would compress (single link and no existing `.gz`), without following
+/// symbolic links or changing anything.
+fn previewTree(c: Ctx, arena: Allocator, dir: fsx.fd_t, paths: *std.ArrayList([]const u8)) void {
     var rb: [sys.path_max]u8 = undefined;
     const here = arena.dupe(u8, fsx.realpathFd(dir, &rb) catch |err| return warn("cannot resolve a run directory: {t}", .{err})) catch return;
     var it = fsx.DirIter.init(c.gpa, dir) catch return;
@@ -1068,16 +1069,16 @@ fn previewTree(c: Ctx, arena: Allocator, dir: fsx.fd_t, count: *usize) void {
             files.append(arena, n) catch return;
         }
     }
-    const less = struct {
-        fn lt(_: void, a: []const u8, b: []const u8) bool {
-            return std.mem.lessThan(u8, a, b);
-        }
-    }.lt;
-    std.mem.sort([]const u8, files.items, {}, less);
-    std.mem.sort([]const u8, subdirs.items, {}, less);
     for (files.items) |n| {
-        cli.out("compress {s}/{s}\n", .{ here, n });
-        count.* += 1;
+        const st = fsx.statAt(dir, n, false) catch continue;
+        if (!st.isReg() or st.nlink > 1) continue;
+        const gz = arena.print("{s}.gz", .{n}) catch return;
+        if (fsx.statAt(dir, gz, false)) |_| continue else |err| switch (err) {
+            error.NotFound => {},
+            else => continue,
+        }
+        const path = arena.print("{s}/{s}", .{ here, n }) catch return;
+        paths.append(arena, path) catch return;
     }
     for (subdirs.items) |n| {
         const sub = fsx.openDir(dir, n, false) catch |err| {
@@ -1085,7 +1086,7 @@ fn previewTree(c: Ctx, arena: Allocator, dir: fsx.fd_t, count: *usize) void {
             continue;
         };
         defer sys.close(sub);
-        previewTree(c, arena, sub, count);
+        previewTree(c, arena, sub, paths);
     }
 }
 
@@ -1335,7 +1336,17 @@ fn cmdRotate(c: Ctx, args: []const [:0]const u8) u8 {
         };
         defer sys.close(dir);
         if (dry_run) {
-            previewTree(c, arena, dir, &compressed);
+            var paths: std.ArrayList([]const u8) = .empty;
+            previewTree(c, arena, dir, &paths);
+            std.mem.sort([]const u8, paths.items, {}, struct {
+                fn lt(_: void, a: []const u8, b: []const u8) bool {
+                    return std.mem.lessThan(u8, a, b);
+                }
+            }.lt);
+            for (paths.items) |path| {
+                cli.out("compress {s}\n", .{path});
+                compressed += 1;
+            }
             continue;
         }
         var renames: Renames = .empty;
