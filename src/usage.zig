@@ -68,14 +68,21 @@ fn inventory(gpa: Allocator, arena: Allocator, software: []const u8) !Table {
     {
         if (name_entry.name.len == 0 or name_entry.name[0] == '.') continue;
         if ((fsx.entryType(root, name_entry) catch continue) != fsx.DT.DIR) continue;
-        const name_dir = fsx.openDir(root, name_entry.name, false) catch continue;
+        const name_dir = fsx.openDir(root, name_entry.name, false) catch |err| {
+            warn("cannot open SOFTWARE {s}/{s}: {t}", .{ software, name_entry.name, err });
+            continue;
+        };
         {
             defer sys.close(name_dir);
-            var versions = fsx.DirIter.init(gpa, name_dir) catch continue;
+            var versions = fsx.DirIter.init(gpa, name_dir) catch |err| {
+                warn("cannot read SOFTWARE {s}/{s}: {t}", .{ software, name_entry.name, err });
+                continue;
+            };
             defer versions.deinit(gpa);
-            while (versions.next() catch |err|
-                die("cannot read SOFTWARE {s}/{s}: {t}", .{ software, name_entry.name, err })) |version_entry|
-            {
+            while (versions.next() catch |err| {
+                warn("cannot read SOFTWARE {s}/{s}: {t}", .{ software, name_entry.name, err });
+                break;
+            }) |version_entry| {
                 if (version_entry.name.len == 0 or version_entry.name[0] == '.') continue;
                 if ((fsx.entryType(name_dir, version_entry) catch continue) != fsx.DT.DIR) continue;
                 const name = try arena.dupe(u8, name_entry.name);
@@ -313,7 +320,7 @@ pub fn cmdUsage(gpa: Allocator, args: []const []const u8) u8 {
         defer gpa.free(text);
         const hits = used.parseHits(arena, text) catch |err| switch (err) {
             error.BadJson => {
-                warn("usage: {s} is not XALT run JSON", .{path});
+                warn("usage: {s} is not XALT run JSON or Lmod usage log", .{path});
                 return 2;
             },
             error.OutOfMemory => die("out of memory", .{}),

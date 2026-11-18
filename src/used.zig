@@ -202,46 +202,44 @@ fn processObject(gpa: Allocator, hits: *std.ArrayList(Hit), root: std.json.Objec
     const result_t = root.getPtr("resultT");
 
     if (user_t) |ut_val| {
-        const user_t_obj = switch (ut_val.*) {
-            .object => |obj| obj,
-            else => return,
-        };
-        const time = timeFromUserT(user_t_obj);
-        const epoch = epochFromUserT(user_t_obj);
-        if (stringField(user_t_obj, "exec_path")) |path| {
-            try appendHit(gpa, hits, .{ .kind = .run, .path = path, .time = time, .epoch = epoch });
-        }
-        if (root.getPtr("libA")) |lib_a| {
-            const arr = switch (lib_a.*) {
-                .array => |a| a,
-                else => return,
-            };
-            try walkLibArray(gpa, hits, arr, .@"run-lib", time, epoch);
+        switch (ut_val.*) {
+            .object => |user_t_obj| {
+                const time = timeFromUserT(user_t_obj);
+                const epoch = epochFromUserT(user_t_obj);
+                if (stringField(user_t_obj, "exec_path")) |path| {
+                    try appendHit(gpa, hits, .{ .kind = .run, .path = path, .time = time, .epoch = epoch });
+                }
+                if (root.getPtr("libA")) |lib_a| {
+                    if (lib_a.* == .array) {
+                        try walkLibArray(gpa, hits, lib_a.array, .@"run-lib", time, epoch);
+                    }
+                }
+            },
+            else => {},
         }
     }
 
     if (result_t) |rt_val| {
-        const result_t_obj = switch (rt_val.*) {
-            .object => |obj| obj,
-            else => return,
-        };
-        const time = timeFromResultT(result_t_obj);
-        const epoch = epochFromResultT(result_t_obj);
-        if (stringField(result_t_obj, "exec_path")) |path| {
-            try appendHit(gpa, hits, .{ .kind = .link, .path = path, .time = time, .epoch = epoch });
-        }
-        if (root.getPtr("linkA")) |link_a| {
-            const arr = switch (link_a.*) {
-                .array => |a| a,
-                else => return,
-            };
-            try walkLibArray(gpa, hits, arr, .link, time, epoch);
+        switch (rt_val.*) {
+            .object => |result_t_obj| {
+                const time = timeFromResultT(result_t_obj);
+                const epoch = epochFromResultT(result_t_obj);
+                if (stringField(result_t_obj, "exec_path")) |path| {
+                    try appendHit(gpa, hits, .{ .kind = .link, .path = path, .time = time, .epoch = epoch });
+                }
+                if (root.getPtr("linkA")) |link_a| {
+                    if (link_a.* == .array) {
+                        try walkLibArray(gpa, hits, link_a.array, .link, time, epoch);
+                    }
+                }
+            },
+            else => {},
         }
     }
 }
 
-fn processLmodLine(gpa: Allocator, hits: *std.ArrayList(Hit), line: []const u8) !void {
-    const rec = loads.parseRecord(line) orelse return;
+fn processLmodLine(gpa: Allocator, hits: *std.ArrayList(Hit), line: []const u8) !bool {
+    const rec = loads.parseRecord(line) orelse return false;
     try appendHit(gpa, hits, .{
         .kind = .@"module-load",
         .path = rec.path,
@@ -249,6 +247,7 @@ fn processLmodLine(gpa: Allocator, hits: *std.ArrayList(Hit), line: []const u8) 
         .time = rec.time,
         .epoch = parseEpoch(rec.time),
     });
+    return true;
 }
 
 /// Parse every XALT and Lmod hit in `text` once, without filtering paths.
@@ -256,9 +255,12 @@ pub fn parseHits(gpa: Allocator, text: []const u8) (Allocator.Error || error{Bad
     var hits: std.ArrayList(Hit) = .empty;
     errdefer hits.deinit(gpa);
     var at: usize = 0;
+    var has_non_ws = false;
+    var saw_record = false;
     while (true) {
         while (at < text.len and std.ascii.isWhitespace(text[at])) : (at += 1) {}
         if (at >= text.len) break;
+        has_non_ws = true;
         if (text[at] == '{') {
             const item = (try runs.nextObject(text, at)) orelse break;
             at = item.end;
@@ -271,14 +273,16 @@ pub fn parseHits(gpa: Allocator, text: []const u8) (Allocator.Error || error{Bad
                 .object => |obj| obj,
                 else => continue,
             };
+            saw_record = true;
             try processObject(gpa, &hits, root);
             continue;
         }
         const end = std.mem.indexOfScalarPos(u8, text, at, '\n') orelse text.len;
         const line = std.mem.trimEnd(u8, text[at..end], "\r");
-        try processLmodLine(gpa, &hits, line);
+        if (try processLmodLine(gpa, &hits, line)) saw_record = true;
         at = if (end < text.len) end + 1 else end;
     }
+    if (has_non_ws and !saw_record) return error.BadJson;
     return try hits.toOwnedSlice(gpa);
 }
 
@@ -505,4 +509,17 @@ test "truncated JSON is refused" {
     var table = Table.init(a);
     defer table.deinit();
     try std.testing.expectError(error.BadJson, scanText(a, &table, "/opt", text));
+}
+
+test "userT null preserves resultT hits and non-JSON text is refused" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const hits = try parseHits(
+        a,
+        "{\"userT\":null,\"resultT\":{\"exec_path\":\"/opt/a/bin/x\",\"build_epoch\":\"200\"}}",
+    );
+    try std.testing.expectEqual(@as(usize, 1), hits.len);
+    try std.testing.expectEqual(Kind.link, hits[0].kind);
+    try std.testing.expectError(error.BadJson, parseHits(a, "not json or lmod\n"));
 }
