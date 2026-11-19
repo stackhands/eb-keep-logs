@@ -19,7 +19,7 @@ const used_cmd = @import("used.zig");
 const usage_cmd = @import("usage.zig");
 const test_bundle = @import("test_bundle.zig");
 const lifecycle = @import("lifecycle.zig");
-const syslog = @import("syslog.zig");
+const syslog = common.syslog;
 const metrics = @import("metrics.zig");
 
 const Allocator = std.mem.Allocator;
