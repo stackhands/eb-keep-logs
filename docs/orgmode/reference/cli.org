@@ -881,10 +881,10 @@ Exit status:
 *** --version
 
 The version line follows the [[site:zig-common:reference/cli-conventions][command-line conventions]] of the stackhands Zig tools.
-Version 0.2.1, built with =zig build -Drelease=true -Dcommit=5ceaead=:
+A release build, =zig build -Drelease=true -Dcommit=abc1234=, also prints its optimisation mode and commit:
 
 #+begin_example
-eb-keep-logs 0.2.1 (x86_64-linux-musl, safe, zig 0.17.1, 5ceaead)
+eb-keep-logs X.Y.Z (x86_64-linux-musl, safe, zig 0.17.1, abc1234)
 #+end_example
 
 ** See also

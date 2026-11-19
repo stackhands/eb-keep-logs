@@ -25,7 +25,6 @@ It passes `--output-style=basic`, because EasyBuild 5.3 and later fold that path
 
 Each [release](https://github.com/stackhands/eb-keep-logs/releases/latest) has a static binary for `x86_64` and `aarch64` Linux, with `SHA256SUMS`.
 The latest tag is v0.2.1.
-The main branch fixes keeping logs when EasyBuild 5.3 or later folds the path from `eb --last-log` on a pipe; install from source until a newer release includes that fix.
 It needs nothing but `eb`:
 
 ```bash
