@@ -1,0 +1,71 @@
+#!/usr/bin/env bash
+# Prepare the tree for a release: the pre-bump hook of cog.toml.
+#
+# usage: tools/release-prepare NEW_VERSION
+#
+# `cog bump` runs this with the version it is about to tag, then commits what
+# changed and creates the tag. For NEW_VERSION and the version build.zig.zon
+# still names (OLD) it sets:
+#   - CHANGELOG.md: `towncrier build` writes the fragments of changelog.d/
+#     under a heading for NEW_VERSION and removes them;
+#   - build.zig.zon and src/main.zig: the version, which the release workflow
+#     compares with the tag;
+#   - README.md, docs/orgmode/howto/install.org and the tutorial: the latest
+#     tag, the download commands and the `--version` line;
+#   - docs/: the Markdown pages, exported again from their Org sources.
+#
+# Not done here, because it is prose: the README sentence on what `main` has
+# that the latest release lacks, the "Release X.Y.Z runs ..." rows of
+# install.org, the `--version` example with a commit in
+# docs/orgmode/reference/cli.org, and a COMPAT.md row for each new deliberate
+# difference from the shell script. Edit those in a commit before the bump.
+#
+# Needs: towncrier (or uvx), emacs for docs/export.el. A refused run can leave
+# edited files behind; `git checkout -- .` puts the tree back.
+set -euo pipefail
+
+new=${1:?usage: tools/release-prepare NEW_VERSION}
+cd "$(dirname "${BASH_SOURCE[0]}")/.."
+
+die() { echo "release-prepare: $*" >&2; exit 2; }
+
+# set_in FILE SED_EXPRESSION...: edit FILE, and refuse a FILE the expressions
+# leave unchanged, so a version string that moved fails the bump instead of
+# being skipped.
+set_in() {
+    local file=$1 before
+    shift
+    before=$(sha256sum < "${file}")
+    sed -i -E "$@" "${file}"
+    [ "${before}" != "$(sha256sum < "${file}")" ] || die "${file} does not name ${old} where expected"
+}
+
+[[ ${new} =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || die "'${new}' is not X.Y.Z"
+old=$(sed -n 's/^ *\.version = "\([0-9.]*\)",$/\1/p' build.zig.zon)
+[ -n "${old}" ] || die "build.zig.zon names no version"
+[ "${old}" != "${new}" ] || die "build.zig.zon already names ${new}"
+old_re=${old//./\\.}
+
+if command -v towncrier > /dev/null 2>&1; then
+    towncrier build --version "${new}" --yes
+else
+    uvx towncrier build --version "${new}" --yes
+fi
+
+set_in build.zig.zon "s/^( *\.version = )\"${old_re}\",\$/\1\"${new}\",/"
+set_in src/main.zig "s/^(pub const version = )\"${old_re}\";\$/\1\"${new}\";/"
+set_in README.md \
+    -e "s/(The latest tag is v)${old_re}\./\1${new}./" \
+    -e "s/^(v=)${old_re}( arch=)/\1${new}\2/"
+set_in docs/orgmode/howto/install.org \
+    -e "s/^(Release v)${old_re}( is the latest tag)/\1${new}\2/" \
+    -e "s/(v=)${old_re};/\1${new};/" \
+    -e "s/(eb-keep-logs-)${old_re}(-[a-z0-9_]+-linux-musl)/\1${new}\2/" \
+    -e "s/^(eb-keep-logs )${old_re}( \()/\1${new}\2/"
+set_in docs/orgmode/tutorials/keep-a-failed-build-log.org \
+    "s/^(eb-keep-logs )${old_re}( \()/\1${new}\2/"
+
+emacs --batch -l docs/export.el > /dev/null 2>&1
+
+echo "release-prepare: ${old} -> ${new}"
+git status --short | awk '{print $1}' | sort | uniq -c
