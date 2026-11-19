@@ -1,1 +1,0 @@
-`failed` runs `eb --last-log` with the basic output style, so EasyBuild 5 no longer wraps the log path and the log is kept when the build's output goes to a file or a pipe. An EasyBuild without output styles is asked again without it.

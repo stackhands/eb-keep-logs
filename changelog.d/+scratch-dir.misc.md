@@ -1,1 +1,0 @@
-`zig build test` passes when the directory it runs in has no `.zig-cache`, as when `ZIG_LOCAL_CACHE_DIR` puts the cache elsewhere: the unit test of a failed copy makes its scratch directory with its parents instead of failing with `NotFound`.

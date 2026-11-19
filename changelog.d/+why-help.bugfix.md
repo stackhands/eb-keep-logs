@@ -1,1 +1,0 @@
-`why -h`, `why --help`, `history -h` and `history --help` print what those commands take and exit 0. Each says that `--root` defaults to the current directory and that a run is a directory named `YYYYMMDD_HHMMSS`.

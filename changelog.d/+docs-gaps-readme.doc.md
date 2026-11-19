@@ -1,1 +1,0 @@
-README.md lists GNU `grep` (for `grep -P`) and `sed` among what the shell script needs, shows the release binary install, and says no EasyBuild recipe for eb-keep-logs is published; RELEASING.md follows.

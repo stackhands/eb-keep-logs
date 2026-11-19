@@ -1,1 +1,0 @@
-`failed` no longer keeps a command's output that the session log records as completed successfully, as the last command before a sanity check failure is, nor a meson testlog whose summary shows every test passing. The output of a command the build died in, with no outcome logged, is still kept.

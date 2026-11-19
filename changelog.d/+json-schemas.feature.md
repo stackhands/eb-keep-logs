@@ -1,1 +1,0 @@
-`loads`, `runs` and `pending` accept opt-in `--json` with `schema_version` 1. JSON Schema files under `docs/orgmode/reference/json/` describe every `--json` document (`why`, `history`, `loads`, `runs`, `used`, `usage`, `pending`). `tests/test_json_schemas.sh` validates command output against those schemas in CI.

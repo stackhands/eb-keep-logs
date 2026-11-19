@@ -1,1 +1,0 @@
-`eb-keep-logs loads --module NAME FILE` prints who loaded `NAME`, from Lmod's ModuleUsageTracking lines in `FILE`. A log with no such load prints `no load of NAME`. The shell script has no `loads`; the Zig build does.

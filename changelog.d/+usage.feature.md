@@ -1,1 +1,0 @@
-`eb-keep-logs usage` classifies installed `Name/Version` software as active or unused from XALT and Lmod records, with epoch filtering, JSON output and an active listing accepted by `eb-stack stack gap --site`.
