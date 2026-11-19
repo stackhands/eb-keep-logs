@@ -20,6 +20,9 @@ const usage_cmd = @import("usage.zig");
 const test_bundle = @import("test_bundle.zig");
 const lifecycle = @import("lifecycle.zig");
 const syslog = common.syslog;
+/// The name events are sent under: the program in the syslog header and in
+/// journald, and the name in the structured-data identifier.
+const syslog_identity: syslog.Identity = .{ .app = "eb-keep-logs", .sd_name = "ebKeepLogs" };
 const metrics = @import("metrics.zig");
 
 const Allocator = std.mem.Allocator;
@@ -679,7 +682,7 @@ fn emitFailedSyslog(
     else
         (a.print("eb-keep-logs failed: no EasyBuild log kept for {s} ({s})", .{ name, reason }) catch return);
 
-    if (!syslog.emit(a, t, 4, msgid, params.items, jfields.items, msg)) {
+    if (!syslog.emitFor(a, syslog_identity, t, 4, msgid, params.items, jfields.items, msg)) {
         warn("cannot emit syslog event", .{});
     }
 }
@@ -710,7 +713,7 @@ fn emitRotateSyslog(
         .{ .key = "EB_ROTATE_COMPRESSED", .value = comp_s },
         .{ .key = "EB_ROTATE_DELETED", .value = del_s },
     };
-    if (!syslog.emit(a, t, 6, "EB_ROTATE_DONE", &params, &jfields, msg)) {
+    if (!syslog.emitFor(a, syslog_identity, t, 6, "EB_ROTATE_DONE", &params, &jfields, msg)) {
         warn("cannot emit syslog event", .{});
     }
 }
