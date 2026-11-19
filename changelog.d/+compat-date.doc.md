@@ -1,1 +1,0 @@
-COMPAT.md lists a `date` other than GNU's among the deliberate differences: the shell script's run ages follow that `date`, and uutils' `date`, Ubuntu's from 25.10, reads as UTC some `TZ` rule strings that glibc reads, where the Zig build's run ages are GNU `date`'s whatever `date` is.

@@ -1,1 +1,0 @@
-`why` says what to do when its default root holds no run: the directory it looked in, that a run is named `YYYYMMDD_HHMMSS`, and to pass `--root` or name one run. `history` with no package says to give the easyconfig name without `.eb`, or `NAME/VERSION`.

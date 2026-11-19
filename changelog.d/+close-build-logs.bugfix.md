@@ -1,1 +1,0 @@
-After a failure, `failed` also closes `NAME.stdout.log` to others, and TMP_LOGDIR with the files directly in it when it lies below LOGDIR: they hold the failed lines the kept copies are closed for, and EasyBuild writes its own logs to TMP_LOGDIR at 0644. Symbolic links are not followed; a TMP_LOGDIR elsewhere, and everything on success, is left as it is.

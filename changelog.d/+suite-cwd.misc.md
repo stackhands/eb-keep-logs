@@ -1,1 +1,0 @@
-`zig build test` passes when started in a subdirectory such as `src/`: the command-line suite and the differential run start their scripts from the build root instead of from where `zig build` was started, where bash stopped with `tests/test_eb_keep_logs.sh: No such file or directory`.

@@ -1,1 +1,0 @@
-The command-line reference shows the usage that `-h`, `--help` and no arguments print, which the suite checks against both builds, and its synopsis and exit statuses name `-h`. README.md says that `rotate` compresses and removes the runs at least DAYS old, as the usage and the reference do.

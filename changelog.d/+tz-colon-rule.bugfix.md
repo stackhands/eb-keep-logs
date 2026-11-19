@@ -1,1 +1,0 @@
-When a `TZ` with a leading `:` names no zone file, as `:CET-1CEST,M3.5.0,M10.5.0/3` does, `rotate` reads the POSIX rule string after the `:`, as the shell script's `date` does, instead of dating runs in UTC.

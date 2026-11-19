@@ -1,1 +1,0 @@
-The install how-to, the README release pointer and the tutorial install from source so `failed` works on EasyBuild 5.3 or newer and the next-step commands exist on `PATH`.
