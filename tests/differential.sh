@@ -199,24 +199,33 @@ mkdir -p "${work}/symlock"
 ln -s "${work}/nowhere" "${work}/symlock/.eb-keep-logs-rotate.lock"
 compare "rotate, lock is a symbolic link" rotate "${work}/symlock" --compress-after 5
 # A kill in the middle of compressing a file leaves behind what each side's
-# compression writes mid-way, and a later rotate sees a different run.
+# compression writes mid-way, and a later rotate sees a different run. Each
+# side is killed once it has created its own destination for the file: the
+# shell's gzip under the final name, the Zig build's private temp. Waiting
+# for that destination to exist, rather than a sleep sized to guess when it
+# might, makes the kill land at a defined point on both sides.
+# wait_for_name DIR PATTERN: block until DIR has an entry matching the
+# find(1) -name PATTERN, or 10 seconds pass.
+wait_for_name() {
+    local dir=$1 pattern=$2 deadline
+    deadline=$((SECONDS + 10))
+    while :; do
+        [ -n "$(find "${dir}" -maxdepth 1 -name "${pattern}" -print -quit 2>/dev/null)" ] && return 0
+        [ "${SECONDS}" -ge "${deadline}" ] && return 1
+    done
+}
 mkdir -p "${work}/crash-old/20261001_120000" "${work}/crash-new/20261001_120000"
 head -c 20000000 /dev/urandom > "${work}/crash-old/20261001_120000/a.log"
 head -c 20000000 /dev/urandom > "${work}/crash-new/20261001_120000/a.log"
 "${OLD_BIN}" rotate "${work}/crash-old" --compress-after 5 >/dev/null 2>&1 &
 old_pid=$!
-gzip_pid=""
-for _ in $(seq 1 200); do
-    gzip_pid=$(pgrep -f "gzip -9 -- ${work}/crash-old/20261001_120000/a.log" | head -1)
-    [ -n "${gzip_pid}" ] && break
-    sleep 0.005
-done
-sleep 0.03
+wait_for_name "${work}/crash-old/20261001_120000" "a.log.gz"
+gzip_pid=$(pgrep -f "gzip -9 -- ${work}/crash-old/20261001_120000/a.log" | head -1)
 [ -n "${gzip_pid}" ] && kill -KILL "${gzip_pid}" 2>/dev/null
 wait "${old_pid}" 2>/dev/null
 "${TOOL_BIN}" rotate "${work}/crash-new" --compress-after 5 >/dev/null 2>&1 &
 new_pid=$!
-sleep 0.05
+wait_for_name "${work}/crash-new/20261001_120000" ".a.log.gz.*.tmp"
 kill -KILL "${new_pid}" 2>/dev/null
 wait "${new_pid}" 2>/dev/null
 old_rerun=$("${OLD_BIN}" rotate "${work}/crash-old" --compress-after 5 2>/dev/null)
