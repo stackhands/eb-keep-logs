@@ -11,6 +11,7 @@ const fsx = common.fsx;
 const cli = common.cli;
 const loads = @import("loads.zig");
 const runs = @import("runs.zig");
+const utf8_text = @import("utf8_text.zig");
 
 const Allocator = std.mem.Allocator;
 const tool = "eb-keep-logs";
@@ -183,9 +184,9 @@ fn epochFromResultT(result_t: std.json.ObjectMap) ?f64 {
 
 fn appendHit(gpa: Allocator, hits: *std.ArrayList(Hit), hit: Hit) !void {
     var owned = hit;
-    owned.path = try gpa.dupe(u8, hit.path);
-    if (hit.module) |module| owned.module = try gpa.dupe(u8, module);
-    if (hit.time.len > 0) owned.time = try gpa.dupe(u8, hit.time);
+    owned.path = try gpa.dupe(u8, try utf8_text.utf8(gpa, hit.path));
+    if (hit.module) |module| owned.module = try gpa.dupe(u8, try utf8_text.utf8(gpa, module));
+    if (hit.time.len > 0) owned.time = try gpa.dupe(u8, try utf8_text.utf8(gpa, hit.time));
     try hits.append(gpa, owned);
 }
 
@@ -321,7 +322,7 @@ pub fn formatText(gpa: Allocator, prefix: []const u8, table: *Table) ![]u8 {
     var out: std.ArrayList(u8) = .empty;
     errdefer out.deinit(gpa);
     if (rows.items.len == 0) {
-        try out.print(gpa, "nothing under {s}\n", .{prefix});
+        try out.print(gpa, "nothing under {f}\n", .{utf8_text.text(prefix)});
         return try out.toOwnedSlice(gpa);
     }
     for (rows.items) |row| {
@@ -366,7 +367,9 @@ pub fn formatJson(gpa: Allocator, prefix: []const u8, table: *Table) ![]u8 {
             .count = row.entry.count,
         });
     }
-    const report: JsonReport = .{ .prefix = prefix, .uses = uses.items };
+    var arena = std.heap.ArenaAllocator.init(gpa);
+    defer arena.deinit();
+    const report: JsonReport = .{ .prefix = try utf8_text.utf8(arena.allocator(), prefix), .uses = uses.items };
     var out: std.Io.Writer.Allocating = .init(gpa);
     defer out.deinit();
     try std.json.Stringify.value(report, .{}, &out.writer);
@@ -512,6 +515,20 @@ test "module-load lines aggregate by path" {
     const ent = table.get(.{ .kind = .@"module-load", .path = "/opt/pkg/modules/GROMACS/1.0" }).?;
     try std.testing.expectEqual(@as(u32, 2), ent.count);
     try std.testing.expectEqualStrings("3", ent.last_time);
+}
+
+test "a module-load path with a bad byte is replaced, not leaked raw" {
+    const text = "user=alice module=GROMACS/1.0 path=/opt/pkg/modules/GROMACS/\xff1.0 host=h1 time=1\n";
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    var table = Table.init(a);
+    defer table.deinit();
+    try scanText(a, &table, "/opt/pkg", text);
+    var it = table.keyIterator();
+    const key = it.next().?;
+    try std.testing.expectEqualStrings("/opt/pkg/modules/GROMACS/\u{FFFD}1.0", key.path);
+    try std.testing.expect(std.unicode.utf8ValidateSlice(key.path));
 }
 
 test "truncated JSON is refused" {

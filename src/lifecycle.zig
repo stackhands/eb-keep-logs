@@ -13,6 +13,7 @@ const atomic = common.atomic;
 const proc = common.proc;
 const cli = common.cli;
 const localtime = @import("localtime.zig");
+const utf8_text = @import("utf8_text.zig");
 
 const Allocator = std.mem.Allocator;
 const tool = "eb-keep-logs";
@@ -1010,7 +1011,7 @@ fn formatJson(
     const report: JsonReport = .{
         .software = usage_in.software,
         .modules = usage_in.modules,
-        .policy = policy_path,
+        .policy = try utf8_text.utf8(arena, policy_path),
         .now = now_text,
         .since = usage_in.since_text,
         .observed_days = observed_days,
