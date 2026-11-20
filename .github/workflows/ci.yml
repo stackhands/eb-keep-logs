@@ -63,7 +63,7 @@ jobs:
           # here, with a clear message, rather than inside that test.
           strace -f -e trace=write -- true
       - run: zig fmt --check build.zig build.zig.zon src
-      - run: shellcheck -S warning tests/differential.sh tests/test_metrics.sh tests/test_why.sh tests/test_json_schemas.sh tests/test_crash_safety.sh tests/test_rotate_fsync_durability.sh tests/lib/check.sh tests/test_report_utf8_safety.sh
+      - run: shellcheck -S warning tests/differential.sh tests/test_metrics.sh tests/test_why.sh tests/test_json_schemas.sh tests/test_crash_safety.sh tests/test_rotate_fsync_durability.sh tests/lib/check.sh tests/test_report_utf8_safety.sh tests/test_lifecycle_modulerc_safety.sh
       - run: pip install jsonschema
       - run: zig build test --summary all
       - run: zig build -Drelease=true -Dcommit=${{ github.sha }} && zig-out/bin/eb-keep-logs --version
