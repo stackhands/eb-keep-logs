@@ -17,11 +17,21 @@ const logs_name = "eb_keep_logs_logs_kept_total";
 const bytes_name = "eb_keep_logs_bytes_kept_total";
 const prune_name = "eb_keep_logs_last_prune_timestamp_seconds";
 
+/// The value of a sample named `name`, or null when `line` is some other
+/// sample. Prometheus puts one integer timestamp after the value, and a
+/// tab separates the fields the same way a space does. A line that starts
+/// with `name` and is not that sample is invalid.
 fn parseSample(line: []const u8, comptime name: []const u8) !?[]const u8 {
     if (!std.mem.startsWith(u8, line, name)) return null;
-    if (line.len <= name.len or line[name.len] != ' ') return error.InvalidMetrics;
-    const value = std.mem.trim(u8, line[name.len + 1 ..], " \t\r");
-    if (value.len == 0) return error.InvalidMetrics;
+    if (line.len <= name.len or (line[name.len] != ' ' and line[name.len] != '\t')) return error.InvalidMetrics;
+    var rest = std.mem.trim(u8, line[name.len + 1 ..], " \t\r");
+    if (rest.len == 0) return error.InvalidMetrics;
+    const cut = std.mem.findAny(u8, rest, " \t") orelse return rest;
+    const value = rest[0..cut];
+    rest = std.mem.trim(u8, rest[cut..], " \t\r");
+    if (rest.len == 0) return value;
+    if (std.mem.findAny(u8, rest, " \t") != null) return error.InvalidMetrics;
+    _ = std.fmt.parseInt(i64, rest, 10) catch return error.InvalidMetrics;
     return value;
 }
 
@@ -166,6 +176,18 @@ test "parse and render metrics" {
     try std.testing.expectError(error.InvalidMetrics, parse(
         "eb_keep_logs_logs_kept_total 1\neb_keep_logs_logs_kept_total 2\n",
     ));
+}
+
+test "parse keeps the value when a sample has a timestamp" {
+    const text = "eb_keep_logs_logs_kept_total 3 1700000000000\n" ++
+        "eb_keep_logs_bytes_kept_total\t57 1700000000001\n" ++
+        "eb_keep_logs_last_prune_timestamp_seconds 1700000000 1700000000002\n";
+    try std.testing.expectEqual(State{
+        .logs_kept = 3,
+        .bytes_kept = 57,
+        .last_prune = 1_700_000_000,
+    }, try parse(text));
+    try std.testing.expectError(error.InvalidMetrics, parse("eb_keep_logs_logs_kept_total 3 not-a-timestamp\n"));
 }
 
 test "update preserves counters and replaces the whole file" {
