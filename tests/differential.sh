@@ -36,6 +36,7 @@ declare -A deliberate=(
     ["usage"]="\`usage\`"
     ["pending"]="\`pending\`"
     ["lifecycle"]="\`lifecycle\`"
+    ["rotate, killed mid-compress"]="a \`rotate\` killed while compressing a file"
 )
 compat_deliberate=$(sed -n '/^## Deliberate differences$/,/^## /p' "${repo_root}/COMPAT.md")
 # The environment both runs get, as env(1) takes it.
@@ -197,6 +198,57 @@ exec {held}>&-
 mkdir -p "${work}/symlock"
 ln -s "${work}/nowhere" "${work}/symlock/.eb-keep-logs-rotate.lock"
 compare "rotate, lock is a symbolic link" rotate "${work}/symlock" --compress-after 5
+# A kill in the middle of compressing a file leaves behind what each side's
+# compression writes mid-way, and a later rotate sees a different run. Each
+# side is killed once it has created its own destination for the file: the
+# shell's gzip under the final name, the Zig build's private temp. Waiting
+# for that destination to exist, rather than a sleep sized to guess when it
+# might, makes the kill land at a defined point on both sides.
+# wait_for_name DIR PATTERN: block until DIR has an entry matching the
+# find(1) -name PATTERN, or 10 seconds pass.
+wait_for_name() {
+    local dir=$1 pattern=$2 deadline
+    deadline=$((SECONDS + 10))
+    while :; do
+        [ -n "$(find "${dir}" -maxdepth 1 -name "${pattern}" -print -quit 2>/dev/null)" ] && return 0
+        [ "${SECONDS}" -ge "${deadline}" ] && return 1
+    done
+}
+mkdir -p "${work}/crash-old/20261001_120000" "${work}/crash-new/20261001_120000"
+head -c 20000000 /dev/urandom > "${work}/crash-old/20261001_120000/a.log"
+head -c 20000000 /dev/urandom > "${work}/crash-new/20261001_120000/a.log"
+"${OLD_BIN}" rotate "${work}/crash-old" --compress-after 5 >/dev/null 2>&1 &
+old_pid=$!
+wait_for_name "${work}/crash-old/20261001_120000" "a.log.gz"
+gzip_pid=$(pgrep -f "gzip -9 -- ${work}/crash-old/20261001_120000/a.log" | head -1)
+[ -n "${gzip_pid}" ] && kill -KILL "${gzip_pid}" 2>/dev/null
+wait "${old_pid}" 2>/dev/null
+"${TOOL_BIN}" rotate "${work}/crash-new" --compress-after 5 >/dev/null 2>&1 &
+new_pid=$!
+wait_for_name "${work}/crash-new/20261001_120000" ".a.log.gz.*.tmp"
+kill -KILL "${new_pid}" 2>/dev/null
+wait "${new_pid}" 2>/dev/null
+old_rerun=$("${OLD_BIN}" rotate "${work}/crash-old" --compress-after 5 2>/dev/null)
+new_rerun=$("${TOOL_BIN}" rotate "${work}/crash-new" --compress-after 5 2>/dev/null)
+old_count=$(sed -nE 's/^eb-keep-logs rotate: ([0-9]+) files? compressed.*/\1/p' <<< "${old_rerun}")
+new_count=$(sed -nE 's/^eb-keep-logs rotate: ([0-9]+) files? compressed.*/\1/p' <<< "${new_rerun}")
+old_left=no; [ -e "${work}/crash-old/20261001_120000/a.log" ] && old_left=yes
+new_left=no; [ -e "${work}/crash-new/20261001_120000/a.log" ] && new_left=yes
+label="rotate, killed mid-compress"
+if [ "${old_count}" != "${new_count}" ] || [ "${old_left}" != "${new_left}" ]; then
+    compat_case="${deliberate[${label}]:-}"
+    if [ -n "${compat_case}" ] && grep -qF -- "| ${compat_case} |" <<< "${compat_deliberate}"; then
+        echo "deliberate ${label}"
+    else
+        {
+            echo "DIFF ${label}: a second rotate compressed ${old_count} (shell) vs ${new_count} (Zig) file(s), a.log left behind: ${old_left} vs ${new_left}"
+            [ -z "${compat_case}" ] || echo "     COMPAT.md lists no deliberate difference: ${compat_case}"
+        } >&2
+        diffs=$((diffs + 1))
+    fi
+else
+    echo "same ${label}"
+fi
 # The one run is past --delete-after, and another process writes into it.
 mkdir -p "${work}/live/20261001_120000"
 echo build > "${work}/live/20261001_120000/B.stdout.log"
