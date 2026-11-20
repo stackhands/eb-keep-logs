@@ -10,6 +10,7 @@ const common = @import("zig_common");
 const sys = common.sys;
 const fsx = common.fsx;
 const cli = common.cli;
+const utf8_text = @import("utf8_text.zig");
 
 const Allocator = std.mem.Allocator;
 const tool = "eb-keep-logs";
@@ -194,7 +195,7 @@ pub fn formatRuns(gpa: Allocator, text: []const u8, exec: []const u8) (Allocator
         try out.appendSlice(gpa, row.path);
         try out.append(gpa, '\n');
     }
-    if (items.len == 0) try out.print(gpa, "no run of {s}\n", .{exec});
+    if (items.len == 0) try out.print(gpa, "no run of {f}\n", .{utf8_text.text(exec)});
     return try out.toOwnedSlice(gpa);
 }
 
@@ -241,7 +242,8 @@ pub fn cmdRuns(gpa: Allocator, args: []const []const u8) u8 {
             },
             error.OutOfMemory => die("out of memory", .{}),
         };
-        break :blk formatJson(gpa, exec, items) catch die("out of memory", .{});
+        const exec_text = utf8_text.utf8(scan, exec) catch die("out of memory", .{});
+        break :blk formatJson(gpa, exec_text, items) catch die("out of memory", .{});
     } else blk: {
         break :blk formatRuns(gpa, text, exec) catch |err| switch (err) {
             error.BadJson => {
