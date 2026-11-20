@@ -38,6 +38,7 @@ on the same invocations.
 | `lifecycle` | refused with `eb-keep-logs: lifecycle is in the Zig build only`, exit 2 | emits a reversible lifecycle plan and `.modulerc.lua` warnings/forbids from usage reports |
 | `--compress-after` or `--delete-after` with no value after it | never returns | refused, exit 2 |
 | `EB_KEEP_LOGS_NOW` not empty and not an integer | evaluated as shell arithmetic | refused, exit 2 |
+| `--compress-after` or `--delete-after` naming more days than an unsigned 64-bit integer holds | `[ -ge ]` or `[ -gt ]` on that count errors with `integer expression expected`, read as false for every run; `rotate` exits 0 having compressed and deleted nothing | refused, exit 2 |
 | `rotate`'s lock file cannot be opened, or is a symbolic link or not a regular file | `eb-keep-logs: cannot lock PATH`, exit 2, from a look at the name just before it is opened | `eb-keep-logs: cannot lock PATH: ERROR`, exit 2, from the open itself |
 | the file system cannot lock `rotate`'s lock file | flock(1)'s error, then `eb-keep-logs: cannot lock PATH; rotating without the lock`; also when flock(1) is missing | `eb-keep-logs: cannot lock PATH: ERROR; rotating without the lock` |
 | a `rotate` waiting for the lock | takes it as soon as it is let go, as flock(1) blocks | tries for it every 20 ms |

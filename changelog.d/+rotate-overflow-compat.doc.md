@@ -1,0 +1,1 @@
+`COMPAT.md` now lists a compress after or delete after count naming more days than an unsigned sixty-four bit integer holds as a deliberate difference: `rotate` refuses that count with exit status two, where the shell script's own comparison of it errors, is read as false, and leaves every run untouched.
