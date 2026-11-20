@@ -1077,10 +1077,28 @@ fn compressTree(c: Ctx, arena: Allocator, dir: fsx.fd_t, count: *usize) void {
     }
     for (files.items) |n| {
         testKillAt(c, "mid-copy");
-        logs.gzipInPlace(c.gpa, c.io, dir, n) catch |err| {
-            warn("cannot compress {s}/{s}: {t}", .{ here, n, err });
-            continue;
+        const compressed = ok: {
+            logs.gzipInPlace(c.gpa, c.io, dir, n) catch |err| {
+                // gzipInPlace's own last step, once the compressed data
+                // is renamed into place and the original removed, syncs
+                // the run directory only for crash durability. A
+                // failure there still leaves the file compressed on
+                // disk, so a stat of both names decides whether the
+                // file was truly left untouched or only left with its
+                // directory entry unsynced.
+                const gone = if (fsx.statAt(dir, n, false)) |_| false else |e| e == error.NotFound;
+                const gz = arena.print("{s}.gz", .{n}) catch return;
+                const synced_late = gone and if (fsx.statAt(dir, gz, false)) |_| true else |_| false;
+                if (!synced_late) {
+                    warn("cannot compress {s}/{s}: {t}", .{ here, n, err });
+                    break :ok false;
+                }
+                warn("cannot sync {s}/{s}.gz: {t}", .{ here, n, err });
+                break :ok true;
+            };
+            break :ok true;
         };
+        if (!compressed) continue;
         count.* += 1;
         const from = arena.print("{s}/{s}", .{ here, n }) catch return;
         const to = arena.print("{s}.gz", .{from}) catch return;
