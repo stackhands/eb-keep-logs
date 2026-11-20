@@ -21,6 +21,12 @@ diffs=0
 # deliberate differences.
 declare -A deliberate=(
     ["rotate, lock is a symbolic link"]="\`rotate\`'s lock file cannot be opened, or is a symbolic link or not a regular file"
+    ["rotate, compress-after overflow"]="\`--compress-after\` or \`--delete-after\` naming more days than an unsigned 64-bit integer holds"
+    ["rotate, delete-after overflow"]="\`--compress-after\` or \`--delete-after\` naming more days than an unsigned 64-bit integer holds"
+    ["rotate, delete-after past a signed 64-bit integer"]="\`--delete-after\` naming more days than a signed 64-bit integer holds, together with a \`--compress-after\` it is genuinely later than"
+    ["rotate, compress-after past a signed 64-bit integer"]="\`--compress-after\` naming more days than a signed 64-bit integer holds, without a \`--delete-after\` of its own"
+    ["rotate, EB_KEEP_LOGS_NOW far below a run"]="\`EB_KEEP_LOGS_NOW\` so far below a run's local midnight that the difference overflows a signed 64-bit integer"
+    ["rotate, EB_KEEP_LOGS_NOW far above a run"]="\`EB_KEEP_LOGS_NOW\` so far above a run's local midnight that the difference overflows a signed 64-bit integer"
     ["why"]="\`why\`"
     ["history"]="\`history\`"
     ["failures"]="\`failures\`"
@@ -126,6 +132,12 @@ compare "rotate, unknown option" rotate "${work}" --bogus
 compare "rotate, missing root" rotate "${work}/nope" --compress-after 3
 compare "rotate, no compress" rotate "${work}/logs"
 compare "rotate, bad compress" rotate "${work}/logs" --compress-after=x
+compare "rotate, compress-after overflow" rotate "${work}/logs" --compress-after 18446744073709551616
+compare "rotate, delete-after overflow" rotate "${work}/logs" --compress-after 5 --delete-after 18446744073709551616
+compare "rotate, delete-after past a signed 64-bit integer" rotate "${work}/logs" --compress-after 5 --delete-after 9223372036854775808
+mkdir -p "${work}/compress-overflow/20200101_000000"
+echo old > "${work}/compress-overflow/20200101_000000/a.log"
+compare "rotate, compress-after past a signed 64-bit integer" rotate "${work}/compress-overflow" --compress-after 9223372036854775808
 compare "rotate, delete not later" rotate "${work}/logs" --compress-after 5 --delete-after 5
 compare "rotate, empty delete" rotate "${work}/logs" --compress-after 5 --delete-after ""
 compare "rotate, nothing to do" rotate "${work}/logs" --compress-after 5 --delete-after 9
@@ -134,6 +146,16 @@ compare "rotate, bad syslog target" rotate "${work}/logs" --compress-after 5 --s
 EB_KEEP_LOGS_SYSLOG_PEN=0 compare "failed, bad syslog pen" failed 1 Foo "${work}/logs"
 EB_KEEP_LOGS_SYSLOG_PEN=abc compare "rotate, bad syslog pen" rotate "${work}/logs" --compress-after 5
 EB_KEEP_LOGS_NOW='' compare "rotate, empty EB_KEEP_LOGS_NOW" rotate "${work}/logs" --compress-after 5
+# EB_KEEP_LOGS_NOW so far from a run's local midnight that the difference
+# overflows a signed 64-bit integer, in each direction.
+mkdir -p "${work}/now-overflow/20261001_120000"
+echo old > "${work}/now-overflow/20261001_120000/a.log"
+EB_KEEP_LOGS_NOW="-9223372036854775808" compare "rotate, EB_KEEP_LOGS_NOW far below a run" \
+    rotate "${work}/now-overflow" --compress-after 5 --dry-run
+mkdir -p "${work}/now-overflow-early/00010101_120000"
+echo old > "${work}/now-overflow-early/00010101_120000/a.log"
+EB_KEEP_LOGS_NOW="9223372036854775807" compare "rotate, EB_KEEP_LOGS_NOW far above a run" \
+    rotate "${work}/now-overflow-early" --compress-after 5 --dry-run
 mkdir -p "${work}/preview/20261001_120000/sub"
 echo old > "${work}/preview/20261001_120000/a.log"
 echo old > "${work}/preview/20261001_120000/sub/b.log"
