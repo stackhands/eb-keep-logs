@@ -260,7 +260,7 @@ fn flatEntry(arena: Allocator, text: []const u8, from: usize, unwrap: bool) Allo
 
 /// The seconds in the last `(took DURATION)` of `entry`, DURATION as
 /// EasyBuild writes one: `< 1 sec`, `48 secs`, `2 mins 24 secs`,
-/// `1 hour 0 mins 5 secs`.
+/// `1 hour 0 mins 5 secs`, `1 day 2 hours`.
 pub fn tookSeconds(entry: []const u8) ?u64 {
     const at = std.mem.findLast(u8, entry, "(took ") orelse return null;
     const s = at + "(took ".len;
@@ -272,7 +272,16 @@ pub fn tookSeconds(entry: []const u8) ?u64 {
     while (words.next()) |num| {
         const n = std.fmt.parseInt(u64, num, 10) catch return null;
         const unit = words.next() orelse return null;
-        const scale: u64 = if (std.mem.startsWith(u8, unit, "hour")) 3600 else if (std.mem.startsWith(u8, unit, "min")) 60 else if (std.mem.startsWith(u8, unit, "sec")) 1 else return null;
+        const scale: u64 = if (std.mem.startsWith(u8, unit, "day"))
+            86400
+        else if (std.mem.startsWith(u8, unit, "hour"))
+            3600
+        else if (std.mem.startsWith(u8, unit, "min"))
+            60
+        else if (std.mem.startsWith(u8, unit, "sec"))
+            1
+        else
+            return null;
         total = std.math.add(u64, total, std.math.mul(u64, n, scale) catch return null) catch return null;
         any = true;
     }
@@ -1383,6 +1392,8 @@ test "tookSeconds reads EasyBuild's durations" {
     try testing.expectEqual(@as(?u64, 144), tookSeconds("x (took 2 mins 24 secs)"));
     try testing.expectEqual(@as(?u64, 60), tookSeconds("x (took 1 min 0 secs)"));
     try testing.expectEqual(@as(?u64, 3605), tookSeconds("x (took 1 hour 0 mins 5 secs)"));
+    try testing.expectEqual(@as(?u64, 86400), tookSeconds("x (took 1 day)"));
+    try testing.expectEqual(@as(?u64, 2 * 86400 + 3600 + 125), tookSeconds("x (took 2 days 1 hour 2 mins 5 secs)"));
     try testing.expectEqual(@as(?u64, 7), tookSeconds("(took 9 secs) then (took 7 secs)"));
     try testing.expectEqual(@as(?u64, null), tookSeconds("x (took a while)"));
     try testing.expectEqual(@as(?u64, null), tookSeconds("x (took 3"));
