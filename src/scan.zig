@@ -93,9 +93,22 @@ pub fn mesonPassed(text: []const u8) bool {
     return summary;
 }
 
+/// The valid UTF-8 prefix of `s`, or all of it.
+fn utf8Prefix(s: []const u8) []const u8 {
+    var i: usize = 0;
+    while (i < s.len) {
+        const n: usize = std.unicode.utf8ByteSequenceLength(s[i]) catch return s[0..i];
+        if (i + n > s.len) return s[0..i];
+        _ = std.unicode.utf8Decode(s[i..][0..n]) catch return s[0..i];
+        i += n;
+    }
+    return s;
+}
+
 /// The last match of the PCRE `meson test -C\s+\K[^[:space:]]+` over the
-/// whole log, newlines counting as spaces.
-pub fn lastMesonDir(text: []const u8) ?[]const u8 {
+/// whole log, newlines counting as spaces. In a UTF-8 locale grep ends a
+/// match before a byte that is not valid UTF-8.
+pub fn lastMesonDir(text: []const u8, utf8_locale: bool) ?[]const u8 {
     const needle = "meson test -C";
     var last: ?[]const u8 = null;
     var pos: usize = 0;
@@ -109,7 +122,8 @@ pub fn lastMesonDir(text: []const u8) ?[]const u8 {
         }
         const s = i;
         while (i < text.len and !isSpace(text[i])) i += 1;
-        last = text[s..i];
+        const path = if (utf8_locale) utf8Prefix(text[s..i]) else text[s..i];
+        if (path.len > 0) last = path;
         pos = i;
     }
     return last;
@@ -180,7 +194,11 @@ test "mesonPassed" {
 }
 
 test "lastMesonDir" {
-    try std.testing.expectEqualStrings("/b", lastMesonDir("meson test -C\n  /a --x\nmeson test -C /b\n").?);
-    try std.testing.expect(lastMesonDir("meson test -C/a") == null);
-    try std.testing.expect(lastMesonDir("meson test -C   ") == null);
+    try std.testing.expectEqualStrings("/b", lastMesonDir("meson test -C\n  /a --x\nmeson test -C /b\n", true).?);
+    try std.testing.expectEqualStrings("/a/caf\u{e9}", lastMesonDir("meson test -C /a/caf\u{e9}\n", true).?);
+    try std.testing.expectEqualStrings("/a/name", lastMesonDir("meson test -C /a/name\xff-tail\n", true).?);
+    try std.testing.expectEqualStrings("/a/name\xff-tail", lastMesonDir("meson test -C /a/name\xff-tail\n", false).?);
+    try std.testing.expect(lastMesonDir("meson test -C \xff-name\n", true) == null);
+    try std.testing.expect(lastMesonDir("meson test -C/a", true) == null);
+    try std.testing.expect(lastMesonDir("meson test -C   ", true) == null);
 }
