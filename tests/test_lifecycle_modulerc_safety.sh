@@ -14,18 +14,8 @@ case "${tool}" in /*) ;; *) tool="${PWD}/${tool}" ;; esac
 cd "${repo_root}" || exit 1
 
 fails=0
-check() {
-    if [ "$2" = "$3" ]; then
-        echo "ok   $1"
-    else
-        {
-            echo "FAIL $1"
-            echo "     expected: $3"
-            echo "     got:      $2"
-        } >&2
-        fails=$((fails + 1))
-    fi
-}
+# shellcheck source=tests/lib/check.sh
+. "${repo_root}/tests/lib/check.sh"
 
 work=$(mktemp -d "${TMPDIR:-/tmp}/eb-keep-logs-modulerc-safety.XXXXXX")
 trap 'rm -rf -- "${work}"' EXIT
