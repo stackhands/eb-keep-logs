@@ -24,6 +24,7 @@ declare -A deliberate=(
     ["rotate, compress-after overflow"]="\`--compress-after\` or \`--delete-after\` naming more days than an unsigned 64-bit integer holds"
     ["rotate, delete-after overflow"]="\`--compress-after\` or \`--delete-after\` naming more days than an unsigned 64-bit integer holds"
     ["rotate, delete-after past a signed 64-bit integer"]="\`--delete-after\` naming more days than a signed 64-bit integer holds, together with a \`--compress-after\` it is genuinely later than"
+    ["rotate, compress-after past a signed 64-bit integer"]="\`--compress-after\` naming more days than a signed 64-bit integer holds, without a \`--delete-after\` of its own"
     ["why"]="\`why\`"
     ["history"]="\`history\`"
     ["failures"]="\`failures\`"
@@ -132,6 +133,9 @@ compare "rotate, bad compress" rotate "${work}/logs" --compress-after=x
 compare "rotate, compress-after overflow" rotate "${work}/logs" --compress-after 18446744073709551616
 compare "rotate, delete-after overflow" rotate "${work}/logs" --compress-after 5 --delete-after 18446744073709551616
 compare "rotate, delete-after past a signed 64-bit integer" rotate "${work}/logs" --compress-after 5 --delete-after 9223372036854775808
+mkdir -p "${work}/compress-overflow/20200101_000000"
+echo old > "${work}/compress-overflow/20200101_000000/a.log"
+compare "rotate, compress-after past a signed 64-bit integer" rotate "${work}/compress-overflow" --compress-after 9223372036854775808
 compare "rotate, delete not later" rotate "${work}/logs" --compress-after 5 --delete-after 5
 compare "rotate, empty delete" rotate "${work}/logs" --compress-after 5 --delete-after ""
 compare "rotate, nothing to do" rotate "${work}/logs" --compress-after 5 --delete-after 9
