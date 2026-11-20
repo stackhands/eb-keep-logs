@@ -40,6 +40,8 @@ check "the archive exists" "$([ -e "${work}/root/20200101_120000/build.log.gz" ]
 check "the archive is a valid gzip member" "$(gzip -t "${work}/root/20200101_120000/build.log.gz" 2>&1; echo "rc=$?")" "rc=0"
 check "the summary counts the file compressed" "$(printf '%s\n' "${out}" | grep -c '1 file compressed, 0 runs deleted')" "1"
 check "a sync warning names the archive, not the source" "$(printf '%s\n' "${out}" | grep -c 'cannot sync .*build\.log\.gz')" "1"
+check "the sync warning names EIO" "$(printf '%s\n' "${out}" | grep -c 'cannot sync .*build\.log\.gz: EIO')" "1"
+check "the sync warning does not say Unexpected" "$(printf '%s\n' "${out}" | grep -c 'Unexpected')" "0"
 check "no stray compress refusal" "$(printf '%s\n' "${out}" | grep -c 'cannot compress')" "0"
 
 if [ "${fails}" -ne 0 ]; then echo "${fails} failed"; exit 1; fi
