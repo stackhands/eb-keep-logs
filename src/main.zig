@@ -1608,20 +1608,28 @@ test {
 /// gives up: the parent kills the child, and the child exits.
 const handshake_ms: i32 = 30_000;
 
-/// Wait on `fd` for input, at most `deadline_ms`. False on a timeout or an
-/// error. `pidfd`, when it is not -1, also ends the wait: the child it
-/// names has exited.
-fn waitReadable(fd: i32, pidfd: i32, deadline_ms: i32) bool {
+fn monotonicMs() i64 {
+    var ts: linux.timespec = undefined;
+    _ = linux.clock_gettime(.MONOTONIC, &ts);
+    return @as(i64, ts.sec) * 1000 + @divTrunc(@as(i64, ts.nsec), 1_000_000);
+}
+
+/// Wait on `fd` for input, until `timeout_ms` from now. False on a timeout
+/// or an error. `pidfd`, when it is not -1, also ends the wait: the child it
+/// names has exited. A signal that interrupts the wait does not extend it.
+fn waitReadable(fd: i32, pidfd: i32, timeout_ms: i32) bool {
     var fds = [2]linux.pollfd{
         .{ .fd = fd, .events = linux.POLL.IN, .revents = 0 },
         .{ .fd = pidfd, .events = linux.POLL.IN, .revents = 0 },
     };
     const n: usize = if (pidfd == -1) 1 else 2;
+    const deadline = monotonicMs() + timeout_ms;
     while (true) {
-        const rc = linux.poll(&fds, n, deadline_ms);
+        const left = @max(deadline - monotonicMs(), 0);
+        const rc = linux.poll(&fds, n, @intCast(left));
         switch (linux.errno(rc)) {
             .SUCCESS => return rc > 0 and fds[0].revents != 0,
-            .INTR => continue,
+            .INTR => if (left == 0) return false,
             else => return false,
         }
     }
@@ -1640,6 +1648,57 @@ fn reapChild(pid: linux.pid_t, pidfd: i32) ?u32 {
     }
     _ = linux.waitpid(pid, &status, linux.W.NOHANG);
     return @bitCast(status);
+}
+
+/// The SIGALRMs of the interval timer the test below starts, counted, with
+/// the timer stopped at the last one.
+const alarms = struct {
+    const last: u32 = 400;
+    var count: u32 = 0;
+
+    fn handle(_: linux.SIG) callconv(.c) void {
+        if (@atomicRmw(u32, &count, .Add, 1, .monotonic) + 1 == last) every(0);
+    }
+
+    /// Deliver SIGALRM every `us` microseconds; 0 stops it.
+    fn every(us: i64) void {
+        const Itimerval = extern struct { interval: linux.timeval, value: linux.timeval };
+        const t: Itimerval = .{ .interval = .{ .sec = 0, .usec = us }, .value = .{ .sec = 0, .usec = us } };
+        _ = linux.syscall3(.setitimer, @intCast(@backingInt(linux.ITIMER.REAL)), @intFromPtr(&t), 0);
+    }
+};
+
+test "waitReadable gives up at its deadline while signals keep interrupting it" {
+    var never: [2]i32 = undefined;
+    try std.testing.expectEqual(linux.E.SUCCESS, linux.errno(linux.pipe2(&never, .{ .CLOEXEC = true })));
+    defer _ = linux.close(never[0]);
+    defer _ = linux.close(never[1]);
+    const rc = linux.fork();
+    try std.testing.expectEqual(linux.E.SUCCESS, linux.errno(rc));
+    if (rc == 0) {
+        const act: linux.Sigaction = .{
+            .handler = .{ .handler = alarms.handle },
+            .mask = linux.sigemptyset(),
+            .flags = 0,
+        };
+        _ = linux.sigaction(.ALRM, &act, null);
+        alarms.every(5_000);
+        const ready = waitReadable(never[0], -1, 100);
+        // The timer still runs when a wait that keeps its deadline ends; a
+        // wait that starts over after each signal outlasts the last one.
+        linux.exit(if (ready) 2 else if (@atomicLoad(u32, &alarms.count, .monotonic) < alarms.last) 0 else 1);
+    }
+    const pid: linux.pid_t = @intCast(rc);
+    const pidfd_rc = linux.pidfd_open(pid, 0);
+    if (linux.errno(pidfd_rc) != .SUCCESS) {
+        _ = linux.kill(pid, .KILL);
+        var status: i32 = 0;
+        _ = linux.waitpid(pid, &status, 0);
+        return error.TestUnexpectedResult;
+    }
+    const raw = reapChild(pid, @intCast(pidfd_rc)) orelse return error.TestUnexpectedResult;
+    try std.testing.expect(linux.W.IFEXITED(raw));
+    try std.testing.expectEqual(@as(u8, 0), linux.W.EXITSTATUS(raw));
 }
 
 /// The walk tests and their helpers, in a container nothing in the product
@@ -1669,12 +1728,6 @@ const walk_tests = struct {
 
     const SockFilter = extern struct { code: u16, jt: u8, jf: u8, k: u32 };
     const SockFprog = extern struct { len: u16, filter: [*]const SockFilter };
-
-    fn monotonicMs() i64 {
-        var ts: linux.timespec = undefined;
-        _ = linux.clock_gettime(.MONOTONIC, &ts);
-        return @as(i64, ts.sec) * 1000 + @divTrunc(@as(i64, ts.nsec), 1_000_000);
-    }
 
     /// A forked child that stops at every call of one system call until the
     /// test answers it, through a seccomp listener the test takes from it.
