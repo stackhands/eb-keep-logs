@@ -21,6 +21,8 @@ diffs=0
 # deliberate differences.
 declare -A deliberate=(
     ["rotate, lock is a symbolic link"]="\`rotate\`'s lock file cannot be opened, or is a symbolic link or not a regular file"
+    ["rotate, compress-after overflow"]="\`--compress-after\` or \`--delete-after\` naming more days than an unsigned 64-bit integer holds"
+    ["rotate, delete-after overflow"]="\`--compress-after\` or \`--delete-after\` naming more days than an unsigned 64-bit integer holds"
     ["why"]="\`why\`"
     ["history"]="\`history\`"
     ["failures"]="\`failures\`"
@@ -126,6 +128,8 @@ compare "rotate, unknown option" rotate "${work}" --bogus
 compare "rotate, missing root" rotate "${work}/nope" --compress-after 3
 compare "rotate, no compress" rotate "${work}/logs"
 compare "rotate, bad compress" rotate "${work}/logs" --compress-after=x
+compare "rotate, compress-after overflow" rotate "${work}/logs" --compress-after 18446744073709551616
+compare "rotate, delete-after overflow" rotate "${work}/logs" --compress-after 5 --delete-after 18446744073709551616
 compare "rotate, delete not later" rotate "${work}/logs" --compress-after 5 --delete-after 5
 compare "rotate, empty delete" rotate "${work}/logs" --compress-after 5 --delete-after ""
 compare "rotate, nothing to do" rotate "${work}/logs" --compress-after 5 --delete-after 9
