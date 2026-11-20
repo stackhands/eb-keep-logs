@@ -1,0 +1,15 @@
+name: Install strace
+description: Install strace and check that a child process can be traced
+runs:
+  using: composite
+  steps:
+    - name: Install strace, for the fsync durability test's fault injection
+      shell: bash
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y strace
+        # A plain self-trace of a child process, the same shape the
+        # fsync durability test relies on, catches a runner whose
+        # ptrace is blocked (by seccomp or a hardened ptrace_scope)
+        # here, with a clear message, rather than inside that test.
+        strace -f -e trace=write -- true
