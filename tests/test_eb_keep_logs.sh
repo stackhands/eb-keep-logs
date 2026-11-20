@@ -249,6 +249,17 @@ check "sanity check failure: passing testlog not kept" "$(count 'Sane-1.0.failed
 check "failed meson test: its output kept" "$(cat "${work}/logs/Broken-1.0.failed.command-out.txt" 2>/dev/null)" "meson-1 output"
 check "failed meson test: testlog kept" "$(tail -n 1 "${work}/logs/Broken-1.0.failed.meson-testlog.txt" 2>/dev/null)" "Fail:              1   "
 check "build died in a command: its output kept" "$(cat "${work}/logs/Killed-1.0.failed.command-out.txt" 2>/dev/null)" "make-3 output"
+# In a UTF-8 locale grep stops a PCRE path at an invalid byte. The Zig
+# reader must not continue through that byte and file a different testlog.
+nonutf=$'\xff'
+mkdir -p "${work}/build/nonutf${nonutf}/meson-logs"
+printf 'Ok: 0\nFail: 1\n' > "${work}/build/nonutf${nonutf}/meson-logs/testlog.txt"
+printf 'meson test -C %s/build/nonutf%s\n' "${work}" "${nonutf}" > "${work}/tmp/easybuild-NonUtf-1.0.log"
+printf '#!/bin/bash\necho %s/tmp/easybuild-NonUtf-1.0.log\n' "${work}" > "${work}/bin/eb"
+LC_ALL=C.UTF-8 "${tool}" failed 1 NonUtf-1.0 "${work}/logs" >/dev/null
+check "non-UTF-8 meson path in a UTF-8 locale is stopped" "$(count 'NonUtf-1.0.failed.meson-testlog.txt')" "0"
+LC_ALL=C "${tool}" failed 1 NonUtfC-1.0 "${work}/logs" >/dev/null
+check "non-UTF-8 meson path in the C locale is kept" "$(count 'NonUtfC-1.0.failed.meson-testlog.txt')" "1"
 # failed: EasyBuild 5.3 and later fold the --last-log path at 80 columns on a
 # pipe, unless --output-style=basic is given
 deep="${work}/tmp/scratch/easybuild/build-logs/20261113_235000/site-zen4/easybuild-logs/Long-1.0-GCC-15.2.0"

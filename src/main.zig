@@ -388,6 +388,16 @@ const Ctx = struct {
     }
 };
 
+/// Whether the character locale asks grep to treat its input as UTF-8.
+/// Empty locale variables fall through as setlocale(3) specifies.
+fn utf8Locale(c: Ctx) bool {
+    const locale = for ([_][]const u8{ "LC_ALL", "LC_CTYPE", "LANG" }) |name| {
+        if (c.getenv(name)) |value| if (value.len > 0) break value;
+    } else "C";
+    return std.ascii.findIgnoreCase(locale, "UTF-8") != null or
+        std.ascii.findIgnoreCase(locale, "UTF8") != null;
+}
+
 fn allDigits(s: []const u8) bool {
     if (s.len == 0) return false;
     for (s) |ch| if (!std.ascii.isDigit(ch)) return false;
@@ -833,7 +843,7 @@ fn cmdFailed(c: Ctx, args: []const [:0]const u8) u8 {
     // the full output is meson-logs/testlog.txt in the build directory. A
     // testlog whose tests all passed is not the failure.
     var meson_kept = false;
-    if (src_text) |t| if (scan.lastMesonDir(t)) |dir| blk: {
+    if (src_text) |t| if (scan.lastMesonDir(t, utf8Locale(c))) |dir| blk: {
         const testlog = c.gpa.print("{s}/meson-logs/testlog.txt", .{dir}) catch break :blk;
         defer c.gpa.free(testlog);
         if (fsx.openRegular(fsx.cwd, testlog, true)) |tl| {
