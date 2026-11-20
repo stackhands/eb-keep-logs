@@ -1019,7 +1019,14 @@ fn runAgeDays(zone: *const localtime.Zone, name: []const u8, now: i64) ?i64 {
     const d = std.fmt.parseInt(u8, name[6..8], 10) catch return null;
     if (m < 1 or m > 12 or d < 1 or d > localtime.daysInMonth(y, m)) return null;
     const start = zone.fromLocal(localtime.daysFromCivil(y, m, d) * 86400) orelse return null;
-    return @divTrunc(now - start, 86400);
+    // now and start are each bounded on their own (EB_KEEP_LOGS_NOW takes any
+    // i64; a run's year is 4 digits, so start spans at most a few thousand
+    // years around the epoch), but the two together can still carry the
+    // difference past what i64 holds. Saturate rather than let that wrap or
+    // panic: a now so far below start that the true age would not fit is
+    // every bit as far from old enough to compress or delete as i64's own
+    // minimum, and the same the other way around for a now far above start.
+    return @divTrunc(now -| start, 86400);
 }
 
 const Renames = std.StringHashMapUnmanaged([]const u8);
@@ -1594,6 +1601,24 @@ test "runAgeDays" {
     try std.testing.expectEqual(@as(?i64, null), runAgeDays(&z, "20260230_120000", now));
     try std.testing.expectEqual(@as(?i64, null), runAgeDays(&z, "notarun", now));
     try std.testing.expectEqual(@as(?i64, 0), runAgeDays(&z, "20261113_235959", now + 3600));
+}
+
+test "runAgeDays saturates rather than panics when EB_KEEP_LOGS_NOW is far enough from a run's local midnight to overflow i64" {
+    const z: localtime.Zone = .{};
+    // A now of i64's minimum is always below a run's local midnight (year
+    // 0001 at the earliest), so the difference saturates at i64's minimum,
+    // dividing down into a hugely negative, never old enough age.
+    try std.testing.expectEqual(
+        @as(?i64, @divTrunc(std.math.minInt(i64), 86400)),
+        runAgeDays(&z, "20200101_000000", std.math.minInt(i64)),
+    );
+    // A now of i64's maximum is always above a run's local midnight, so the
+    // difference saturates at i64's maximum, dividing down into a hugely
+    // positive, long since old enough age.
+    try std.testing.expectEqual(
+        @as(?i64, @divTrunc(std.math.maxInt(i64), 86400)),
+        runAgeDays(&z, "00010101_000000", std.math.maxInt(i64)),
+    );
 }
 
 test "addRunOf" {
