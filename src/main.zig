@@ -378,6 +378,24 @@ fn warn(comptime fmt: []const u8, args: anytype) void {
     cli.err(tool ++ ": " ++ fmt ++ "\n", args);
 }
 
+/// The errno's own name: `EIO` for `EIO`. `{t}` on the Zig error prints
+/// `Unexpected` for every errno this program does not give its own error,
+/// which hides the failure the kernel reported. Every name Linux has is a
+/// static string; an errno it does not name prints as its number. Read
+/// `sys.last_errno` before another call replaces it.
+fn errnoName(e: linux.E) []const u8 {
+    if (e == .SUCCESS) return "no errno";
+    const info = @typeInfo(linux.E).@"enum";
+    @setEvalBranchQuota(info.field_names.len * 1000);
+    inline for (info.field_names, info.field_values) |name, value| {
+        if (@backingInt(e) == value) return "E" ++ name;
+    }
+    const S = struct {
+        threadlocal var buf: [std.fmt.count("errno {d}", .{std.math.maxInt(u16)})]u8 = undefined;
+    };
+    return std.mem.print(&S.buf, "errno {d}", .{@as(u16, @backingInt(e))}) catch unreachable;
+}
+
 const Ctx = struct {
     gpa: Allocator,
     io: std.Io,
@@ -1219,7 +1237,7 @@ fn compressTree(c: Ctx, arena: Allocator, dir: fsx.fd_t, count: *usize) void {
                     },
                     // The archive is in place and the original gone; only the
                     // directory sync that makes that durable failed.
-                    .directory_sync => warn("cannot sync {s}/{s}.gz: {t}", .{ here, n, err }),
+                    .directory_sync => warn("cannot sync {s}/{s}.gz: {s}", .{ here, n, errnoName(sys.last_errno) }),
                 };
                 v.count.* += 1;
                 const from = v.arena.print("{s}/{s}", .{ here, n }) catch return;
@@ -1712,6 +1730,14 @@ const raced_rotate = struct {
         _ = linux.read(wake_fd, &b, 1);
     }
 };
+
+test "errnoName names the errno the kernel gave and nothing else" {
+    try std.testing.expectEqualStrings("EIO", errnoName(.IO));
+    try std.testing.expectEqualStrings("ENOSPC", errnoName(.NOSPC));
+    try std.testing.expectEqualStrings("errno 4095", errnoName(@fromBackingInt(4095)));
+    try std.testing.expectEqualStrings("errno 65535", errnoName(@fromBackingInt(65535)));
+    try std.testing.expectEqualStrings("no errno", errnoName(.SUCCESS));
+}
 
 test "a log another rotate already archived is not counted again" {
     const gpa = std.testing.allocator;
