@@ -128,6 +128,25 @@ overflow=$(PATH="${work}/bin:${PATH}" "${tool}" failed --metrics-file "${metrics
 case "${overflow}" in *"counter overflow"*|*"Overflow"*) ;; *) exit 1 ;; esac
 [ "$(sha256sum "${metrics}")" = "${before}" ]
 
+# A sample may carry Prometheus' optional timestamp, and the name and the
+# value may be separated by a tab. The counters add to that value.
+{
+    printf '%s\n' '# HELP eb_keep_logs_logs_kept_total Log files kept by eb-keep-logs.'
+    printf '%s\n' '# TYPE eb_keep_logs_logs_kept_total counter'
+    printf '%s\n' 'eb_keep_logs_logs_kept_total 4 1700000000000'
+    printf '%s\n' '# HELP eb_keep_logs_bytes_kept_total Bytes written to kept log files by eb-keep-logs.'
+    printf '%s\n' '# TYPE eb_keep_logs_bytes_kept_total counter'
+    printf 'eb_keep_logs_bytes_kept_total\t20 1700000000001\n'
+    printf '%s\n' '# HELP eb_keep_logs_last_prune_timestamp_seconds Unix timestamp of the last completed eb-keep-logs rotation.'
+    printf '%s\n' '# TYPE eb_keep_logs_last_prune_timestamp_seconds gauge'
+    printf '%s\n' 'eb_keep_logs_last_prune_timestamp_seconds 9 1700000000002'
+} > "${metrics}"
+PATH="${work}/bin:${PATH}" "${tool}" failed --metrics-file "${metrics}" 1 Timestamped "${work}/logs" >/dev/null || exit 1
+promtool check metrics < "${metrics}" || exit 1
+grep -qx 'eb_keep_logs_logs_kept_total 5' "${metrics}" || exit 1
+grep -qx 'eb_keep_logs_bytes_kept_total 26' "${metrics}" || exit 1
+grep -qx 'eb_keep_logs_last_prune_timestamp_seconds 9' "${metrics}" || exit 1
+
 # A dry-run rotation writes no metrics, creates no sidecar lock, and leaves
 # an existing exposition untouched even when --metrics-file is given.
 dry_root="${work}/dry-root"
