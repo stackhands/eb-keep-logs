@@ -39,6 +39,30 @@ pub fn build(b: *std.Build) void {
     const unit = b.addTest(.{ .root_module = mod });
     b.step("unit", "Run the unit tests").dependOn(&b.addRunArtifact(unit).step);
 
+    // A second binary, under zig_common's own -Dtest-ops (atomic.replaceable),
+    // so EB_KEEP_LOGS_TEST_KILL_AT can make it die by SIGKILL at a named step
+    // of rotate and a test can see what that left behind. Never the
+    // installed binary: a release build never depends on zig_common with
+    // -Dtest-ops set.
+    const test_common = b.dependency("zig_common", .{ .target = target, .optimize = optimize, .@"test-ops" = true });
+    const test_mod = b.createModule(.{
+        .root_source_file = b.path("src/main.zig"),
+        .target = target,
+        .optimize = optimize,
+        .strip = strip,
+        .imports = &.{
+            .{ .name = "zig_common", .module = test_common.module("zig_common") },
+            .{ .name = "build_options", .module = options.createModule() },
+        },
+    });
+    const test_ops_exe = b.addExecutable(.{ .name = "eb-keep-logs-test-ops", .root_module = test_mod, .linkage = .static });
+    const crash_safety = b.addSystemCommand(&.{ "bash", "-c", "TOOL_BIN=\"$0\" exec bash tests/test_crash_safety.sh" });
+    crash_safety.addArtifactArg(test_ops_exe);
+    crash_safety.setCwd(b.path("."));
+    crash_safety.expectExitCode(0);
+    crash_safety.has_side_effects = true;
+    b.step("crash-safety", "Run the signal and crash safety suite").dependOn(&crash_safety.step);
+
     // The shell suite of the old implementation, run against this binary.
     // It and the differential run below run in the build root: their script
     // paths are relative, and zig build may be started in a subdirectory.
@@ -140,4 +164,5 @@ pub fn build(b: *std.Build) void {
     test_step.dependOn(&stable_output_test.step);
     test_step.dependOn(&failures_test.step);
     test_step.dependOn(&metrics_test.step);
+    test_step.dependOn(&crash_safety.step);
 }

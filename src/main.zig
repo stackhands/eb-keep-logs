@@ -4,6 +4,7 @@ const std = @import("std");
 const linux = std.os.linux;
 const build_options = @import("build_options");
 const common = @import("zig_common");
+const atomic = common.atomic;
 const sys = common.sys;
 const fsx = common.fsx;
 const proc = common.proc;
@@ -969,6 +970,27 @@ fn realtimeSeconds() i64 {
     return ts.sec;
 }
 
+/// Reached at each of rotate's named points where a crash could land, so a
+/// `-Dtest-ops` artifact can be told, through `EB_KEEP_LOGS_TEST_KILL_AT`,
+/// to send itself a signal there and let a later invocation show what that
+/// left behind. `EB_KEEP_LOGS_TEST_KILL_SIG` names the signal, KILL, TERM or
+/// INT; unset or any other value means KILL. In any other build this reads
+/// no environment and costs nothing: `atomic.replaceable` is false, so the
+/// body below does not exist.
+fn testKillAt(c: Ctx, step: []const u8) void {
+    if (comptime !atomic.replaceable) return;
+    const want = c.getenv("EB_KEEP_LOGS_TEST_KILL_AT") orelse return;
+    if (!std.mem.eql(u8, want, step)) return;
+    const sig_name = c.getenv("EB_KEEP_LOGS_TEST_KILL_SIG") orelse "";
+    const sig: linux.SIG = if (std.mem.eql(u8, sig_name, "TERM"))
+        .TERM
+    else if (std.mem.eql(u8, sig_name, "INT"))
+        .INT
+    else
+        .KILL;
+    _ = linux.kill(linux.getpid(), sig);
+}
+
 /// Open `root/.eb-keep-logs-rotate.lock`, created when missing; for reading
 /// when it cannot be opened for writing, by a user who may not write ROOT.
 /// A symbolic link or a file that is not a regular one is refused.
@@ -1032,9 +1054,12 @@ fn runAgeDays(zone: *const localtime.Zone, name: []const u8, now: i64) ?i64 {
 const Renames = std.StringHashMapUnmanaged([]const u8);
 
 /// gzip every *.log and *.txt regular file under `dir`, at any depth,
-/// without following symbolic links. Each compressed file's resolved path
-/// and its .gz path go into `renames`.
-fn compressTree(c: Ctx, arena: Allocator, dir: fsx.fd_t, renames: *Renames, count: *usize) void {
+/// without following symbolic links. `dir`'s own `.licensed-logs`, if it
+/// names a compressed file, follows that file right after it is
+/// compressed, as the shell script's own loop does, so a crash before
+/// the next file's compression leaves no more than that one file's own
+/// line to ever go stale.
+fn compressTree(c: Ctx, arena: Allocator, dir: fsx.fd_t, count: *usize) void {
     var rb: [sys.path_max]u8 = undefined;
     const here = arena.dupe(u8, fsx.realpathFd(dir, &rb) catch |err| return warn("cannot resolve a run directory: {t}", .{err})) catch return;
     var it = fsx.DirIter.init(c.gpa, dir) catch return;
@@ -1051,6 +1076,7 @@ fn compressTree(c: Ctx, arena: Allocator, dir: fsx.fd_t, renames: *Renames, coun
         }
     }
     for (files.items) |n| {
+        testKillAt(c, "mid-copy");
         logs.gzipInPlace(c.gpa, c.io, dir, n) catch |err| {
             warn("cannot compress {s}/{s}: {t}", .{ here, n, err });
             continue;
@@ -1058,7 +1084,10 @@ fn compressTree(c: Ctx, arena: Allocator, dir: fsx.fd_t, renames: *Renames, coun
         count.* += 1;
         const from = arena.print("{s}/{s}", .{ here, n }) catch return;
         const to = arena.print("{s}.gz", .{from}) catch return;
+        var renames: Renames = .empty;
         renames.put(arena, from, to) catch return;
+        followLists(c, dir, &renames);
+        testKillAt(c, "after-rename");
     }
     for (subdirs.items) |n| {
         const sub = fsx.openDir(dir, n, false) catch |err| {
@@ -1066,7 +1095,7 @@ fn compressTree(c: Ctx, arena: Allocator, dir: fsx.fd_t, renames: *Renames, coun
             continue;
         };
         defer sys.close(sub);
-        compressTree(c, arena, sub, renames, count);
+        compressTree(c, arena, sub, count);
     }
 }
 
@@ -1110,20 +1139,20 @@ fn previewTree(c: Ctx, arena: Allocator, dir: fsx.fd_t, paths: *std.ArrayList([]
     }
 }
 
-/// Rewrite every .licensed-logs under `dir` so it names the compressed
-/// files. Each new list is written beside the old one, synced, renamed over
-/// it and its directory synced, as copyDurable does, so a reader or a crash
+/// Rewrite `dir`'s own `.licensed-logs`, if it has one, so it names the
+/// compressed files. `renames` only ever carries a file that lived
+/// directly in `dir`, since a `.licensed-logs` only ever names files
+/// that live beside it, so `dir`'s own entry, with no need to look under
+/// its subdirectories, is the only one a rename there could change. The
+/// new list is written beside the old one, synced, renamed over it and
+/// its directory synced, as copyDurable does, so a reader or a crash
 /// finds one list or the other.
 fn followLists(c: Ctx, dir: fsx.fd_t, renames: *const Renames) void {
     var it = fsx.DirIter.init(c.gpa, dir) catch return;
     defer it.deinit(c.gpa);
     while (it.next() catch return) |e| {
         const t = fsx.entryType(dir, e) catch continue;
-        if (t == fsx.DT.DIR) {
-            const sub = fsx.openDir(dir, e.name, false) catch continue;
-            defer sys.close(sub);
-            followLists(c, sub, renames);
-        } else if (t == fsx.DT.REG and std.mem.eql(u8, e.name, logs.licensed_list)) {
+        if (t == fsx.DT.REG and std.mem.eql(u8, e.name, logs.licensed_list)) {
             const f = fsx.openRegular(dir, e.name, false) catch continue;
             defer sys.close(f.fd);
             const text = fsx.readAll(c.gpa, f.fd, 64 << 20) catch |err| {
@@ -1304,6 +1333,7 @@ fn cmdRotate(c: Ctx, args: []const [:0]const u8) u8 {
         };
     }
     defer if (lock) |fd| sys.close(fd);
+    testKillAt(c, "after-lock");
     const now: i64 = fixed_now orelse realtimeSeconds();
     var zone = localtime.load(c.gpa, c.getenv("TZ"), c.getenv("TZDIR"));
     defer zone.deinit();
@@ -1369,11 +1399,9 @@ fn cmdRotate(c: Ctx, args: []const [:0]const u8) u8 {
             }
             continue;
         }
-        var renames: Renames = .empty;
         var n: usize = 0;
-        compressTree(c, arena, dir, &renames, &n);
+        compressTree(c, arena, dir, &n);
         compressed += n;
-        if (renames.count() > 0) followLists(c, dir, &renames);
     }
     const summary = if (dry_run)
         arena.print("eb-keep-logs rotate dry-run: {d} file{s} would be compressed, {d} run{s} would be deleted under {s}", .{ compressed, plural(compressed), deleted, plural(deleted), root_p }) catch "eb-keep-logs rotate dry-run"
@@ -1385,6 +1413,7 @@ fn cmdRotate(c: Ctx, args: []const [:0]const u8) u8 {
         // Run ages use the snapshot above. The metric chooses its completion time
         // while holding the metrics lock, after all rotation work and event
         // emission have completed.
+        testKillAt(c, "before-metrics-write");
         updateMetrics(c, metrics_file, 0, 0, true);
     }
     return 0;
