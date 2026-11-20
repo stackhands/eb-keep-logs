@@ -9,6 +9,7 @@ const linux = std.os.linux;
 const common = @import("zig_common");
 const sys = common.sys;
 const fsx = common.fsx;
+const atomic = common.atomic;
 const proc = common.proc;
 const cli = common.cli;
 const localtime = @import("localtime.zig");
@@ -904,49 +905,12 @@ fn formatModulerc(arena: Allocator, policy: Policy, entries: []const Entry) Allo
 }
 
 fn writeFileDurable(path: []const u8, bytes: []const u8) void {
-    const dir_path = std.fs.path.dirname(path) orelse ".";
-    const base = std.fs.path.basename(path);
-    if (base.len == 0 or std.mem.eql(u8, base, ".") or std.mem.eql(u8, base, ".."))
-        die("--modulerc-out '{s}' does not name a file", .{path});
-    const dir = fsx.openDir(fsx.cwd, dir_path, true) catch |err|
-        die("cannot open --modulerc-out directory {s}: {t}", .{ dir_path, err });
-    defer sys.close(dir);
-
-    const existing: ?fsx.Stat = fsx.statAt(dir, base, false) catch |err| switch (err) {
-        error.NotFound => null,
-        else => |e| die("cannot stat --modulerc-out {s}: {t}", .{ path, e }),
+    var why: atomic.Why = .{};
+    atomic.atomicWrite(std.heap.page_allocator, path, bytes, .{}, &why) catch |err| switch (err) {
+        error.Refused => die("{s}", .{why.msg}),
+        error.OutOfMemory => die("out of memory", .{}),
+        else => |e| die("cannot write {s}: {t}", .{ path, e }),
     };
-    if (existing) |st| {
-        if (st.isLink()) die("--modulerc-out {s} is a symbolic link", .{path});
-        if (st.isDir()) die("--modulerc-out {s} is a directory", .{path});
-        if (!st.isReg()) die("--modulerc-out {s} is not a regular file", .{path});
-    }
-
-    var rnd: [4]u8 = undefined;
-    _ = sys.call(linux.getrandom, .{ &rnd, rnd.len, 0 }) catch die("getrandom failed", .{});
-    var tmp_buf: [sys.path_max]u8 = undefined;
-    const tmp = std.fmt.bufPrint(&tmp_buf, ".{s}.{d}.{x:0>8}.tmp", .{ base, linux.getpid(), std.mem.readInt(u32, &rnd, .little) }) catch
-        die("--modulerc-out path too long: {s}", .{path});
-    const fd = sys.openat(dir, tmp, .{
-        .ACCMODE = .WRONLY,
-        .CREAT = true,
-        .EXCL = true,
-        .NOFOLLOW = true,
-    }, if (existing) |st| @intCast(st.perm()) else 0o644) catch |err|
-        die("cannot create temporary file for {s}: {t}", .{ path, err });
-    var done = false;
-    defer {
-        sys.close(fd);
-        if (!done) sys.unlinkat(dir, tmp, 0) catch {};
-    }
-    sys.writeAll(fd, bytes) catch |err| die("cannot write {s}: {t}", .{ path, err });
-    if (existing) |st| {
-        sys.fchmod(fd, @intCast(st.perm())) catch |err| die("cannot set mode on {s}: {t}", .{ path, err });
-    }
-    sys.fsync(fd) catch |err| die("cannot sync {s}: {t}", .{ path, err });
-    sys.renameat(dir, tmp, dir, base) catch |err| die("cannot replace {s}: {t}", .{ path, err });
-    done = true;
-    sys.fsync(dir) catch {};
 }
 
 const Counts = struct {
