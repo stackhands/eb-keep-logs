@@ -45,10 +45,13 @@ fn warn(comptime fmt: []const u8, args: anytype) void {
 }
 
 /// `path` is under `prefix` when it equals it or is below it as a directory.
+/// A trailing slash on `prefix` is removed before that comparison. `/`
+/// covers every absolute path.
 pub fn underPrefix(prefix: []const u8, path: []const u8) bool {
-    if (std.mem.eql(u8, path, prefix)) return true;
+    if (std.mem.eql(u8, prefix, "/")) return path.len > 0 and path[0] == '/';
     var pre = prefix;
-    if (std.mem.endsWith(u8, pre, "/")) pre = pre[0 .. pre.len - 1];
+    if (pre.len > 1 and pre[pre.len - 1] == '/') pre = pre[0 .. pre.len - 1];
+    if (std.mem.eql(u8, path, pre)) return true;
     if (path.len <= pre.len) return false;
     if (!std.mem.startsWith(u8, path, pre)) return false;
     return path[pre.len] == '/';
@@ -454,6 +457,16 @@ test "under a prefix, and a neighbour path is not" {
     try std.testing.expect(underPrefix(p, "/opt/install/bin/gmx"));
     try std.testing.expect(!underPrefix(p, "/opt/install-other/bin/gmx"));
     try std.testing.expect(!underPrefix(p, "/opt/other"));
+}
+
+test "a trailing slash on the prefix still matches the prefix path" {
+    try std.testing.expect(underPrefix("/opt/install/", "/opt/install"));
+    try std.testing.expect(underPrefix("/opt/install/", "/opt/install/bin/gmx"));
+    try std.testing.expect(!underPrefix("/opt/install/", "/opt/install-other/bin/gmx"));
+    try std.testing.expect(underPrefix("/", "/"));
+    try std.testing.expect(underPrefix("/", "/opt/install"));
+    try std.testing.expect(!underPrefix("/", "relative"));
+    try std.testing.expect(!underPrefix("//", "/opt/install"));
 }
 
 test "a link record in the runs fixture is a link use" {

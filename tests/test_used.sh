@@ -52,6 +52,13 @@ check "module-load aggregates" "${out}" "path=${prefix}/modules/Hello kind=modul
 touch "${work}/empty.json"
 check "nothing under message" "$("${tool}" used --prefix "${prefix}" "${work}/empty.json")" "nothing under ${prefix}"
 
+cat > "${work}/prefix-exact.json" << EOF
+{"package_path":"${prefix}"}
+EOF
+exact=$("${tool}" used --prefix "${prefix}/" "${work}/prefix-exact.json")
+check "trailing slash still matches the prefix path" "${exact}" "path=${prefix} kind=pkg last= count=1"
+check "require-none sees the prefix path" "$("${tool}" used --prefix "${prefix}/" "${work}/prefix-exact.json" --require-none >/dev/null; echo $?)" "2"
+
 "${tool}" used --prefix "${prefix}" "${work}/xalt.json" --require-none >/dev/null 2>/dev/null
 check "require-none with hits" "$?" "2"
 check "require-none without hits" "$("${tool}" used --prefix "${prefix}" "${work}/empty.json" --require-none >/dev/null; echo $?)" "0"
