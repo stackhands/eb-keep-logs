@@ -53,8 +53,17 @@ jobs:
           echo "${sha}  ${archive}" | sha256sum -c -
           tar -xzf "${archive}"
           sudo install -m 0755 "prometheus-3.7.3.linux-${arch}/promtool" /usr/local/bin/promtool
+      - name: Install strace, for the fsync durability test's fault injection
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y strace
+          # A plain self-trace of a child process, the same shape the
+          # fsync durability test relies on, catches a runner whose
+          # ptrace is blocked (by seccomp or a hardened ptrace_scope)
+          # here, with a clear message, rather than inside that test.
+          strace -f -e trace=write -- true
       - run: zig fmt --check build.zig build.zig.zon src
-      - run: shellcheck -S warning tests/differential.sh tests/test_metrics.sh tests/test_why.sh tests/test_json_schemas.sh tests/test_crash_safety.sh
+      - run: shellcheck -S warning tests/differential.sh tests/test_metrics.sh tests/test_why.sh tests/test_json_schemas.sh tests/test_crash_safety.sh tests/test_rotate_fsync_durability.sh
       - run: pip install jsonschema
       - run: zig build test --summary all
       - run: zig build -Drelease=true -Dcommit=${{ github.sha }} && zig-out/bin/eb-keep-logs --version
