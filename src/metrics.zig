@@ -75,13 +75,11 @@ fn render(gpa: Allocator, state: State) ![]u8 {
     , .{ state.logs_kept, state.bytes_kept, state.last_prune });
 }
 
-fn lock(fd: fsx.fd_t) !void {
-    while (true) {
-        const rc = linux.flock(fd, std.posix.LOCK.EX);
-        if (linux.errno(rc) == .INTR) continue;
-        _ = try sys.result(rc);
-        return;
-    }
+fn lock(fd: fsx.fd_t) sys.Error!void {
+    common.state.lockExclusive(fd, null) catch |err| switch (err) {
+        error.TimedOut => unreachable,
+        else => |e| return e,
+    };
 }
 
 fn realtimeSeconds() i64 {
@@ -221,4 +219,60 @@ test "completion timestamps never move backwards" {
     try keepLatestCompletion(&state, 1210);
     try std.testing.expectEqual(@as(i64, 1234), state.last_prune);
     try std.testing.expectError(error.InvalidTimestamp, keepLatestCompletion(&state, -1));
+}
+
+var sigusr1_hits: std.atomic.Value(usize) = .init(0);
+
+fn onUsr1(_: linux.SIG) callconv(.c) void {
+    _ = sigusr1_hits.fetchAdd(1, .seq_cst);
+}
+
+test "lock retries EINTR while waiting and reports non-contention flock errors" {
+    const gpa = std.testing.allocator;
+    var cwd_buf: [sys.path_max]u8 = undefined;
+    const here = try fsx.realpath(fsx.cwd, ".", &cwd_buf);
+    const base = try std.fmt.allocPrint(gpa, "{s}/.zig-cache/eb-keep-logs-metrics-lock-{d}", .{ here, linux.getpid() });
+    defer gpa.free(base);
+    try common.atomic.makedirs(base);
+    defer fsx.deleteTree(gpa, fsx.cwd, base) catch {};
+
+    const dir = try fsx.openDir(fsx.cwd, base, false);
+    defer sys.close(dir);
+    const held = try sys.openat(dir, "L", .{ .ACCMODE = .RDWR, .CREAT = true }, 0o600);
+    defer sys.close(held);
+    const waiter = try sys.openat(dir, "L", .{ .ACCMODE = .RDWR }, 0);
+    defer sys.close(waiter);
+    _ = try sys.call(linux.flock, .{ held, @as(i32, std.posix.LOCK.EX) });
+
+    sigusr1_hits.store(0, .seq_cst);
+    const handler: linux.Sigaction = .{ .handler = .{ .handler = &onUsr1 }, .mask = linux.sigemptyset(), .flags = 0 };
+    var prev: linux.Sigaction = undefined;
+    _ = linux.sigaction(.USR1, &handler, &prev);
+    defer _ = linux.sigaction(.USR1, &prev, null);
+
+    const pid = linux.getpid();
+    const tid = linux.gettid();
+    const Releaser = struct {
+        fn run(h: fsx.fd_t, target_pid: i32, target_tid: i32) void {
+            var ts: linux.timespec = .{ .sec = 0, .nsec = 15 * std.time.ns_per_ms };
+            _ = linux.nanosleep(&ts, null);
+            _ = linux.tgkill(target_pid, target_tid, .USR1);
+            _ = linux.nanosleep(&ts, null);
+            _ = linux.tgkill(target_pid, target_tid, .USR1);
+            _ = linux.nanosleep(&ts, null);
+            _ = linux.flock(h, std.posix.LOCK.UN);
+        }
+    };
+    const thread = try std.Thread.spawn(.{}, Releaser.run, .{ held, pid, tid });
+    defer thread.join();
+
+    try lock(waiter);
+    defer _ = linux.flock(waiter, std.posix.LOCK.UN);
+    try std.testing.expect(sigusr1_hits.load(.seq_cst) >= 1);
+    try std.testing.expectEqual(linux.E.AGAIN, linux.errno(linux.flock(held, std.posix.LOCK.EX | std.posix.LOCK.NB)));
+
+    const opath = try sys.openat(fsx.cwd, "/", .{ .PATH = true }, 0);
+    defer sys.close(opath);
+    try std.testing.expectError(error.InvalidArgument, lock(opath));
+    try std.testing.expectEqual(linux.E.BADF, sys.last_errno);
 }
