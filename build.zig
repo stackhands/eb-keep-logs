@@ -157,6 +157,11 @@ pub fn build(b: *std.Build) void {
     report_utf8_test.setCwd(b.path("."));
     report_utf8_test.expectExitCode(0);
     report_utf8_test.has_side_effects = true;
+    const modulerc_safety_test = b.addSystemCommand(&.{ "bash", "-c", "TOOL_BIN=\"$0\" exec bash tests/test_lifecycle_modulerc_safety.sh" });
+    modulerc_safety_test.addArtifactArg(exe);
+    modulerc_safety_test.setCwd(b.path("."));
+    modulerc_safety_test.expectExitCode(0);
+    modulerc_safety_test.has_side_effects = true;
 
     const test_step = b.step("test", "Run the unit tests, the command-line suites and the differential run");
     test_step.dependOn(&b.addRunArtifact(unit).step);
@@ -178,4 +183,5 @@ pub fn build(b: *std.Build) void {
     test_step.dependOn(&crash_safety.step);
     test_step.dependOn(&fsync_test.step);
     test_step.dependOn(&report_utf8_test.step);
+    test_step.dependOn(&modulerc_safety_test.step);
 }

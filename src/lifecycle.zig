@@ -844,10 +844,17 @@ fn formatModulerc(arena: Allocator, policy: Policy, entries: []const Entry) Allo
     try out.appendSlice(arena, "-- No software or modulefiles were modified or removed.\n");
 
     for (entries) |ent| {
+        // Escaped before the comment line, not only the string literal
+        // below it: a module name or a dependent's name that reached this
+        // report from a directory entry can hold a byte, such as a raw
+        // newline, that would otherwise end a `--` comment early and turn
+        // the rest of it into unquoted Lua.
+        const mod_c = try escapeLua(arena, ent.module);
+        const reason_c = try escapeLua(arena, ent.reason);
         switch (ent.action) {
             .keep => {},
             .warn => {
-                try out.print(arena, "\n-- warn: {s} ({s})\n", .{ ent.module, ent.reason });
+                try out.print(arena, "\n-- warn: {s} ({s})\n", .{ mod_c, reason_c });
                 if (ent.forbid_after) |after| {
                     const name_q = try escapeLua(arena, ent.module);
                     const after_q = try escapeLua(arena, after);
@@ -869,7 +876,7 @@ fn formatModulerc(arena: Allocator, policy: Policy, entries: []const Entry) Allo
             },
             .@"forbid-after" => {
                 const after = ent.forbid_after orelse "";
-                try out.print(arena, "\n-- forbid-after: {s} ({s})\n", .{ ent.module, ent.reason });
+                try out.print(arena, "\n-- forbid-after: {s} ({s})\n", .{ mod_c, reason_c });
                 const name_q = try escapeLua(arena, ent.module);
                 const after_q = try escapeLua(arena, after);
                 const nearly_raw = if (policy.warn_message) |tmpl|
@@ -888,7 +895,7 @@ fn formatModulerc(arena: Allocator, policy: Policy, entries: []const Entry) Allo
                 });
             },
             .@"candidate-remove" => {
-                try out.print(arena, "\n-- candidate-remove: {s} ({s})\n", .{ ent.module, ent.reason });
+                try out.print(arena, "\n-- candidate-remove: {s} ({s})\n", .{ mod_c, reason_c });
                 const name_q = try escapeLua(arena, ent.module);
                 const msg_raw = if (policy.forbid_message) |tmpl|
                     try renderTemplate(arena, tmpl, ent.module, "")
@@ -1435,4 +1442,36 @@ test "formatModulerc escapes Lua strings and emits warn, forbid and hide_version
     try std.testing.expect(std.mem.indexOf(u8, lua, "name = \"OldSim/2.1\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, lua, "after = \"2026-12-17\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, lua, "hide_version(\"DeadPkg/0.9\")") != null);
+}
+
+test "formatModulerc escapes a raw newline in a module name before the comment line, not only the string literal" {
+    var arena_state = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+    const pol: Policy = .{
+        .min_observation_days = 90,
+        .warn_after_days = 60,
+        .forbid_after_days = 180,
+        .remove_after_days = 365,
+    };
+    // A module name built from a directory entry may hold any byte but
+    // '/' and NUL, a raw newline included.
+    const entries = [_]Entry{.{
+        .name = "Evil",
+        .version = "1.0",
+        .module = "Evil\napp = \"pwned\"\n--/1.0",
+        .easyconfig = "Evil-1.0.eb",
+        .action = .@"forbid-after",
+        .hits = 1,
+        .last = "1700000000",
+        .idle_days = 200,
+        .forbid_after = "2026-12-17",
+        .reason = "idle 200d >= forbid_after_days 180",
+    }};
+    const lua = try formatModulerc(arena, pol, &entries);
+    try std.testing.expect(std.mem.indexOf(u8, lua, "app = \"pwned\"") == null);
+    var lines = std.mem.splitScalar(u8, lua, '\n');
+    while (lines.next()) |line| {
+        try std.testing.expect(std.mem.eql(u8, line, "app = \"pwned\"") == false);
+    }
 }
