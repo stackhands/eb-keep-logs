@@ -1053,6 +1053,149 @@ fn runAgeDays(zone: *const localtime.Zone, name: []const u8, now: i64) ?i64 {
 
 const Renames = std.StringHashMapUnmanaged([]const u8);
 
+/// Directories a rotate walk holds open at once, the deepest ones on the
+/// path it is in. Below this depth the shallowest of them is closed, and
+/// opened again when the walk climbs back to it.
+const walk_window = 8;
+
+/// One directory on the path a walk is in.
+const WalkDir = struct {
+    /// -1 while the window is below it.
+    fd: fsx.fd_t,
+    dev: u64,
+    ino: u64,
+    /// The length of the walk's path up to and including this directory.
+    path_len: usize,
+    /// Its subdirectories, in the order it listed them, and how many of
+    /// those the walk has entered.
+    subdirs: []const []const u8,
+    next: usize = 0,
+};
+
+/// Visit every directory under `root`, `root` first, depth first and
+/// without following symbolic links: `visitor.visit(fd, path, files)` gets
+/// each one's descriptor, its path for messages and the names of its *.log
+/// and *.txt regular files. Each directory is opened from the one that
+/// holds it with `O_NOFOLLOW`, so a directory swapped for a link is
+/// refused. At most `walk_window` of them are open at once, whatever the
+/// depth. One the window has left is opened again through ".." of the
+/// child the walk climbs back from, and only when ".." is still the same
+/// directory; when it is not, because the tree moved under the walk, it is
+/// opened again from `root`, one component at a time. While nothing moves,
+/// each directory is listed once and opened at most twice, so the walk's
+/// cost grows with the size of the tree, not with its depth times its size.
+fn walkTree(gpa: Allocator, arena: Allocator, root: fsx.fd_t, visitor: anytype) void {
+    var rb: [sys.path_max]u8 = undefined;
+    const top = fsx.realpathFd(root, &rb) catch |err| return warn("cannot resolve a run directory: {t}", .{err});
+    var path: std.ArrayList(u8) = .empty;
+    defer path.deinit(gpa);
+    path.appendSlice(gpa, top) catch return;
+    var stack: std.ArrayList(WalkDir) = .empty;
+    defer {
+        // The root is the caller's.
+        if (stack.items.len > 1) for (stack.items[1..]) |d| if (d.fd != -1) sys.close(d.fd);
+        stack.deinit(gpa);
+    }
+    const subdirs = listDir(gpa, arena, root, path.items, visitor) orelse return;
+    stack.append(gpa, .{ .fd = root, .dev = 0, .ino = 0, .path_len = path.items.len, .subdirs = subdirs }) catch return;
+    while (stack.items.len > 0) {
+        const at = &stack.items[stack.items.len - 1];
+        if (at.fd != -1 and at.next < at.subdirs.len) {
+            const name = at.subdirs[at.next];
+            at.next += 1;
+            path.append(gpa, '/') catch return;
+            path.appendSlice(gpa, name) catch return;
+            const fd = fsx.openDir(at.fd, name, false) catch |err| {
+                warn("cannot open {s}: {t}", .{ path.items, err });
+                path.shrinkRetainingCapacity(at.path_len);
+                continue;
+            };
+            const id = fsx.fstat(fd) catch |err| {
+                sys.close(fd);
+                warn("cannot open {s}: {t}", .{ path.items, err });
+                path.shrinkRetainingCapacity(at.path_len);
+                continue;
+            };
+            const inner = listDir(gpa, arena, fd, path.items, visitor) orelse {
+                sys.close(fd);
+                return;
+            };
+            stack.append(gpa, .{ .fd = fd, .dev = id.dev, .ino = id.ino, .path_len = path.items.len, .subdirs = inner }) catch {
+                sys.close(fd);
+                return;
+            };
+            if (stack.items.len - 1 > walk_window) {
+                const left = &stack.items[stack.items.len - 1 - walk_window];
+                sys.close(left.fd);
+                left.fd = -1;
+            }
+            continue;
+        }
+        const done = stack.pop().?;
+        if (stack.items.len == 0) break;
+        const up = &stack.items[stack.items.len - 1];
+        path.shrinkRetainingCapacity(up.path_len);
+        if (up.fd == -1) up.fd = reopenDir(root, top.len, path.items, up.*, done.fd);
+        if (done.fd != -1) sys.close(done.fd);
+        if (up.fd == -1) warn("cannot return to {s}: it moved during the walk", .{path.items});
+    }
+}
+
+/// List the directory `fd`, whose path is `here`, hand its log files to
+/// `visitor` and return its subdirectories. A read that fails partway is
+/// warned, and what it read before that still counts. Null when memory
+/// runs out.
+fn listDir(gpa: Allocator, arena: Allocator, fd: fsx.fd_t, here: []const u8, visitor: anytype) ?[]const []const u8 {
+    var files: std.ArrayList([]const u8) = .empty;
+    var subdirs: std.ArrayList([]const u8) = .empty;
+    {
+        var it = fsx.DirIter.init(gpa, fd) catch return null;
+        defer it.deinit(gpa);
+        while (it.next() catch |err| blk: {
+            warn("cannot read {s}: {t}", .{ here, err });
+            break :blk null;
+        }) |e| {
+            const t = fsx.entryType(fd, e) catch continue;
+            if (t == fsx.DT.DIR) {
+                subdirs.append(arena, arena.dupe(u8, e.name) catch return null) catch return null;
+            } else if (t == fsx.DT.REG and (std.mem.endsWith(u8, e.name, ".log") or std.mem.endsWith(u8, e.name, ".txt"))) {
+                files.append(arena, arena.dupe(u8, e.name) catch return null) catch return null;
+            }
+        }
+    }
+    visitor.visit(fd, here, files.items);
+    return subdirs.items;
+}
+
+/// Open again `up`, the directory at `path`, `root_len` bytes of which are
+/// `root`'s own: through ".." of `child`, a directory the walk entered from
+/// it, when that is still `up`; otherwise from `root`, one component at a
+/// time with `O_NOFOLLOW`, when that reaches `up`. -1 when neither does.
+fn reopenDir(root: fsx.fd_t, root_len: usize, path: []const u8, up: WalkDir, child: fsx.fd_t) fsx.fd_t {
+    if (child != -1) if (fsx.openDir(child, "..", false)) |fd| {
+        if (sameDir(fd, up)) return fd;
+        sys.close(fd);
+    } else |_| {};
+    var fd = fsx.openDir(root, ".", false) catch return -1;
+    var it = std.mem.tokenizeScalar(u8, path[root_len..], '/');
+    while (it.next()) |name| {
+        const next = fsx.openDir(fd, name, false) catch {
+            sys.close(fd);
+            return -1;
+        };
+        sys.close(fd);
+        fd = next;
+    }
+    if (sameDir(fd, up)) return fd;
+    sys.close(fd);
+    return -1;
+}
+
+fn sameDir(fd: fsx.fd_t, d: WalkDir) bool {
+    const st = fsx.fstat(fd) catch return false;
+    return st.dev == d.dev and st.ino == d.ino;
+}
+
 /// gzip every *.log and *.txt regular file under `dir`, at any depth,
 /// without following symbolic links. `dir`'s own `.licensed-logs`, if it
 /// names a compressed file, follows that file right after it is
@@ -1060,101 +1203,67 @@ const Renames = std.StringHashMapUnmanaged([]const u8);
 /// the next file's compression leaves no more than that one file's own
 /// line to ever go stale.
 fn compressTree(c: Ctx, arena: Allocator, dir: fsx.fd_t, count: *usize) void {
-    var rb: [sys.path_max]u8 = undefined;
-    const here = arena.dupe(u8, fsx.realpathFd(dir, &rb) catch |err| return warn("cannot resolve a run directory: {t}", .{err})) catch return;
-    var it = fsx.DirIter.init(c.gpa, dir) catch return;
-    defer it.deinit(c.gpa);
-    var files: std.ArrayList([]const u8) = .empty;
-    var subdirs: std.ArrayList([]const u8) = .empty;
-    while (it.next() catch |err| return warn("cannot read {s}: {t}", .{ here, err })) |e| {
-        const t = fsx.entryType(dir, e) catch continue;
-        const n = arena.dupe(u8, e.name) catch return;
-        if (t == fsx.DT.DIR) {
-            subdirs.append(arena, n) catch return;
-        } else if (t == fsx.DT.REG and (std.mem.endsWith(u8, n, ".log") or std.mem.endsWith(u8, n, ".txt"))) {
-            files.append(arena, n) catch return;
+    const Compress = struct {
+        c: Ctx,
+        arena: Allocator,
+        count: *usize,
+
+        fn visit(v: @This(), fd: fsx.fd_t, here: []const u8, files: []const []const u8) void {
+            for (files) |n| {
+                testKillAt(v.c, "mid-copy");
+                logs.gzipInPlace(v.c.gpa, v.c.io, fd, n) catch |err| {
+                    // gzipInPlace's own last step, once the compressed data
+                    // is renamed into place and the original removed, syncs
+                    // the run directory only for crash durability. A
+                    // failure there still leaves the file compressed on
+                    // disk, so a stat of both names decides whether the
+                    // file was truly left untouched or only left with its
+                    // directory entry unsynced.
+                    const gone = if (fsx.statAt(fd, n, false)) |_| false else |e| e == error.NotFound;
+                    const gz = v.arena.print("{s}.gz", .{n}) catch return;
+                    const synced_late = gone and if (fsx.statAt(fd, gz, false)) |_| true else |_| false;
+                    if (!synced_late) {
+                        warn("cannot compress {s}/{s}: {t}", .{ here, n, err });
+                        continue;
+                    }
+                    warn("cannot sync {s}/{s}.gz: {t}", .{ here, n, err });
+                };
+                v.count.* += 1;
+                const from = v.arena.print("{s}/{s}", .{ here, n }) catch return;
+                const to = v.arena.print("{s}.gz", .{from}) catch return;
+                var renames: Renames = .empty;
+                renames.put(v.arena, from, to) catch return;
+                followLists(v.c, fd, &renames);
+                testKillAt(v.c, "after-rename");
+            }
         }
-    }
-    for (files.items) |n| {
-        testKillAt(c, "mid-copy");
-        const compressed = ok: {
-            logs.gzipInPlace(c.gpa, c.io, dir, n) catch |err| {
-                // gzipInPlace's own last step, once the compressed data
-                // is renamed into place and the original removed, syncs
-                // the run directory only for crash durability. A
-                // failure there still leaves the file compressed on
-                // disk, so a stat of both names decides whether the
-                // file was truly left untouched or only left with its
-                // directory entry unsynced.
-                const gone = if (fsx.statAt(dir, n, false)) |_| false else |e| e == error.NotFound;
-                const gz = arena.print("{s}.gz", .{n}) catch return;
-                const synced_late = gone and if (fsx.statAt(dir, gz, false)) |_| true else |_| false;
-                if (!synced_late) {
-                    warn("cannot compress {s}/{s}: {t}", .{ here, n, err });
-                    break :ok false;
-                }
-                warn("cannot sync {s}/{s}.gz: {t}", .{ here, n, err });
-                break :ok true;
-            };
-            break :ok true;
-        };
-        if (!compressed) continue;
-        count.* += 1;
-        const from = arena.print("{s}/{s}", .{ here, n }) catch return;
-        const to = arena.print("{s}.gz", .{from}) catch return;
-        var renames: Renames = .empty;
-        renames.put(arena, from, to) catch return;
-        followLists(c, dir, &renames);
-        testKillAt(c, "after-rename");
-    }
-    for (subdirs.items) |n| {
-        const sub = fsx.openDir(dir, n, false) catch |err| {
-            warn("cannot open {s}/{s}: {t}", .{ here, n, err });
-            continue;
-        };
-        defer sys.close(sub);
-        compressTree(c, arena, sub, count);
-    }
+    };
+    walkTree(c.gpa, arena, dir, Compress{ .c = c, .arena = arena, .count = count });
 }
 
 /// Collect every *.log and *.txt regular file under `dir` that a rotation
 /// would compress (single link and no existing `.gz`), without following
 /// symbolic links or changing anything.
 fn previewTree(c: Ctx, arena: Allocator, dir: fsx.fd_t, paths: *std.ArrayList([]const u8)) void {
-    var rb: [sys.path_max]u8 = undefined;
-    const here = arena.dupe(u8, fsx.realpathFd(dir, &rb) catch |err| return warn("cannot resolve a run directory: {t}", .{err})) catch return;
-    var it = fsx.DirIter.init(c.gpa, dir) catch return;
-    defer it.deinit(c.gpa);
-    var files: std.ArrayList([]const u8) = .empty;
-    var subdirs: std.ArrayList([]const u8) = .empty;
-    while (it.next() catch |err| return warn("cannot read {s}: {t}", .{ here, err })) |e| {
-        const t = fsx.entryType(dir, e) catch continue;
-        const n = arena.dupe(u8, e.name) catch return;
-        if (t == fsx.DT.DIR) {
-            subdirs.append(arena, n) catch return;
-        } else if (t == fsx.DT.REG and (std.mem.endsWith(u8, n, ".log") or std.mem.endsWith(u8, n, ".txt"))) {
-            files.append(arena, n) catch return;
+    const Preview = struct {
+        arena: Allocator,
+        paths: *std.ArrayList([]const u8),
+
+        fn visit(v: @This(), fd: fsx.fd_t, here: []const u8, files: []const []const u8) void {
+            for (files) |n| {
+                const st = fsx.statAt(fd, n, false) catch continue;
+                if (!st.isReg() or st.nlink > 1) continue;
+                const gz = v.arena.print("{s}.gz", .{n}) catch return;
+                if (fsx.statAt(fd, gz, false)) |_| continue else |err| switch (err) {
+                    error.NotFound => {},
+                    else => continue,
+                }
+                const path = v.arena.print("{s}/{s}", .{ here, n }) catch return;
+                v.paths.append(v.arena, path) catch return;
+            }
         }
-    }
-    for (files.items) |n| {
-        const st = fsx.statAt(dir, n, false) catch continue;
-        if (!st.isReg() or st.nlink > 1) continue;
-        const gz = arena.print("{s}.gz", .{n}) catch return;
-        if (fsx.statAt(dir, gz, false)) |_| continue else |err| switch (err) {
-            error.NotFound => {},
-            else => continue,
-        }
-        const path = arena.print("{s}/{s}", .{ here, n }) catch return;
-        paths.append(arena, path) catch return;
-    }
-    for (subdirs.items) |n| {
-        const sub = fsx.openDir(dir, n, false) catch |err| {
-            warn("cannot open {s}/{s}: {t}", .{ here, n, err });
-            continue;
-        };
-        defer sys.close(sub);
-        previewTree(c, arena, sub, paths);
-    }
+    };
+    walkTree(c.gpa, arena, dir, Preview{ .arena = arena, .paths = paths });
 }
 
 /// Rewrite `dir`'s own `.licensed-logs`, if it has one, so it names the
@@ -1492,7 +1601,471 @@ test {
     _ = lifecycle;
     _ = syslog;
     _ = metrics;
+    _ = walk_tests;
 }
+
+/// How long either side of a forked test waits for the other before it
+/// gives up: the parent kills the child, and the child exits.
+const handshake_ms: i32 = 30_000;
+
+/// Wait on `fd` for input, at most `deadline_ms`. False on a timeout or an
+/// error. `pidfd`, when it is not -1, also ends the wait: the child it
+/// names has exited.
+fn waitReadable(fd: i32, pidfd: i32, deadline_ms: i32) bool {
+    var fds = [2]linux.pollfd{
+        .{ .fd = fd, .events = linux.POLL.IN, .revents = 0 },
+        .{ .fd = pidfd, .events = linux.POLL.IN, .revents = 0 },
+    };
+    const n: usize = if (pidfd == -1) 1 else 2;
+    while (true) {
+        const rc = linux.poll(&fds, n, deadline_ms);
+        switch (linux.errno(rc)) {
+            .SUCCESS => return rc > 0 and fds[0].revents != 0,
+            .INTR => continue,
+            else => return false,
+        }
+    }
+}
+
+/// Reap the child `pidfd` names, waiting at most `handshake_ms` for it to
+/// exit, and kill it if it has not. Null when it had to be killed.
+fn reapChild(pid: linux.pid_t, pidfd: i32) ?u32 {
+    defer _ = linux.close(pidfd);
+    var status: i32 = 0;
+    if (!waitReadable(pidfd, -1, handshake_ms)) {
+        _ = linux.pidfd_send_signal(pidfd, .KILL, null, 0);
+        _ = waitReadable(pidfd, -1, handshake_ms);
+        _ = linux.waitpid(pid, &status, linux.W.NOHANG);
+        return null;
+    }
+    _ = linux.waitpid(pid, &status, linux.W.NOHANG);
+    return @bitCast(status);
+}
+
+/// The walk tests and their helpers, in a container nothing in the product
+/// binary refers to, so `walkSeed`'s read of EB_KEEP_LOGS_WALK_SEED never
+/// reaches product code: `zig build` never analyzes a declaration no
+/// reachable path leads to.
+const walk_tests = struct {
+    /// The fixtures' seed: from the environment when it names one, a random
+    /// value otherwise, printed so a failing run can be replayed.
+    fn walkSeed(gpa: Allocator) u64 {
+        if (fsx.openRegular(fsx.cwd, "/proc/self/environ", false)) |opened| {
+            defer sys.close(opened.fd);
+            if (fsx.readAll(gpa, opened.fd, 1 << 20)) |block| {
+                defer gpa.free(block);
+                var it = std.mem.splitScalar(u8, block, 0);
+                while (it.next()) |entry| {
+                    const eq = std.mem.indexOfScalar(u8, entry, '=') orelse continue;
+                    if (!std.mem.eql(u8, entry[0..eq], "EB_KEEP_LOGS_WALK_SEED")) continue;
+                    if (std.fmt.parseInt(u64, entry[eq + 1 ..], 0)) |n| return n else |_| break;
+                }
+            } else |_| {}
+        } else |_| {}
+        var rnd: [8]u8 = undefined;
+        _ = sys.call(linux.getrandom, .{ &rnd, rnd.len, 0 }) catch return 0;
+        return std.mem.readInt(u64, &rnd, .little);
+    }
+
+    const SockFilter = extern struct { code: u16, jt: u8, jf: u8, k: u32 };
+    const SockFprog = extern struct { len: u16, filter: [*]const SockFilter };
+
+    fn monotonicMs() i64 {
+        var ts: linux.timespec = undefined;
+        _ = linux.clock_gettime(.MONOTONIC, &ts);
+        return @as(i64, ts.sec) * 1000 + @divTrunc(@as(i64, ts.nsec), 1_000_000);
+    }
+
+    /// A forked child that stops at every call of one system call until the
+    /// test answers it, through a seccomp listener the test takes from it.
+    const Child = struct {
+        pid: linux.pid_t,
+        pidfd: i32,
+        listener: i32,
+
+        /// Fork. The child holds at most `nofile` descriptors when that is
+        /// set, stops at every `nr` call from then on, and exits with what
+        /// `body.run()` returns.
+        fn start(nr: linux.SYS, nofile: ?u64, body: anytype) !Child {
+            var pipe_fd: [2]i32 = undefined;
+            try std.testing.expectEqual(linux.E.SUCCESS, linux.errno(linux.pipe2(&pipe_fd, .{ .CLOEXEC = true })));
+            defer _ = linux.close(pipe_fd[0]);
+            const rc = linux.fork();
+            try std.testing.expectEqual(linux.E.SUCCESS, linux.errno(rc));
+            if (rc == 0) {
+                _ = linux.close(pipe_fd[0]);
+                if (nofile) |n| {
+                    const lim: linux.rlimit = .{ .cur = n, .max = n };
+                    if (linux.errno(linux.prlimit(0, .NOFILE, &lim, null)) != .SUCCESS) linux.exit(100);
+                }
+                const filters = [_]SockFilter{
+                    .{ .code = linux.BPF.LD | linux.BPF.W | linux.BPF.ABS, .jt = 0, .jf = 0, .k = 0 },
+                    .{ .code = linux.BPF.JMP | linux.BPF.JEQ | linux.BPF.K, .jt = 0, .jf = 1, .k = @intCast(@backingInt(nr)) },
+                    .{ .code = linux.BPF.RET | linux.BPF.K, .jt = 0, .jf = 0, .k = linux.SECCOMP.RET.USER_NOTIF },
+                    .{ .code = linux.BPF.RET | linux.BPF.K, .jt = 0, .jf = 0, .k = linux.SECCOMP.RET.ALLOW },
+                };
+                const prog = SockFprog{ .len = filters.len, .filter = &filters };
+                if (linux.errno(linux.prctl(@backingInt(linux.PR.SET_NO_NEW_PRIVS), 1, 0, 0, 0)) != .SUCCESS) linux.exit(101);
+                const listener = linux.seccomp(linux.SECCOMP.SET_MODE_FILTER, linux.SECCOMP.FILTER_FLAG.NEW_LISTENER, &prog);
+                if (linux.errno(listener) != .SUCCESS) linux.exit(102);
+                var bytes: [4]u8 = undefined;
+                std.mem.writeInt(i32, &bytes, @intCast(listener), .little);
+                _ = linux.write(pipe_fd[1], &bytes, 4);
+                _ = linux.close(pipe_fd[1]);
+                linux.exit(body.run());
+            }
+            _ = linux.close(pipe_fd[1]);
+            const pid: linux.pid_t = @intCast(rc);
+            const pidfd_rc = linux.pidfd_open(pid, 0);
+            if (linux.errno(pidfd_rc) != .SUCCESS) {
+                _ = linux.kill(pid, .KILL);
+                var status: i32 = 0;
+                _ = linux.waitpid(pid, &status, 0);
+                return error.TestUnexpectedResult;
+            }
+            const pidfd: i32 = @intCast(pidfd_rc);
+            var bytes: [4]u8 = undefined;
+            if (!waitReadable(pipe_fd[0], pidfd, handshake_ms) or linux.read(pipe_fd[0], &bytes, 4) != 4) {
+                _ = reapChild(pid, pidfd);
+                return error.TestUnexpectedResult;
+            }
+            const got = linux.pidfd_getfd(pidfd, std.mem.readInt(i32, &bytes, .little), 0);
+            if (linux.errno(got) != .SUCCESS) {
+                _ = reapChild(pid, pidfd);
+                return error.TestUnexpectedResult;
+            }
+            return .{ .pid = pid, .pidfd = pidfd, .listener = @intCast(got) };
+        }
+
+        /// Answer each stopped call with `answer.call(pid, data)`, the errno
+        /// to fail it with or `.SUCCESS` to let it run, until the child
+        /// exits, and reap it. Null when it had not exited `handshake_ms`
+        /// after the start and was killed.
+        fn finish(ch: Child, answer: anytype) ?u32 {
+            defer _ = linux.close(ch.listener);
+            var fds = [2]linux.pollfd{
+                .{ .fd = ch.pidfd, .events = linux.POLL.IN, .revents = 0 },
+                .{ .fd = ch.listener, .events = linux.POLL.IN, .revents = 0 },
+            };
+            const deadline = monotonicMs() + handshake_ms;
+            while (true) {
+                const left = deadline - monotonicMs();
+                if (left <= 0) break;
+                const pr = linux.poll(&fds, fds.len, @intCast(left));
+                if (linux.errno(pr) == .INTR) continue;
+                if (linux.errno(pr) != .SUCCESS) break;
+                if (fds[0].revents != 0) return reapChild(ch.pid, ch.pidfd);
+                if (fds[1].revents == 0) continue;
+                var note: linux.SECCOMP.notif = std.mem.zeroes(linux.SECCOMP.notif);
+                const rr = linux.ioctl(ch.listener, linux.SECCOMP.IOCTL_NOTIF.RECV, @intFromPtr(&note));
+                if (linux.errno(rr) == .NOENT) continue;
+                if (linux.errno(rr) != .SUCCESS) {
+                    fds[1].fd = -1;
+                    continue;
+                }
+                const e: linux.E = answer.call(@intCast(note.pid), &note.data);
+                var resp: linux.SECCOMP.notif_resp = .{
+                    .id = note.id,
+                    .val = 0,
+                    .@"error" = if (e == .SUCCESS) 0 else -@as(i32, @intCast(@backingInt(e))),
+                    .flags = if (e == .SUCCESS) linux.SECCOMP.USER_NOTIF_FLAG_CONTINUE else 0,
+                };
+                _ = linux.ioctl(ch.listener, linux.SECCOMP.IOCTL_NOTIF.SEND, @intFromPtr(&resp));
+            }
+            _ = linux.pidfd_send_signal(ch.pidfd, .KILL, null, 0);
+            _ = reapChild(ch.pid, ch.pidfd);
+            return null;
+        }
+    };
+
+    /// Runs a rotate's dry-run and then its compress over `root` in the
+    /// child, and exits 0 when each found `want` files, 1 when the dry-run
+    /// did not and 2 when the compress did not.
+    const Rotate = struct {
+        root: fsx.fd_t,
+        want: usize,
+        /// When set, the child's warnings go to this descriptor instead of
+        /// to the test's own standard error.
+        warnings: ?fsx.fd_t = null,
+
+        fn run(r: Rotate) u8 {
+            if (r.warnings) |fd| _ = linux.dup3(fd, 2, 0);
+            const page = std.heap.page_allocator;
+            var arena_state = std.heap.ArenaAllocator.init(page);
+            const arena = arena_state.allocator();
+            var env_map = std.process.Environ.Map.init(page);
+            var threaded = std.Io.Threaded.init(page, .{});
+            const ctx: Ctx = .{ .gpa = page, .io = threaded.io(), .env = &env_map, .envp = undefined };
+            var paths: std.ArrayList([]const u8) = .empty;
+            previewTree(ctx, arena, r.root, &paths);
+            if (paths.items.len != r.want) return 1;
+            var count: usize = 0;
+            compressTree(ctx, arena, r.root, &count);
+            return if (count == r.want) 0 else 2;
+        }
+    };
+
+    /// Lets every call run and counts them.
+    const Count = struct {
+        n: usize = 0,
+        fn call(c: *Count, _: linux.pid_t, _: *const linux.SECCOMP.data) linux.E {
+            c.n += 1;
+            return .SUCCESS;
+        }
+    };
+
+    fn makeDir(dir: fsx.fd_t, name: []const u8) !fsx.fd_t {
+        var zb: [sys.path_max:0]u8 = undefined;
+        _ = try sys.call(linux.mkdirat, .{ dir, (try sys.z(&zb, name)).ptr, @as(linux.mode_t, 0o755) });
+        return fsx.openDir(dir, name, false);
+    }
+
+    fn makeLog(dir: fsx.fd_t, name: []const u8) !void {
+        const fd = try sys.openat(dir, name, .{ .ACCMODE = .WRONLY, .CREAT = true, .EXCL = true, .NOFOLLOW = true }, 0o644);
+        defer sys.close(fd);
+        try sys.writeAll(fd, "log\n");
+    }
+
+    /// A chain of `depth` directories under `dir`, with `x.log` at the
+    /// bottom. `level.make(fd, i)` makes and names the next directory of the
+    /// chain in level `i`, after anything else it puts there. The path of
+    /// the bottom directory relative to `dir`, which the caller frees.
+    fn makeChain(gpa: Allocator, dir: fsx.fd_t, depth: usize, level: anytype) ![]u8 {
+        var rel: std.ArrayList(u8) = .empty;
+        errdefer rel.deinit(gpa);
+        var fd = try fsx.openDir(dir, ".", false);
+        defer sys.close(fd);
+        var i: usize = 0;
+        while (i < depth) : (i += 1) {
+            const name = try level.make(fd, i);
+            if (rel.items.len > 0) try rel.append(gpa, '/');
+            try rel.appendSlice(gpa, name);
+            const next = try fsx.openDir(fd, name, false);
+            sys.close(fd);
+            fd = next;
+        }
+        try makeLog(fd, "x.log");
+        return rel.toOwnedSlice(gpa);
+    }
+
+    /// The path of `name` in the directory `rel` under it.
+    fn joined(buf: []u8, rel: []const u8, name: []const u8) ![]const u8 {
+        return std.fmt.bufPrint(buf, "{s}/{s}", .{ rel, name });
+    }
+
+    const deep_levels: usize = 300;
+
+    /// Each level of the chain has a side directory with one log beside the
+    /// next directory of the chain, so a directory the window has left still
+    /// has a subdirectory to enter when the walk climbs back to it.
+    const Comb = struct {
+        rand: std.Random,
+        buf: [1]u8 = undefined,
+
+        fn make(c: *Comb, fd: fsx.fd_t, _: usize) ![]const u8 {
+            const side = try makeDir(fd, "~side");
+            defer sys.close(side);
+            try makeLog(side, "s.log");
+            c.buf[0] = 'a' + c.rand.uintLessThan(u8, 26);
+            sys.close(try makeDir(fd, &c.buf));
+            return &c.buf;
+        }
+    };
+
+    test "the rotate walks cross a deep tree under a tight descriptor limit, opening each directory a bounded number of times" {
+        const gpa = std.testing.allocator;
+        const seed = walkSeed(gpa);
+        std.debug.print("\ndeep walk seed: {d} (override with EB_KEEP_LOGS_WALK_SEED)\n", .{seed});
+        var prng = std.Random.DefaultPrng.init(seed);
+        const base = try testDir(gpa, "deep");
+        defer gpa.free(base);
+        defer fsx.deleteTree(gpa, fsx.cwd, base) catch {};
+        const root = try fsx.openDir(fsx.cwd, base, false);
+        defer sys.close(root);
+        var comb: Comb = .{ .rand = prng.random() };
+        const bottom = try makeChain(gpa, root, deep_levels, &comb);
+        defer gpa.free(bottom);
+
+        const files = deep_levels + 1;
+        const dirs = 2 * deep_levels + 1;
+        const child = try Child.start(.openat, 32, Rotate{ .root = root, .want = files });
+        var opens: Count = .{};
+        const raw = child.finish(&opens) orelse return error.TestUnexpectedResult;
+        try std.testing.expect(linux.W.IFEXITED(raw));
+        try std.testing.expectEqual(@as(u8, 0), linux.W.EXITSTATUS(raw));
+        var pb: [sys.path_max]u8 = undefined;
+        try std.testing.expect((try fsx.statAt(root, try joined(&pb, bottom, "x.log.gz"), false)).isReg());
+        var level: usize = 0;
+        var cut: usize = 0;
+        while (level < deep_levels) : (level += 1) {
+            const side = if (level == 0) "~side/s.log.gz" else try std.fmt.bufPrint(&pb, "{s}/~side/s.log.gz", .{bottom[0..cut]});
+            try std.testing.expect((try fsx.statAt(root, side, false)).isReg());
+            cut = if (level == 0) 1 else cut + 2;
+        }
+        // Every directory opened once, a directory the window left opened
+        // once more, and each log opened and written once: well under four
+        // opens a node. Opening each directory from the root instead costs
+        // the sum of the depths, about one per node per level.
+        if (opens.n > 4 * (dirs + files)) {
+            std.debug.print("{d} opens for {d} directories and {d} logs\n", .{ opens.n, dirs, files });
+            return error.TestUnexpectedResult;
+        }
+    }
+
+    const turn_level: usize = 5;
+    const moved_depth: usize = 40;
+
+    /// Level `turn_level` of the chain holds three directories, and the walk
+    /// enters them in the order that level lists them: the first carries the
+    /// chain on, the second holds a log the walk must still reach when it
+    /// climbs back, and the third is swapped for a link out of the run
+    /// during the walk. Every other level holds the chain's next directory.
+    const Fork = struct {
+        listed: [3][1]u8 = undefined,
+
+        fn make(f: *Fork, fd: fsx.fd_t, i: usize) ![]const u8 {
+            if (i != turn_level) {
+                sys.close(try makeDir(fd, "c"));
+                return "c";
+            }
+            for ("pqr") |ch| sys.close(try makeDir(fd, &.{ch}));
+            var it = try fsx.DirIter.init(std.testing.allocator, fd);
+            defer it.deinit(std.testing.allocator);
+            var k: usize = 0;
+            while (try it.next()) |e| : (k += 1) f.listed[k] = .{e.name[0]};
+            const second = try fsx.openDir(fd, &f.listed[1], false);
+            defer sys.close(second);
+            try makeLog(second, "q.log");
+            return &f.listed[0];
+        }
+    };
+
+    /// When the walk opens the bottom log, moves the first directory of
+    /// level `turn_level` out of the run into `moved`, and swaps the third
+    /// for a link to `elsewhere`.
+    const Tamper = struct {
+        turn: fsx.fd_t,
+        moved: fsx.fd_t,
+        fork: *const Fork,
+        elsewhere: [:0]const u8,
+        done: bool = false,
+
+        fn call(t: *Tamper, pid: linux.pid_t, d: *const linux.SECCOMP.data) linux.E {
+            if (t.done) return .SUCCESS;
+            var buf: [8]u8 = undefined;
+            const local = [_]std.posix.iovec{.{ .base = &buf, .len = buf.len }};
+            const remote = [_]std.posix.iovec_const{.{ .base = @ptrFromInt(d.arg1), .len = buf.len }};
+            const n = linux.process_vm_readv(pid, &local, &remote, 0);
+            if (linux.errno(n) != .SUCCESS) return .SUCCESS;
+            if (!std.mem.eql(u8, std.mem.sliceTo(buf[0..n], 0), "x.log")) return .SUCCESS;
+            t.done = true;
+            const first = &t.fork.listed[0];
+            const third = &t.fork.listed[2];
+            sys.renameat(t.turn, first, t.moved, first) catch return .SUCCESS;
+            sys.renameat(t.turn, third, t.turn, "held") catch return .SUCCESS;
+            var zb: [2:0]u8 = .{ third[0], 0 };
+            _ = linux.symlinkat(t.elsewhere.ptr, t.turn, &zb);
+            return .SUCCESS;
+        }
+    };
+
+    test "a directory moved out of the run or swapped for a link during a deep walk is not followed" {
+        const gpa = std.testing.allocator;
+        const base = try testDir(gpa, "moved");
+        defer gpa.free(base);
+        defer fsx.deleteTree(gpa, fsx.cwd, base) catch {};
+        const top = try fsx.openDir(fsx.cwd, base, false);
+        defer sys.close(top);
+        const run = try makeDir(top, "run");
+        defer sys.close(run);
+        const moved = try makeDir(top, "moved");
+        defer sys.close(moved);
+        const elsewhere = try makeDir(top, "elsewhere");
+        defer sys.close(elsewhere);
+        try makeLog(elsewhere, "e.log");
+        var fork: Fork = .{};
+        const bottom = try makeChain(gpa, run, moved_depth, &fork);
+        defer gpa.free(bottom);
+        const turn_rel = bottom[0 .. 2 * turn_level - 1];
+        const turn = try fsx.openDir(run, turn_rel, false);
+        defer sys.close(turn);
+        // What a walk that climbed out through the moved directory's new
+        // parent would reach under the names it still had to enter.
+        for (fork.listed[1..]) |*n| {
+            const decoy = try makeDir(moved, n);
+            defer sys.close(decoy);
+            try makeLog(decoy, "q.log");
+        }
+        var eb: [sys.path_max]u8 = undefined;
+        const elsewhere_path = try std.fmt.bufPrintSentinel(&eb, "{s}/elsewhere", .{base}, 0);
+        const warnings = try sys.openat(top, "warnings", .{ .ACCMODE = .RDWR, .CREAT = true, .EXCL = true, .NOFOLLOW = true }, 0o600);
+        defer sys.close(warnings);
+
+        const child = try Child.start(.openat, 32, Rotate{ .root = run, .want = 2, .warnings = warnings });
+        var tamper: Tamper = .{ .turn = turn, .moved = moved, .fork = &fork, .elsewhere = elsewhere_path };
+        const raw = child.finish(&tamper) orelse return error.TestUnexpectedResult;
+        _ = linux.lseek(warnings, 0, linux.SEEK.SET);
+        const said = try fsx.readAll(gpa, warnings, 1 << 16);
+        defer gpa.free(said);
+        try std.testing.expect(tamper.done);
+        try std.testing.expect(linux.W.IFEXITED(raw));
+        try std.testing.expectEqual(@as(u8, 0), linux.W.EXITSTATUS(raw));
+        var pb: [sys.path_max]u8 = undefined;
+        try std.testing.expect((try fsx.statAt(turn, try joined(&pb, &fork.listed[1], "q.log.gz"), false)).isReg());
+        try std.testing.expect((try fsx.statAt(turn, &fork.listed[2], false)).isLink());
+        for (fork.listed[1..]) |*n| {
+            try std.testing.expect((try fsx.statAt(moved, try joined(&pb, n, "q.log"), false)).isReg());
+            try std.testing.expectError(error.NotFound, fsx.statAt(moved, try joined(&pb, n, "q.log.gz"), false));
+        }
+        try std.testing.expect((try fsx.statAt(elsewhere, "e.log", false)).isReg());
+        try std.testing.expectError(error.NotFound, fsx.statAt(elsewhere, "e.log.gz", false));
+        try std.testing.expect(std.mem.indexOf(u8, said, "cannot open") != null);
+    }
+
+    /// Fails the second read of a directory whose path ends in `/sealed`
+    /// with EACCES, and counts the reads of it.
+    const Seal = struct {
+        seen: usize = 0,
+
+        fn call(s: *Seal, pid: linux.pid_t, d: *const linux.SECCOMP.data) linux.E {
+            var link_buf: [64]u8 = undefined;
+            const link = std.fmt.bufPrintSentinel(&link_buf, "/proc/{d}/fd/{d}", .{ pid, d.arg0 }, 0) catch return .SUCCESS;
+            var path_buf: [sys.path_max]u8 = undefined;
+            const n = linux.readlink(link.ptr, &path_buf, path_buf.len);
+            if (linux.errno(n) != .SUCCESS or !std.mem.endsWith(u8, path_buf[0..n], "/sealed")) return .SUCCESS;
+            s.seen += 1;
+            return if (s.seen % 2 == 0) .ACCES else .SUCCESS;
+        }
+    };
+
+    test "a directory that cannot be read does not stop the rest of the walk" {
+        const gpa = std.testing.allocator;
+        const base = try testDir(gpa, "unread");
+        defer gpa.free(base);
+        defer fsx.deleteTree(gpa, fsx.cwd, base) catch {};
+        const root = try fsx.openDir(fsx.cwd, base, false);
+        defer sys.close(root);
+        const sealed = try makeDir(root, "sealed");
+        defer sys.close(sealed);
+        const good = try makeDir(sealed, "good");
+        defer sys.close(good);
+        try makeLog(good, "a.log");
+        const also = try makeDir(root, "also");
+        defer sys.close(also);
+        try makeLog(also, "b.log");
+
+        const child = try Child.start(.getdents64, null, Rotate{ .root = root, .want = 2 });
+        var seal: Seal = .{};
+        const raw = child.finish(&seal) orelse return error.TestUnexpectedResult;
+        try std.testing.expect(linux.W.IFEXITED(raw));
+        try std.testing.expectEqual(@as(u8, 0), linux.W.EXITSTATUS(raw));
+        try std.testing.expectEqual(@as(usize, 4), seal.seen);
+        try std.testing.expect((try fsx.statAt(root, "sealed/good/a.log.gz", false)).isReg());
+        try std.testing.expectError(error.NotFound, fsx.statAt(root, "sealed/good/a.log", false));
+        try std.testing.expect((try fsx.statAt(root, "also/b.log.gz", false)).isReg());
+        try std.testing.expectError(error.NotFound, fsx.statAt(root, "also/b.log", false));
+    }
+};
 
 test "a failed copy does not replace a log already kept" {
     const gpa = std.testing.allocator;
