@@ -184,6 +184,42 @@ RUN              TARGET  OUTCOME  DURATION  NAME
 20261117_050000  node1   failed   -         ${b}
 20261117_050000  node2   unknown  -         ${b}"
 
+# EasyBuild wraps a coloured line in ANSI escapes. The visible line still
+# starts with ERROR, and a coloured announcement does not belong in the
+# failure message.
+late="${work}/colour-late"
+mkdir -p "${late}/20261117_060000"
+printf '%s\n' '== COMPLETED: Installation ended successfully (took 1 sec)' $'\x1b[31mERROR: late failure\x1b[0m' \
+    > "${late}/20261117_060000/hello-2.12.1.stdout.log"
+out=$("${tool}" history hello-2.12.1 --root "${late}")
+check "coloured error after success" "$(awk 'NR==4 { print $3 }' <<< "${out}")" "failed"
+miss="${work}/colour-miss"
+mkdir -p "${miss}/20261117_060001"
+printf '%s\n' $'\x1b[31mERROR: Missing dependencies: libgreet/1.0\x1b[0m' \
+    > "${miss}/20261117_060001/hello-2.12.1.stdout.log"
+out=$("${tool}" history hello-2.12.1 --root "${miss}")
+check "coloured error alone" "$(awk 'NR==4 { print $3 }' <<< "${out}")" "failed"
+wrap="${work}/colour-wrap"
+mkdir -p "${wrap}"
+{
+    printf '%s\n' '== building...'
+    printf '%b\n' '\033[31m== FAILED: Installation ended unsuccessfully: shell command '\''make ...'\'' failed\033[0m'
+    printf '%s\n' 'with exit code 2 in build step for hello.eb (took 3 mins 6'
+    printf '%s\n' 'secs)'
+    printf '%b\n' '\033[1m== Results of the build can be found in the log file(s)\033[0m'
+} > "${wrap}/hello-2.12.1.stdout.log"
+out=$("${tool}" why "${wrap}")
+check "coloured failure: message" "$(sed -n 's/^  EasyBuild:  //p' <<< "${out}")" "shell command 'make ...' failed with exit code 2 in build step for hello.eb"
+bare="${work}/colour-bare"
+mkdir -p "${bare}"
+{
+    printf '%s\n' '== building...'
+    printf '%b\n' '\033[31m== FAILED: Installation ended unsuccessfully: shell command failed\033[0m'
+    printf '%b\n' '\033[1m== Results of the build can be found in the log file(s)\033[0m'
+} > "${bare}/hello-2.12.1.stdout.log"
+out=$("${tool}" why "${bare}")
+check "coloured announcement stays out of the message" "$(sed -n 's/^  EasyBuild:  //p' <<< "${out}")" "shell command failed"
+
 # refused LABEL MESSAGE ARGS...: eb-keep-logs ARGS exits 2 with MESSAGE on
 # stderr.
 refused() {
