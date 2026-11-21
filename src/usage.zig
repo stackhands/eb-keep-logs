@@ -5,6 +5,7 @@ const sys = common.sys;
 const fsx = common.fsx;
 const cli = common.cli;
 const used = @import("used.zig");
+const utf8_text = @import("utf8_text.zig");
 
 const Allocator = std.mem.Allocator;
 const tool = "eb-keep-logs";
@@ -85,8 +86,8 @@ fn inventory(gpa: Allocator, arena: Allocator, software: []const u8) !Table {
             }) |version_entry| {
                 if (version_entry.name.len == 0 or version_entry.name[0] == '.') continue;
                 if ((fsx.entryType(name_dir, version_entry) catch continue) != fsx.DT.DIR) continue;
-                const name = try arena.dupe(u8, name_entry.name);
-                const version = try arena.dupe(u8, version_entry.name);
+                const name = try arena.dupe(u8, try utf8_text.utf8(arena, name_entry.name));
+                const version = try arena.dupe(u8, try utf8_text.utf8(arena, version_entry.name));
                 const module = try arena.print("{s}/{s}", .{ name, version });
                 try table.put(arena, module, .{
                     .module = module,
@@ -239,9 +240,11 @@ fn formatJson(
             .last = if (pkg.last.len > 0) pkg.last else null,
         });
     }
+    var arena = std.heap.ArenaAllocator.init(gpa);
+    defer arena.deinit();
     const report: JsonReport = .{
-        .software = software,
-        .modules = modules,
+        .software = try utf8_text.utf8(arena.allocator(), software),
+        .modules = try utf8_text.utf8(arena.allocator(), modules),
         .since = since,
         .selection = selection.name(),
         .packages = packages.items,
@@ -381,4 +384,39 @@ test "software paths name their installed module" {
         "/opt/software",
         "/opt/software-other/GROMACS/1/bin/gmx",
     )) == null);
+}
+
+test "an installed software name with a bad byte is replaced, not leaked raw" {
+    const linux = std.os.linux;
+    const gpa = std.testing.allocator;
+    var cwd_buf: [sys.path_max]u8 = undefined;
+    const here = try fsx.realpath(fsx.cwd, ".", &cwd_buf);
+    const base = try std.fmt.allocPrint(gpa, "{s}/.zig-cache/usage-badname-{d}", .{ here, linux.getpid() });
+    defer gpa.free(base);
+    defer fsx.deleteTree(gpa, fsx.cwd, base) catch {};
+    try common.atomic.makedirs(base);
+
+    const software = try std.fmt.allocPrint(gpa, "{s}/software", .{base});
+    defer gpa.free(software);
+    try common.atomic.makedirs(software);
+
+    const software_dir = try fsx.openDir(fsx.cwd, software, false);
+    defer sys.close(software_dir);
+    var zb: [sys.path_max:0]u8 = undefined;
+    _ = try sys.call(linux.mkdirat, .{ software_dir, (try sys.z(&zb, "pkg\xff")).ptr, @as(linux.mode_t, 0o755) });
+    const name_dir = try fsx.openDir(software_dir, "pkg\xff", false);
+    defer sys.close(name_dir);
+    _ = try sys.call(linux.mkdirat, .{ name_dir, (try sys.z(&zb, "1.0")).ptr, @as(linux.mode_t, 0o755) });
+
+    var arena_state = std.heap.ArenaAllocator.init(gpa);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+    var table = try inventory(gpa, arena, software);
+    defer table.deinit(arena);
+    var it = table.valueIterator();
+    const pkg = it.next().?;
+    try std.testing.expectEqualStrings("pkg\u{FFFD}", pkg.name);
+    try std.testing.expectEqualStrings("pkg\u{FFFD}/1.0", pkg.module);
+    try std.testing.expect(std.unicode.utf8ValidateSlice(pkg.name));
+    try std.testing.expect(std.unicode.utf8ValidateSlice(pkg.module));
 }
