@@ -378,6 +378,24 @@ fn warn(comptime fmt: []const u8, args: anytype) void {
     cli.err(tool ++ ": " ++ fmt ++ "\n", args);
 }
 
+/// The errno's own name: `EIO` for `EIO`. `{t}` on the Zig error prints
+/// `Unexpected` for every errno this program does not give its own error,
+/// which hides the failure the kernel reported. Every name Linux has is a
+/// static string; an errno it does not name prints as its number. Read
+/// `sys.last_errno` before another call replaces it.
+fn errnoName(e: linux.E) []const u8 {
+    if (e == .SUCCESS) return "no errno";
+    const info = @typeInfo(linux.E).@"enum";
+    @setEvalBranchQuota(info.field_names.len * 1000);
+    inline for (info.field_names, info.field_values) |name, value| {
+        if (@backingInt(e) == value) return "E" ++ name;
+    }
+    const S = struct {
+        threadlocal var buf: [std.fmt.count("errno {d}", .{std.math.maxInt(u16)})]u8 = undefined;
+    };
+    return std.mem.print(&S.buf, "errno {d}", .{@as(u16, @backingInt(e))}) catch unreachable;
+}
+
 const Ctx = struct {
     gpa: Allocator,
     io: std.Io,
@@ -1211,22 +1229,15 @@ fn compressTree(c: Ctx, arena: Allocator, dir: fsx.fd_t, count: *usize) void {
         fn visit(v: @This(), fd: fsx.fd_t, here: []const u8, files: []const []const u8) void {
             for (files) |n| {
                 testKillAt(v.c, "mid-copy");
-                logs.gzipInPlace(v.c.gpa, v.c.io, fd, n) catch |err| {
-                    // gzipInPlace's own last step, once the compressed data
-                    // is renamed into place and the original removed, syncs
-                    // the run directory only for crash durability. A
-                    // failure there still leaves the file compressed on
-                    // disk, so a stat of both names decides whether the
-                    // file was truly left untouched or only left with its
-                    // directory entry unsynced.
-                    const gone = if (fsx.statAt(fd, n, false)) |_| false else |e| e == error.NotFound;
-                    const gz = v.arena.print("{s}.gz", .{n}) catch return;
-                    const synced_late = gone and if (fsx.statAt(fd, gz, false)) |_| true else |_| false;
-                    if (!synced_late) {
+                var step: logs.GzipStep = undefined;
+                logs.gzipInPlaceAtStep(v.c.gpa, v.c.io, fd, n, &step) catch |err| switch (step) {
+                    .archive => {
                         warn("cannot compress {s}/{s}: {t}", .{ here, n, err });
                         continue;
-                    }
-                    warn("cannot sync {s}/{s}.gz: {t}", .{ here, n, err });
+                    },
+                    // The archive is in place and the original gone; only the
+                    // directory sync that makes that durable failed.
+                    .directory_sync => warn("cannot sync {s}/{s}.gz: {s}", .{ here, n, errnoName(sys.last_errno) }),
                 };
                 v.count.* += 1;
                 const from = v.arena.print("{s}/{s}", .{ here, n }) catch return;
@@ -1608,20 +1619,28 @@ test {
 /// gives up: the parent kills the child, and the child exits.
 const handshake_ms: i32 = 30_000;
 
-/// Wait on `fd` for input, at most `deadline_ms`. False on a timeout or an
-/// error. `pidfd`, when it is not -1, also ends the wait: the child it
-/// names has exited.
-fn waitReadable(fd: i32, pidfd: i32, deadline_ms: i32) bool {
+fn monotonicMs() i64 {
+    var ts: linux.timespec = undefined;
+    _ = linux.clock_gettime(.MONOTONIC, &ts);
+    return @as(i64, ts.sec) * 1000 + @divTrunc(@as(i64, ts.nsec), 1_000_000);
+}
+
+/// Wait on `fd` for input, until `timeout_ms` from now. False on a timeout
+/// or an error. `pidfd`, when it is not -1, also ends the wait: the child it
+/// names has exited. A signal that interrupts the wait does not extend it.
+fn waitReadable(fd: i32, pidfd: i32, timeout_ms: i32) bool {
     var fds = [2]linux.pollfd{
         .{ .fd = fd, .events = linux.POLL.IN, .revents = 0 },
         .{ .fd = pidfd, .events = linux.POLL.IN, .revents = 0 },
     };
     const n: usize = if (pidfd == -1) 1 else 2;
+    const deadline = monotonicMs() + timeout_ms;
     while (true) {
-        const rc = linux.poll(&fds, n, deadline_ms);
+        const left = @max(deadline - monotonicMs(), 0);
+        const rc = linux.poll(&fds, n, @intCast(left));
         switch (linux.errno(rc)) {
             .SUCCESS => return rc > 0 and fds[0].revents != 0,
-            .INTR => continue,
+            .INTR => if (left == 0) return false,
             else => return false,
         }
     }
@@ -1640,6 +1659,208 @@ fn reapChild(pid: linux.pid_t, pidfd: i32) ?u32 {
     }
     _ = linux.waitpid(pid, &status, linux.W.NOHANG);
     return @bitCast(status);
+}
+
+/// The SIGALRMs of the interval timer the test below starts, counted, with
+/// the timer stopped at the last one.
+const alarms = struct {
+    const last: u32 = 400;
+    var count: u32 = 0;
+
+    fn handle(_: linux.SIG) callconv(.c) void {
+        if (@atomicRmw(u32, &count, .Add, 1, .monotonic) + 1 == last) every(0);
+    }
+
+    /// Deliver SIGALRM every `us` microseconds; 0 stops it.
+    fn every(us: i64) void {
+        const Itimerval = extern struct { interval: linux.timeval, value: linux.timeval };
+        const t: Itimerval = .{ .interval = .{ .sec = 0, .usec = us }, .value = .{ .sec = 0, .usec = us } };
+        _ = linux.syscall3(.setitimer, @intCast(@backingInt(linux.ITIMER.REAL)), @intFromPtr(&t), 0);
+    }
+};
+
+test "waitReadable gives up at its deadline while signals keep interrupting it" {
+    var never: [2]i32 = undefined;
+    try std.testing.expectEqual(linux.E.SUCCESS, linux.errno(linux.pipe2(&never, .{ .CLOEXEC = true })));
+    defer _ = linux.close(never[0]);
+    defer _ = linux.close(never[1]);
+    const rc = linux.fork();
+    try std.testing.expectEqual(linux.E.SUCCESS, linux.errno(rc));
+    if (rc == 0) {
+        const act: linux.Sigaction = .{
+            .handler = .{ .handler = alarms.handle },
+            .mask = linux.sigemptyset(),
+            .flags = 0,
+        };
+        _ = linux.sigaction(.ALRM, &act, null);
+        alarms.every(5_000);
+        const ready = waitReadable(never[0], -1, 100);
+        // The timer still runs when a wait that keeps its deadline ends; a
+        // wait that starts over after each signal outlasts the last one.
+        linux.exit(if (ready) 2 else if (@atomicLoad(u32, &alarms.count, .monotonic) < alarms.last) 0 else 1);
+    }
+    const pid: linux.pid_t = @intCast(rc);
+    const pidfd_rc = linux.pidfd_open(pid, 0);
+    if (linux.errno(pidfd_rc) != .SUCCESS) {
+        _ = linux.kill(pid, .KILL);
+        var status: i32 = 0;
+        _ = linux.waitpid(pid, &status, 0);
+        return error.TestUnexpectedResult;
+    }
+    const raw = reapChild(pid, @intCast(pidfd_rc)) orelse return error.TestUnexpectedResult;
+    try std.testing.expect(linux.W.IFEXITED(raw));
+    try std.testing.expectEqual(@as(u8, 0), linux.W.EXITSTATUS(raw));
+}
+
+/// Pauses the first `mid-copy` until the test has archived one log and
+/// planted a FIFO at another's archive name. `testKillAt` is the event and
+/// a pipe is the wake-up, so the two rotates meet without a sleep. The
+/// wait is bounded: past `handshake_ms` the child exits on its own.
+const raced_rotate = struct {
+    var event_fd: i32 = -1;
+    var wake_fd: i32 = -1;
+    var armed: bool = false;
+
+    fn handle(_: linux.SIG) callconv(.c) void {
+        if (!armed) return;
+        armed = false;
+        var b: [1]u8 = .{1};
+        _ = linux.write(event_fd, &b, 1);
+        if (!waitReadable(wake_fd, -1, handshake_ms)) linux.exit_group(90);
+        _ = linux.read(wake_fd, &b, 1);
+    }
+};
+
+test "errnoName names the errno the kernel gave and nothing else" {
+    try std.testing.expectEqualStrings("EIO", errnoName(.IO));
+    try std.testing.expectEqualStrings("ENOSPC", errnoName(.NOSPC));
+    try std.testing.expectEqualStrings("errno 4095", errnoName(@fromBackingInt(4095)));
+    try std.testing.expectEqualStrings("errno 65535", errnoName(@fromBackingInt(65535)));
+    try std.testing.expectEqualStrings("no errno", errnoName(.SUCCESS));
+}
+
+test "a log another rotate already archived is not counted again" {
+    const gpa = std.testing.allocator;
+    const base = try testDir(gpa, "raced");
+    defer gpa.free(base);
+    defer fsx.deleteTree(gpa, fsx.cwd, base) catch {};
+    const dir = try fsx.openDir(fsx.cwd, base, false);
+    defer sys.close(dir);
+    const kept: usize = 10;
+    var i: usize = 0;
+    while (i < kept) : (i += 1) {
+        var name_buf: [16]u8 = undefined;
+        const name = std.fmt.bufPrint(&name_buf, "f{d:0>2}.log", .{i}) catch unreachable;
+        const fd = try sys.openat(dir, name, .{ .ACCMODE = .WRONLY, .CREAT = true, .EXCL = true, .NOFOLLOW = true }, 0o644);
+        try sys.writeAll(fd, "k\n");
+        sys.close(fd);
+    }
+    const stolen = try sys.openat(dir, "stolen.log", .{ .ACCMODE = .WRONLY, .CREAT = true, .EXCL = true, .NOFOLLOW = true }, 0o644);
+    try sys.writeAll(stolen, "stolen\n");
+    sys.close(stolen);
+    const node = try sys.openat(dir, "node.log", .{ .ACCMODE = .WRONLY, .CREAT = true, .EXCL = true, .NOFOLLOW = true }, 0o644);
+    try sys.writeAll(node, "node\n");
+    sys.close(node);
+
+    var ev: [2]i32 = undefined;
+    try std.testing.expectEqual(linux.E.SUCCESS, linux.errno(linux.pipe2(&ev, .{ .CLOEXEC = true })));
+    defer _ = linux.close(ev[0]);
+    var wake: [2]i32 = undefined;
+    try std.testing.expectEqual(linux.E.SUCCESS, linux.errno(linux.pipe2(&wake, .{ .CLOEXEC = true })));
+    defer _ = linux.close(wake[1]);
+    var err_pipe: [2]i32 = undefined;
+    try std.testing.expectEqual(linux.E.SUCCESS, linux.errno(linux.pipe2(&err_pipe, .{ .CLOEXEC = true })));
+    defer _ = linux.close(err_pipe[0]);
+    const rc = linux.fork();
+    try std.testing.expectEqual(linux.E.SUCCESS, linux.errno(rc));
+    if (rc == 0) {
+        _ = linux.close(ev[0]);
+        _ = linux.close(wake[1]);
+        _ = linux.close(err_pipe[0]);
+        _ = linux.dup3(err_pipe[1], 2, 0);
+        _ = linux.close(err_pipe[1]);
+        raced_rotate.event_fd = ev[1];
+        raced_rotate.wake_fd = wake[0];
+        raced_rotate.armed = true;
+        var mask = linux.sigemptyset();
+        linux.sigaddset(&mask, .TERM);
+        const act: linux.Sigaction = .{
+            .handler = .{ .handler = raced_rotate.handle },
+            .mask = mask,
+            .flags = linux.SA.RESTART,
+        };
+        _ = linux.sigaction(.TERM, &act, null);
+        var blocked = linux.sigemptyset();
+        linux.sigaddset(&blocked, .TERM);
+        _ = linux.sigprocmask(linux.SIG.UNBLOCK, &blocked, null);
+
+        const own = fsx.openDir(dir, ".", false) catch linux.exit(2);
+        const page = std.heap.page_allocator;
+        var env_map = std.process.Environ.Map.init(page);
+        env_map.put("EB_KEEP_LOGS_TEST_KILL_AT", "mid-copy") catch linux.exit(4);
+        env_map.put("EB_KEEP_LOGS_TEST_KILL_SIG", "TERM") catch linux.exit(4);
+        var threaded = std.Io.Threaded.init(page, .{});
+        var arena_state = std.heap.ArenaAllocator.init(page);
+        const ctx: Ctx = .{ .gpa = page, .io = threaded.io(), .env = &env_map, .envp = undefined };
+        var count: usize = 0;
+        compressTree(ctx, arena_state.allocator(), own, &count);
+        linux.exit(@intCast(count));
+    }
+    const pid: linux.pid_t = @intCast(rc);
+    _ = linux.close(ev[1]);
+    _ = linux.close(wake[0]);
+    _ = linux.close(err_pipe[1]);
+    const pidfd_rc = linux.pidfd_open(pid, 0);
+    if (linux.errno(pidfd_rc) != .SUCCESS) {
+        _ = linux.kill(pid, .KILL);
+        var status: i32 = 0;
+        _ = linux.waitpid(pid, &status, 0);
+        return error.TestUnexpectedResult;
+    }
+    const pidfd: i32 = @intCast(pidfd_rc);
+    // The child is now either paused at its first mid-copy, or gone.
+    var poke: [1]u8 = undefined;
+    if (!waitReadable(ev[0], pidfd, handshake_ms) or linux.read(ev[0], &poke, 1) != 1) {
+        _ = reapChild(pid, pidfd);
+        return error.TestUnexpectedResult;
+    }
+
+    var threaded = std.Io.Threaded.init(gpa, .{});
+    defer threaded.deinit();
+    try logs.gzipInPlace(gpa, threaded.io(), dir, "stolen.log");
+    try sys.unlinkat(dir, "node.log", 0);
+    _ = try sys.call(linux.mknodat, .{ dir, "node.log.gz", @as(linux.mode_t, linux.S.IFIFO | 0o600), @as(linux.dev_t, 0) });
+    var token: [1]u8 = .{1};
+    _ = linux.write(wake[1], &token, 1);
+
+    const raw = reapChild(pid, pidfd) orelse return error.TestUnexpectedResult;
+    try std.testing.expect(linux.W.IFEXITED(raw));
+    try std.testing.expectEqual(@as(u8, 10), linux.W.EXITSTATUS(raw));
+    var err_buf: [4096]u8 = undefined;
+    var err_len: usize = 0;
+    // The child is reaped and held the only other write end, so this read
+    // ends at end of file.
+    while (err_len < err_buf.len) {
+        const n = linux.read(err_pipe[0], err_buf[err_len..].ptr, err_buf.len - err_len);
+        if (linux.errno(n) == .INTR) continue;
+        if (linux.errno(n) != .SUCCESS or n == 0) break;
+        err_len += n;
+    }
+    const err_text = err_buf[0..err_len];
+    try std.testing.expect(std.mem.indexOf(u8, err_text, "cannot sync") == null);
+    try std.testing.expect(std.mem.indexOf(u8, err_text, "cannot compress") != null);
+    try std.testing.expect(std.mem.indexOf(u8, err_text, "NotFound") != null);
+    try std.testing.expect((try fsx.statAt(dir, "stolen.log.gz", false)).isReg());
+    try std.testing.expectError(error.NotFound, fsx.statAt(dir, "stolen.log", false));
+    const node_gz = try fsx.statAt(dir, "node.log.gz", false);
+    try std.testing.expect(node_gz.mode & linux.S.IFMT == linux.S.IFIFO);
+    try std.testing.expectError(error.NotFound, fsx.statAt(dir, "node.log", false));
+    i = 0;
+    while (i < kept) : (i += 1) {
+        var name_buf: [32]u8 = undefined;
+        const gz = std.fmt.bufPrint(&name_buf, "f{d:0>2}.log.gz", .{i}) catch unreachable;
+        try std.testing.expect((try fsx.statAt(dir, gz, false)).isReg());
+    }
 }
 
 /// The walk tests and their helpers, in a container nothing in the product
@@ -1669,12 +1890,6 @@ const walk_tests = struct {
 
     const SockFilter = extern struct { code: u16, jt: u8, jf: u8, k: u32 };
     const SockFprog = extern struct { len: u16, filter: [*]const SockFilter };
-
-    fn monotonicMs() i64 {
-        var ts: linux.timespec = undefined;
-        _ = linux.clock_gettime(.MONOTONIC, &ts);
-        return @as(i64, ts.sec) * 1000 + @divTrunc(@as(i64, ts.nsec), 1_000_000);
-    }
 
     /// A forked child that stops at every call of one system call until the
     /// test answers it, through a seccomp listener the test takes from it.
@@ -2064,6 +2279,70 @@ const walk_tests = struct {
         try std.testing.expectError(error.NotFound, fsx.statAt(root, "sealed/good/a.log", false));
         try std.testing.expect((try fsx.statAt(root, "also/b.log.gz", false)).isReg());
         try std.testing.expectError(error.NotFound, fsx.statAt(root, "also/b.log", false));
+    }
+
+    /// Runs only the compress walk over `root` and exits with its count,
+    /// its warnings going to `warnings`.
+    const CompressOnly = struct {
+        root: fsx.fd_t,
+        warnings: fsx.fd_t,
+
+        fn run(r: CompressOnly) u8 {
+            _ = linux.dup3(r.warnings, 2, 0);
+            const page = std.heap.page_allocator;
+            var arena_state = std.heap.ArenaAllocator.init(page);
+            var env_map = std.process.Environ.Map.init(page);
+            var threaded = std.Io.Threaded.init(page, .{});
+            const ctx: Ctx = .{ .gpa = page, .io = threaded.io(), .env = &env_map, .envp = undefined };
+            var count: usize = 0;
+            compressTree(ctx, arena_state.allocator(), r.root, &count);
+            return @intCast(count);
+        }
+    };
+
+    /// At the child's first fsync, its archive's own, compresses `a.log`
+    /// in the test's own process, as another rotate would, and then fails
+    /// the child's fsync with EIO.
+    const StealThenFail = struct {
+        dir: fsx.fd_t,
+        done: bool = false,
+
+        fn call(t: *StealThenFail, _: linux.pid_t, _: *const linux.SECCOMP.data) linux.E {
+            if (t.done) return .SUCCESS;
+            t.done = true;
+            var threaded = std.Io.Threaded.init(std.heap.page_allocator, .{});
+            logs.gzipInPlace(std.heap.page_allocator, threaded.io(), t.dir, "a.log") catch return .SUCCESS;
+            return .IO;
+        }
+    };
+
+    test "a compress that fails before its directory sync is not counted, whatever another rotate left" {
+        const gpa = std.testing.allocator;
+        const base = try testDir(gpa, "steal");
+        defer gpa.free(base);
+        defer fsx.deleteTree(gpa, fsx.cwd, base) catch {};
+        const dir = try fsx.openDir(fsx.cwd, base, false);
+        defer sys.close(dir);
+        try makeLog(dir, "a.log");
+        const warnings = try sys.openat(dir, "warnings", .{ .ACCMODE = .RDWR, .CREAT = true, .EXCL = true, .NOFOLLOW = true }, 0o600);
+        defer sys.close(warnings);
+
+        const child = try Child.start(.fsync, null, CompressOnly{ .root = dir, .warnings = warnings });
+        var answer: StealThenFail = .{ .dir = dir };
+        const raw = child.finish(&answer) orelse return error.TestUnexpectedResult;
+        _ = linux.lseek(warnings, 0, linux.SEEK.SET);
+        const said = try fsx.readAll(gpa, warnings, 1 << 16);
+        defer gpa.free(said);
+        try std.testing.expect(answer.done);
+        // What the child's failed compress finds is the original gone and
+        // a regular archive at its name, which is what a failed directory
+        // sync leaves too.
+        try std.testing.expectError(error.NotFound, fsx.statAt(dir, "a.log", false));
+        try std.testing.expect((try fsx.statAt(dir, "a.log.gz", false)).isReg());
+        try std.testing.expect(linux.W.IFEXITED(raw));
+        try std.testing.expectEqual(@as(u8, 0), linux.W.EXITSTATUS(raw));
+        try std.testing.expect(std.mem.indexOf(u8, said, "cannot compress") != null);
+        try std.testing.expect(std.mem.indexOf(u8, said, "cannot sync") == null);
     }
 };
 
