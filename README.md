@@ -24,11 +24,11 @@ It passes `--output-style=basic`, because EasyBuild 5.3 and later fold that path
 ## Install
 
 Each [release](https://github.com/stackhands/eb-keep-logs/releases/latest) has a static binary for `x86_64` and `aarch64` Linux, with `SHA256SUMS`.
-The latest tag is v0.3.0.
+The latest tag is v0.3.1.
 It needs nothing but `eb`:
 
 ```bash
-v=0.3.0 arch=x86_64
+v=0.3.1 arch=x86_64
 url=https://github.com/stackhands/eb-keep-logs/releases/download/v$v
 curl -sSfL -O "$url/eb-keep-logs-$v-$arch-linux-musl" -O "$url/SHA256SUMS"
 sha256sum --check --ignore-missing SHA256SUMS

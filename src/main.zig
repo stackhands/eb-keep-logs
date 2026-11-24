@@ -30,7 +30,7 @@ const Allocator = std.mem.Allocator;
 const tool = "eb-keep-logs";
 /// The version `--version` prints after the tool's name. `.version` in
 /// build.zig.zon names the same one, and a release changes both.
-pub const version = "0.3.0";
+pub const version = "0.3.1";
 
 /// What `-h`, `--help` and no arguments print. The shell script's `usage`
 /// prints the same text: tests/differential.sh compares the two.

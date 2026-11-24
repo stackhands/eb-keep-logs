@@ -1,1 +1,0 @@
-The crash mid-compress case in the differential suite used to kill each side after a fixed pause, guessed to land after compression had begun. Each side is killed as soon as its own destination for the file exists instead, found by polling rather than by guessing how long that takes.

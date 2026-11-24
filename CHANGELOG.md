@@ -2,6 +2,35 @@
 
 <!-- towncrier release notes start -->
 
+## 0.3.1 (2026-11-24)
+
+### Fixes
+
+- The `used` command counts a path equal to the install prefix when the prefix ends in a slash, so the require-none check exits 2 when that path is the only hit.
+- `failed` and `rotate` keep updating a metrics file when a sample carries a timestamp after its value, or a tab between its name and its value, instead of leaving the counters unchanged.
+- `failed` stops a Meson build-directory match before an invalid byte when grep uses a UTF-8 locale, so it does not keep a test log from a path the shell reader ignores.
+- `rotate` counts a log as compressed once its `.gz` is renamed into place and the original is removed, even when the directory sync that follows for crash durability fails; a warning still names the archive so the failure stays visible.
+- `rotate` no longer aborts when the environment variable `EB_KEEP_LOGS_NOW` names a time whose distance from a run's local midnight overflows a signed sixty-four bit integer. The age now saturates at that integer's minimum or maximum instead, as far from old enough to compress or delete as it can be in that direction.
+- `rotate` updates each run's `.licensed-logs` right after that file's own compression, the way the shell script does, instead of waiting for every file under the run to finish first. A kill partway through a run with several files to compress no longer leaves an already compressed file's line pointing at its old, since removed, name forever. Each update touches only the `.licensed-logs` beside the file just compressed, so the per file cost stays flat instead of growing with the size of the run.
+- `why` and `history` count a day in EasyBuild's `(took DURATION)` as 86400 seconds, so a build that ran for a day keeps its duration.
+
+### Documentation
+
+- `COMPAT.md` now lists a compress after count paired with a delete after count past what a signed sixty-four bit integer holds as a deliberate difference: `rotate` accepts the pair and treats the run as never old enough for the delete after count to delete it, where the shell script's own check that the delete after count is later than the compress after count errors on that count before it can tell, refusing the whole invocation even though the count genuinely is later.
+- `COMPAT.md` now lists a compress after count past what a signed sixty four bit integer holds, given on its own without a delete after count, as a deliberate difference: `rotate` prints the final compressed and deleted count on standard output alone, treating the run as never old enough to compress, where the shell script's own check that a run is old enough to compress errors with an "integer expression expected" message, once for every run under the given root, before that same final count.
+- `COMPAT.md` now lists a compress after or delete after count naming more days than an unsigned sixty-four bit integer holds as a deliberate difference: `rotate` refuses that count with exit status two, where the shell script's own comparison of it errors, is read as false, and leaves every run untouched.
+- `COMPAT.md` records what a kill during `rotate`'s compression leaves behind. The shell script's `gzip` writes under the final `FILE.gz` name as it goes, so a kill leaves a partial archive there that every later rotation declines to redo, printing `gzip: FILE.gz already exists; not overwritten` each time. The Zig build writes to a private, randomly named file first and renames it over `FILE.gz` only once its bytes are down and synced, so a kill leaves the source file untouched and that private file behind, unlisted and unused, and the next rotation compresses the file as usual.
+
+### Miscellaneous
+
+- The `--modulerc-out` writer publishes through zig-common
+  `atomic.atomicWrite`, which keeps the mode, refuses a symlink and syncs,
+  instead of its own temporary file, with the refusal text carried to the
+  tool's die.
+- The crash mid-compress case in the differential suite used to kill each side after a fixed pause, guessed to land after compression had begun. Each side is killed as soon as its own destination for the file exists instead, found by polling rather than by guessing how long that takes.
+- `lock` in `src/metrics.zig` delegates to `zig-common` `state.lockExclusive` instead of maintaining a local `flock` loop.
+
+
 ## 0.3.0 (2026-11-19)
 
 ### Features

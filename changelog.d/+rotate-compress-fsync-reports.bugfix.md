@@ -1,1 +1,0 @@
-`rotate` counts a log as compressed once its `.gz` is renamed into place and the original is removed, even when the directory sync that follows for crash durability fails; a warning still names the archive so the failure stays visible.
