@@ -137,6 +137,25 @@ check "usage json of bad directories is strict UTF-8" "$(strict_utf8 < "${work}/
 check "usage json software is the replaced string" "$(json_top_field software < "${work}/usage-arg.json")" "${work}/soft${fffd}ware"
 check "usage json modules is the replaced string" "$(json_top_field modules < "${work}/usage-arg.json")" "${work}/mod${fffd}ules"
 
+# --- a bad byte is matched as given and replaced only where printed -------
+printf 'user=alice module=pkg/1.0 path=/opt/p\xffkg/modules/pkg/1.0 host=login01 time=1\n' \
+    > "${work}/used-bad-prefix.log"
+text=$("${tool}" used --prefix $'/opt/p\xffkg' "${work}/used-bad-prefix.log")
+check "used --prefix with a bad byte matches the records under it" "${text}" \
+    "path=/opt/p${fffd}kg/modules/pkg/1.0 kind=module-load last=1 count=1"
+
+printf '%s\n' "user=alice module=pkg/1.0 path=${work}/mod"$'\xff'"ules/pkg/1.0.lua host=login01 time=1" \
+    > "${work}/usage-bad-modules.log"
+text=$("${tool}" usage --software "${work}/soft"$'\xff'"ware" --modules "${work}/mod"$'\xff'"ules" "${work}/usage-bad-modules.log")
+check "usage --modules with a bad byte matches the records under it" "${text}" "active pkg/1.0 hits=1 last=1"
+
+mkdir -p "${work}/twins/pkg"$'\xfe'"/1.0" "${work}/twins/pkg"$'\xff'"/1.0"
+printf '%s\n' "user=alice module=pkg"$'\xff'"/1.0 path=${work}/modules/pkg.lua host=login01 time=1" \
+    > "${work}/usage-twins.log"
+text=$("${tool}" usage --software "${work}/twins" --modules "${work}/modules" "${work}/usage-twins.log")
+check "usage keeps two names that differ only in a bad byte apart" "${text}" \
+    "unused pkg${fffd}/1.0"$'\n'"active pkg${fffd}/1.0 hits=1 last=1"
+
 # --- runs --exec: a bad byte in the executable asked for -----------------
 printf '%s\n' '{"userT":{"user":"ada","exec_path":"/opt/site/bin/gmx","syshost":"login01","start_time":"1"}}' \
     > "${work}/runs.json"
