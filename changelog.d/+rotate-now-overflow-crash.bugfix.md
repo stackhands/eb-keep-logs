@@ -1,1 +1,0 @@
-`rotate` no longer aborts when the environment variable `EB_KEEP_LOGS_NOW` names a time whose distance from a run's local midnight overflows a signed sixty-four bit integer. The age now saturates at that integer's minimum or maximum instead, as far from old enough to compress or delete as it can be in that direction.
