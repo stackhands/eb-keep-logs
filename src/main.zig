@@ -1853,8 +1853,14 @@ test "a log another rotate already archived is not counted again" {
     }
     const err_text = err_buf[0..err_len];
     try std.testing.expect(std.mem.indexOf(u8, err_text, "cannot sync") == null);
-    try std.testing.expect(std.mem.indexOf(u8, err_text, "cannot compress") != null);
-    try std.testing.expect(std.mem.indexOf(u8, err_text, "NotFound") != null);
+    var real_buf: [sys.path_max]u8 = undefined;
+    const real = try fsx.realpathFd(dir, &real_buf);
+    var want_buf: [sys.path_max + 64]u8 = undefined;
+    try std.testing.expectEqual(@as(usize, 2), std.mem.count(u8, err_text, "cannot compress "));
+    for ([_][]const u8{ "stolen.log", "node.log" }) |name| {
+        const want = try std.fmt.bufPrint(&want_buf, "eb-keep-logs: cannot compress {s}/{s}: NotFound\n", .{ real, name });
+        try std.testing.expect(std.mem.indexOf(u8, err_text, want) != null);
+    }
     try std.testing.expect((try fsx.statAt(dir, "stolen.log.gz", false)).isReg());
     try std.testing.expectError(error.NotFound, fsx.statAt(dir, "stolen.log", false));
     const node_gz = try fsx.statAt(dir, "node.log.gz", false);
