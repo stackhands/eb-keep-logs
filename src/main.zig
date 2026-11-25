@@ -1304,7 +1304,7 @@ fn followLists(c: Ctx, dir: fsx.fd_t, renames: *const Renames) void {
                 warn("cannot update a {s}: {t}", .{ logs.licensed_list, err });
                 continue;
             };
-            sys.fsync(dir) catch |err| warn("cannot sync a {s}: {t}", .{ logs.licensed_list, err });
+            sys.fsync(dir) catch warn("cannot sync a {s}: {s}", .{ logs.licensed_list, errnoName(sys.last_errno) });
         }
     }
 }
