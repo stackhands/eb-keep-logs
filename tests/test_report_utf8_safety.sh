@@ -5,8 +5,9 @@
 # reach stdout raw, and --json must keep printing a string for it, not
 # switch to a list of byte values. The same holds for a value given on
 # the command line that the report prints back: loads --module, used
-# --prefix, usage --software and --modules, runs --exec, and lifecycle
-# --policy.
+# --prefix, usage --software and --modules, runs --exec, lifecycle
+# --policy, each test-bundle value and the bundle names test-compare
+# prints. A test-bundle with such bytes still fits its schema.
 #   TOOL_BIN=zig-out/bin/eb-keep-logs bash tests/test_report_utf8_safety.sh
 set -u
 
@@ -179,6 +180,49 @@ json=$("${tool}" lifecycle --policy "${work}/pol"$'\xff'"icy.toml" --now 1794873
 printf '%s\n' "${json}" > "${work}/lifecycle-arg.json"
 check "lifecycle json of a bad --policy is strict UTF-8" "$(strict_utf8 < "${work}/lifecycle-arg.json")" "ok"
 check "lifecycle json policy is the replaced string" "$(json_top_field policy < "${work}/lifecycle-arg.json")" "${work}/pol${fffd}icy.toml"
+
+# --- test-bundle: bad bytes in a captured stream, a path and each value ---
+if ! python3 -c "import jsonschema" 2>/dev/null; then
+    python3 -m pip install -q --user jsonschema
+fi
+schema_dir="${repo_root}/docs/orgmode/reference/json"
+printf 'ok\xff\n' > "${work}/bundle-out.log"
+: > "${work}/bundle-err.log"
+printf 'input\n' > "${work}/in"$'\xff'".txt"
+"${tool}" test-bundle --test-id $'qe.\xfftest' --suite-revision $'r\xff' --eessi-target $'zen\xff' \
+    --stdout "${work}/bundle-out.log" --stderr "${work}/bundle-err.log" \
+    --input "${work}/in"$'\xff'".txt" --module $'pkg\xff/1.0=/mod\xff/pkg.lua' \
+    --seed $'7\xff' --allocation $'nodes\xff' --binding $'core\xff' --cpu $'cpu\xff' --gpu $'gpu\xff' \
+    > "${work}/bundle"$'\xff'".json"
+check "test-bundle json is strict UTF-8" "$(strict_utf8 < "${work}/bundle"$'\xff'".json")" "ok"
+check "test-bundle json with bad bytes fits its schema" \
+    "$(python3 tests/json_schema_validate.py "${schema_dir}/test-bundle.schema.json" "${work}/bundle"$'\xff'".json" && echo ok)" "ok"
+check "test-bundle json test_id is the replaced string" \
+    "$(json_top_field test_id < "${work}/bundle"$'\xff'".json")" "qe.${fffd}test"
+check "test-bundle json input path stays a string" \
+    "$(json_string_field inputs 0 path < "${work}/bundle"$'\xff'".json")" "str"
+check "test-bundle hashes the stream's bytes as read" \
+    "$(python3 -c "import json, sys; print(json.load(sys.stdin)['stdout']['sha256'])" < "${work}/bundle"$'\xff'".json")" \
+    "$(printf 'ok\xff\n' | sha256sum | cut -d' ' -f1)"
+
+# --- test-compare: a bad byte in each bundle's file name ------------------
+for gpu in a b; do
+    "${tool}" test-bundle --test-id qe.test --suite-revision r --eessi-target zen4 \
+        --stdout "${work}/bundle-err.log" --stderr "${work}/bundle-err.log" \
+        --seed 7 --allocation nodes=1 --binding core --cpu cpu --gpu "gpu-${gpu}" \
+        > "${work}/compare-${gpu}"$'\xff'".json"
+done
+text=$("${tool}" test-compare "${work}/compare-a"$'\xff'".json" "${work}/compare-b"$'\xff'".json")
+printf '%s\n' "${text}" > "${work}/compare.text"
+check "test-compare text is strict UTF-8" "$(strict_utf8 < "${work}/compare.text")" "ok"
+check "test-compare text replaces the byte in each bundle name" "${text}" \
+    "Compared 2 bundles."$'\n'"Differing fields:"$'\n'"- hardware.gpu"$'\n'"    value=gpu-a"$'\n'"      ${work}/compare-a${fffd}.json"$'\n'"    value=gpu-b"$'\n'"      ${work}/compare-b${fffd}.json"
+
+json=$("${tool}" test-compare --json "${work}/compare-a"$'\xff'".json" "${work}/compare-b"$'\xff'".json")
+printf '%s\n' "${json}" > "${work}/compare.json"
+check "test-compare json is strict UTF-8" "$(strict_utf8 < "${work}/compare.json")" "ok"
+check "test-compare json with bad bytes fits its schema" \
+    "$(python3 tests/json_schema_validate.py "${schema_dir}/test-compare.schema.json" "${work}/compare.json" && echo ok)" "ok"
 
 echo "${fails} failed"
 [ "${fails}" -eq 0 ]

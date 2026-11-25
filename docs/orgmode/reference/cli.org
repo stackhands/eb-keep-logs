@@ -86,8 +86,8 @@ eb-keep-logs --version
 - =why='s options and =RUN=, and =history='s and =PACKAGE=, come in any order, and an option given twice takes its last value; the value of an option is the next argument, whatever it is, and an empty one is refused.
 - =-h=, =--help= and =--version= count only in the place of the command.
 - =failed='s options and positional arguments may appear in any order.
-- What =why=, =history=, =failures=, =loads=, =runs=, =used=, =usage= and =pending= print, and the =--policy= path in =lifecycle --json=, is UTF-8: a byte that is not part of a UTF-8 character, whether from a log, a record, a directory name or the command line, is printed as U+FFFD, and its =--json= field stays a string.
-  Names and paths are matched and counted by their bytes as given, before that replacement: =--module=, =--exec=, =--prefix=, =--software= and =--modules= match a record or a directory with the same bytes, and two names that differ only in such a byte stay two entries, though they print alike.
+- What =why=, =history=, =failures=, =loads=, =runs=, =used=, =usage=, =pending=, =test-bundle= and =test-compare= print, and the =--policy= path in =lifecycle --json=, is UTF-8: a byte that is not part of a UTF-8 character, whether from a log, a record, a directory name or the command line, is printed as U+FFFD, and its =--json= field stays a string.
+  Names and paths are matched and counted by their bytes as given, before that replacement: =--module=, =--exec=, =--prefix=, =--software= and =--modules= match a record or a directory with the same bytes, and two names that differ only in such a byte stay two entries, though they print alike. =test-bundle= hashes its streams, inputs and =--seed= as read, so a hash is of the bytes as given, not of the replaced text it prints.
 
 ** Environment
 
