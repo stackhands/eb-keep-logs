@@ -1,6 +1,6 @@
 .{
     .name = .eb_keep_logs,
-    .version = "0.3.0",
+    .version = "0.3.1",
     .fingerprint = 0x749ab134094a23b8,
     .minimum_zig_version = "0.17.1",
     .dependencies = .{
