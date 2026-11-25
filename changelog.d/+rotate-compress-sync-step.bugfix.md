@@ -1,0 +1,1 @@
+`rotate` counts a log as compressed after a failed directory sync only when its own compression got as far as that sync. A log another rotate removed first, or an archive name that holds something other than a regular file, is a failed compress again and is not counted.

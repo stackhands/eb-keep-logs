@@ -40,6 +40,7 @@ jobs:
           tar -xzf "${archive}"
           sudo install -m 0755 "prometheus-3.7.3.linux-${prom_arch}/promtool" /usr/local/bin/promtool
       - run: pip install jsonschema
+      - uses: ./.github/actions/install-strace
       - run: zig build test --summary all
       - name: build
         run: |
