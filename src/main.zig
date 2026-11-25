@@ -1818,10 +1818,14 @@ test "a log another rotate already archived is not counted again" {
         return error.TestUnexpectedResult;
     }
     const pidfd: i32 = @intCast(pidfd_rc);
+    var reaped = false;
+    defer if (!reaped) {
+        _ = linux.pidfd_send_signal(pidfd, .KILL, null, 0);
+        _ = reapChild(pid, pidfd);
+    };
     // The child is now either paused at its first mid-copy, or gone.
     var poke: [1]u8 = undefined;
     if (!waitReadable(ev[0], pidfd, handshake_ms) or linux.read(ev[0], &poke, 1) != 1) {
-        _ = reapChild(pid, pidfd);
         return error.TestUnexpectedResult;
     }
 
@@ -1833,6 +1837,7 @@ test "a log another rotate already archived is not counted again" {
     var token: [1]u8 = .{1};
     _ = linux.write(wake[1], &token, 1);
 
+    reaped = true;
     const raw = reapChild(pid, pidfd) orelse return error.TestUnexpectedResult;
     try std.testing.expect(linux.W.IFEXITED(raw));
     try std.testing.expectEqual(@as(u8, 10), linux.W.EXITSTATUS(raw));
