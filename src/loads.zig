@@ -9,6 +9,7 @@ const common = @import("zig_common");
 const sys = common.sys;
 const fsx = common.fsx;
 const cli = common.cli;
+const utf8_text = @import("utf8_text.zig");
 
 const Allocator = std.mem.Allocator;
 const tool = "eb-keep-logs";
@@ -85,17 +86,19 @@ fn collectLoads(gpa: Allocator, text: []const u8, module: []const u8) Allocator.
         const rec = parseRecord(line) orelse continue;
         if (!std.mem.eql(u8, rec.module, module)) continue;
         try loads.append(gpa, .{
-            .user = rec.user,
-            .host = rec.host,
-            .time = rec.time,
-            .path = rec.path,
+            .user = try utf8_text.utf8(gpa, rec.user),
+            .host = try utf8_text.utf8(gpa, rec.host),
+            .time = try utf8_text.utf8(gpa, rec.time),
+            .path = try utf8_text.utf8(gpa, rec.path),
         });
     }
     return try loads.toOwnedSlice(gpa);
 }
 
 pub fn formatJson(gpa: Allocator, module: []const u8, items: []const JsonLoad) ![]u8 {
-    const report: JsonReport = .{ .module = module, .loads = items };
+    var arena = std.heap.ArenaAllocator.init(gpa);
+    defer arena.deinit();
+    const report: JsonReport = .{ .module = try utf8_text.utf8(arena.allocator(), module), .loads = items };
     var out: std.Io.Writer.Allocating = .init(gpa);
     defer out.deinit();
     try std.json.Stringify.value(report, .{}, &out.writer);
@@ -111,7 +114,7 @@ pub fn formatLoads(gpa: Allocator, text: []const u8, module: []const u8) Allocat
     var out: std.ArrayList(u8) = .empty;
     errdefer out.deinit(gpa);
     for (items) |row| try out.print(gpa, "user={s} host={s} time={s} path={s}\n", .{ row.user, row.host, row.time, row.path });
-    if (items.len == 0) try out.print(gpa, "no load of {s}\n", .{module});
+    if (items.len == 0) try out.print(gpa, "no load of {f}\n", .{utf8_text.text(module)});
     return try out.toOwnedSlice(gpa);
 }
 
@@ -159,14 +162,15 @@ pub fn cmdLoads(gpa: Allocator, args: []const []const u8) u8 {
     if (path.len == 0) die("loads needs a log file", .{});
     const text = readLog(gpa, path) orelse return 2;
     defer gpa.free(text);
+    var arena_state = std.heap.ArenaAllocator.init(gpa);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
     const body = if (json_out) blk: {
-        const items = collectLoads(gpa, text, module) catch die("out of memory", .{});
-        defer gpa.free(items);
-        break :blk formatJson(gpa, module, items) catch die("out of memory", .{});
+        const items = collectLoads(arena, text, module) catch die("out of memory", .{});
+        break :blk formatJson(arena, module, items) catch die("out of memory", .{});
     } else blk: {
-        break :blk formatLoads(gpa, text, module) catch die("out of memory", .{});
+        break :blk formatLoads(arena, text, module) catch die("out of memory", .{});
     };
-    defer gpa.free(body);
     cli.out("{s}", .{body});
     return 0;
 }
@@ -198,4 +202,16 @@ test "loads of one module keep file order and a gap is named" {
     const none = try formatLoads(std.testing.allocator, text, "Missing/1.0");
     defer std.testing.allocator.free(none);
     try std.testing.expectEqualStrings("no load of Missing/1.0\n", none);
+}
+
+test "a load record with a bad byte in its path is replaced, not leaked raw" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const text = "user=alice module=GROMACS/2024.1 path=/cvmfs/\xffg.lua host=login01 time=1";
+    const got = try formatLoads(arena.allocator(), text, "GROMACS/2024.1");
+    try std.testing.expectEqualStrings(
+        "user=alice host=login01 time=1 path=/cvmfs/\u{FFFD}g.lua\n",
+        got,
+    );
+    try std.testing.expect(std.unicode.utf8ValidateSlice(got));
 }

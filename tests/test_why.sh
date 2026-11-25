@@ -14,19 +14,8 @@ cd "${repo_root}" || exit 1
 logs=tests/fixtures/build-logs
 
 fails=0
-# Failures go to stderr: zig build test shows a script's stderr, not stdout.
-check() {
-    if [ "$2" = "$3" ]; then
-        echo "ok   $1"
-    else
-        {
-            echo "FAIL $1"
-            echo "     expected: $3"
-            echo "     got:      $2"
-        } >&2
-        fails=$((fails + 1))
-    fi
-}
+# shellcheck source=tests/lib/check.sh
+. "${repo_root}/tests/lib/check.sh"
 
 work=$(mktemp -d "${TMPDIR:-/tmp}/eb-keep-logs-why.XXXXXX")
 trap 'rm -rf -- "${work}"' EXIT

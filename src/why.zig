@@ -9,6 +9,7 @@ const common = @import("zig_common");
 const sys = common.sys;
 const fsx = common.fsx;
 const cli = common.cli;
+const utf8_text = @import("utf8_text.zig");
 
 const Allocator = std.mem.Allocator;
 const tool = "eb-keep-logs";
@@ -435,23 +436,10 @@ fn clip(line: []const u8) []const u8 {
 }
 
 /// `s` with each byte that is not part of a UTF-8 character replaced by
-/// U+FFFD, as JSON text is UTF-8.
-fn utf8(arena: Allocator, s: []const u8) Allocator.Error![]const u8 {
-    if (std.unicode.utf8ValidateSlice(s)) return s;
-    var out: std.ArrayList(u8) = .empty;
-    var i: usize = 0;
-    while (i < s.len) {
-        const n: usize = std.unicode.utf8ByteSequenceLength(s[i]) catch 0;
-        if (n > 0 and i + n <= s.len) if (std.unicode.utf8Decode(s[i..][0..n])) |_| {
-            try out.appendSlice(arena, s[i..][0..n]);
-            i += n;
-            continue;
-        } else |_| {};
-        try out.appendSlice(arena, "\u{FFFD}");
-        i += 1;
-    }
-    return out.items;
-}
+/// U+FFFD, as JSON text is UTF-8. Shared with `loads`, `used`, `usage`,
+/// and `pending`, which need the same repair for a module name or a
+/// record path.
+const utf8 = utf8_text.utf8;
 
 /// A copy of `s` in `arena`, as `utf8` gives it.
 fn own(arena: Allocator, s: ?[]const u8) Allocator.Error!?[]const u8 {
