@@ -1,0 +1,1 @@
+CI and the release workflow install `strace` through the shared `.github/actions/install-strace` action. It checks that `ptrace` works before `zig build test`, so release tag builds can run `test_rotate_fsync_durability.sh`.

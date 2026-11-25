@@ -1818,10 +1818,14 @@ test "a log another rotate already archived is not counted again" {
         return error.TestUnexpectedResult;
     }
     const pidfd: i32 = @intCast(pidfd_rc);
+    var reaped = false;
+    defer if (!reaped) {
+        _ = linux.pidfd_send_signal(pidfd, .KILL, null, 0);
+        _ = reapChild(pid, pidfd);
+    };
     // The child is now either paused at its first mid-copy, or gone.
     var poke: [1]u8 = undefined;
     if (!waitReadable(ev[0], pidfd, handshake_ms) or linux.read(ev[0], &poke, 1) != 1) {
-        _ = reapChild(pid, pidfd);
         return error.TestUnexpectedResult;
     }
 
@@ -1833,6 +1837,7 @@ test "a log another rotate already archived is not counted again" {
     var token: [1]u8 = .{1};
     _ = linux.write(wake[1], &token, 1);
 
+    reaped = true;
     const raw = reapChild(pid, pidfd) orelse return error.TestUnexpectedResult;
     try std.testing.expect(linux.W.IFEXITED(raw));
     try std.testing.expectEqual(@as(u8, 10), linux.W.EXITSTATUS(raw));
@@ -1848,8 +1853,14 @@ test "a log another rotate already archived is not counted again" {
     }
     const err_text = err_buf[0..err_len];
     try std.testing.expect(std.mem.indexOf(u8, err_text, "cannot sync") == null);
-    try std.testing.expect(std.mem.indexOf(u8, err_text, "cannot compress") != null);
-    try std.testing.expect(std.mem.indexOf(u8, err_text, "NotFound") != null);
+    var real_buf: [sys.path_max]u8 = undefined;
+    const real = try fsx.realpathFd(dir, &real_buf);
+    var want_buf: [sys.path_max + 64]u8 = undefined;
+    try std.testing.expectEqual(@as(usize, 2), std.mem.count(u8, err_text, "cannot compress "));
+    for ([_][]const u8{ "stolen.log", "node.log" }) |name| {
+        const want = try std.fmt.bufPrint(&want_buf, "eb-keep-logs: cannot compress {s}/{s}: NotFound\n", .{ real, name });
+        try std.testing.expect(std.mem.indexOf(u8, err_text, want) != null);
+    }
     try std.testing.expect((try fsx.statAt(dir, "stolen.log.gz", false)).isReg());
     try std.testing.expectError(error.NotFound, fsx.statAt(dir, "stolen.log", false));
     const node_gz = try fsx.statAt(dir, "node.log.gz", false);
@@ -2311,6 +2322,7 @@ const walk_tests = struct {
             if (t.done) return .SUCCESS;
             t.done = true;
             var threaded = std.Io.Threaded.init(std.heap.page_allocator, .{});
+            defer threaded.deinit();
             logs.gzipInPlace(std.heap.page_allocator, threaded.io(), t.dir, "a.log") catch return .SUCCESS;
             return .IO;
         }
