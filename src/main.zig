@@ -2322,6 +2322,7 @@ const walk_tests = struct {
             if (t.done) return .SUCCESS;
             t.done = true;
             var threaded = std.Io.Threaded.init(std.heap.page_allocator, .{});
+            defer threaded.deinit();
             logs.gzipInPlace(std.heap.page_allocator, threaded.io(), t.dir, "a.log") catch return .SUCCESS;
             return .IO;
         }
