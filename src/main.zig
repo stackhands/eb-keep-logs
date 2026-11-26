@@ -711,9 +711,39 @@ fn emitFailedSyslog(
     else
         (a.print("eb-keep-logs failed: no EasyBuild log kept for {s} ({s})", .{ name, reason }) catch return);
 
+    if (c.getenv("EB_KEEP_LOGS_SYSLOG_CAPTURE")) |cap| {
+        captureSyslogFrame(a, t, 4, msgid, params.items, jfields.items, msg, cap);
+        return;
+    }
     if (!syslog.emitFor(a, syslog_identity, t, 4, msgid, params.items, jfields.items, msg)) {
         warn("cannot emit syslog event", .{});
     }
+}
+
+/// Write the framed event `emitFor` would send to `path`, and do not open a
+/// socket. TCP is octet-counted (`N SP payload`); every other scheme is one
+/// datagram, the payload alone. Set by the syslog tests.
+fn captureSyslogFrame(
+    a: Allocator,
+    target: syslog.Target,
+    severity: u8,
+    msgid: []const u8,
+    params: []const syslog.Param,
+    jfields: []const syslog.JournalField,
+    msg: []const u8,
+    path: []const u8,
+) void {
+    const payload = switch (target.scheme) {
+        .journal_unix => syslog.formatJournaldFor(a, syslog_identity, severity, msgid, jfields, msg),
+        else => syslog.formatRfc5424For(a, syslog_identity, severity, msgid, params, msg, target.pen),
+    } catch return;
+    const framed = switch (target.scheme) {
+        .rfc5424_tcp => a.print("{d} {s}", .{ payload.len, payload }) catch return,
+        else => payload,
+    };
+    const fd = sys.openat(fsx.cwd, path, .{ .ACCMODE = .WRONLY, .CREAT = true, .TRUNC = true }, 0o644) catch return;
+    defer sys.close(fd);
+    sys.writeAll(fd, framed) catch return;
 }
 
 fn emitRotateSyslog(
