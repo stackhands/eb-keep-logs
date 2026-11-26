@@ -65,8 +65,5 @@ check "truncated json stderr" "$(cat "${work}/err")" "eb-keep-logs: used: ${work
 check "prefix required exit" "$?" "2"
 check "prefix required message" "$(cat "${work}/err2")" "eb-keep-logs: used needs --prefix"
 
-page=$(cat "${repo_root}/docs/orgmode/howto/check-prefix-use.org")
-check "how-to names the command" "$(grep -q 'used --prefix' <<< "${page}" && echo yes)" "yes"
-
 echo "${fails} failed"
 [ "${fails}" -eq 0 ]

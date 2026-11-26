@@ -74,8 +74,9 @@ pub fn build(b: *std.Build) void {
     suite.expectExitCode(0);
     suite.has_side_effects = true;
     // The same invocations through the shell implementation and this one.
-    const diff = b.addSystemCommand(&.{ "bash", "-c", "TOOL_BIN=\"$0\" exec bash tests/differential.sh" });
+    const diff = b.addSystemCommand(&.{ "bash", "-c", "TOOL_BIN=\"$0\" TEST_OPS_BIN=\"$1\" exec bash tests/differential.sh" });
     diff.addArtifactArg(exe);
+    diff.addArtifactArg(test_ops_exe);
     diff.setCwd(b.path("."));
     diff.expectExitCode(0);
     diff.has_side_effects = true;

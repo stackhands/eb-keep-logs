@@ -534,6 +534,14 @@ else:
     sd = " ".join(f'{k[2:]}="{sd_esc(v)}"' for k, v in pairs if k.startswith("P:"))
     line = f"<{pri}>1 {ts} {host} eb-keep-logs {pid} {msgid} [ebKeepLogs@{pen} {sd}] {one_line(msg)}"
     payload = line.encode("utf-8", "replace")
+    cap = os.environ.get("EB_KEEP_LOGS_SYSLOG_CAPTURE")
+    if cap:
+        out = payload
+        if scheme == "tcp":
+            out = f"{len(payload)} ".encode("ascii") + payload
+        with open(cap, "wb") as fh:
+            fh.write(out)
+        sys.exit(0)
     if scheme == "unix":
         ok = send_unix(hp, payload, True)
     elif scheme == "udp":
@@ -681,7 +689,13 @@ _update_metrics() {
     bytes="${new_bytes}"
     # Choose completion time only after taking the metrics lock. Keep a later
     # completion already recorded by a concurrent, out-of-order rotation.
-    [ "${prune}" != "now" ] || prune=$(date +%s)
+    if [ "${prune}" = "now" ]; then
+        if [ -n "${EB_KEEP_LOGS_CLOCK:-}" ]; then
+            prune=$(tr -d '[:space:]' < "${EB_KEEP_LOGS_CLOCK}")
+        else
+            prune=$(date +%s)
+        fi
+    fi
     if [ -n "${prune}" ] && _u64_gt "${prune}" "${last}"; then
         last="${prune}"
     fi

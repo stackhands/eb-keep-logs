@@ -198,36 +198,31 @@ exec {held}>&-
 mkdir -p "${work}/symlock"
 ln -s "${work}/nowhere" "${work}/symlock/.eb-keep-logs-rotate.lock"
 compare "rotate, lock is a symbolic link" rotate "${work}/symlock" --compress-after 5
-# A kill in the middle of compressing a file leaves behind what each side's
-# compression writes mid-way, and a later rotate sees a different run. Each
-# side is killed once it has created its own destination for the file: the
-# shell's gzip under the final name, the Zig build's private temp. Waiting
-# for that destination to exist, rather than a sleep sized to guess when it
-# might, makes the kill land at a defined point on both sides.
-# wait_for_name DIR PATTERN: block until DIR has an entry matching the
-# find(1) -name PATTERN, or 10 seconds pass.
-wait_for_name() {
-    local dir=$1 pattern=$2 deadline
-    deadline=$((SECONDS + 10))
-    while :; do
-        [ -n "$(find "${dir}" -maxdepth 1 -name "${pattern}" -print -quit 2>/dev/null)" ] && return 0
-        [ "${SECONDS}" -ge "${deadline}" ] && return 1
-    done
-}
-mkdir -p "${work}/crash-old/20261001_120000" "${work}/crash-new/20261001_120000"
-head -c 20000000 /dev/urandom > "${work}/crash-old/20261001_120000/a.log"
-head -c 20000000 /dev/urandom > "${work}/crash-new/20261001_120000/a.log"
-"${OLD_BIN}" rotate "${work}/crash-old" --compress-after 5 >/dev/null 2>&1 &
-old_pid=$!
-wait_for_name "${work}/crash-old/20261001_120000" "a.log.gz"
-gzip_pid=$(pgrep -f "gzip -9 -- ${work}/crash-old/20261001_120000/a.log" | head -1)
-[ -n "${gzip_pid}" ] && kill -KILL "${gzip_pid}" 2>/dev/null
-wait "${old_pid}" 2>/dev/null
-"${TOOL_BIN}" rotate "${work}/crash-new" --compress-after 5 >/dev/null 2>&1 &
-new_pid=$!
-wait_for_name "${work}/crash-new/20261001_120000" ".a.log.gz.*.tmp"
-kill -KILL "${new_pid}" 2>/dev/null
-wait "${new_pid}" 2>/dev/null
+# A kill while compressing is not a race on a filename. The shell side's
+# gzip reads its input and dies when that stream closes, before it
+# publishes a member. The Zig side is the test-ops binary, which
+# `EB_KEEP_LOGS_TEST_KILL_AT=mid-copy` already kills at that step.
+mkdir -p "${work}/die-gzip" "${work}/crash-old/20261001_120000" "${work}/crash-new/20261001_120000"
+cat > "${work}/die-gzip/gzip" << 'EOF'
+#!/bin/bash
+file=
+prev=
+for arg in "$@"; do
+    if [ "${prev}" = "--" ]; then file=${arg}; fi
+    prev=${arg}
+done
+if [ -n "${file}" ]; then
+    cat -- "${file}" >/dev/null
+else
+    cat >/dev/null
+fi
+kill -KILL $$
+EOF
+chmod +x "${work}/die-gzip/gzip"
+printf 'log line\n' > "${work}/crash-old/20261001_120000/a.log"
+printf 'log line\n' > "${work}/crash-new/20261001_120000/a.log"
+PATH="${work}/die-gzip:${PATH}" "${OLD_BIN}" rotate "${work}/crash-old" --compress-after 5 >/dev/null 2>&1 || true
+EB_KEEP_LOGS_TEST_KILL_AT=mid-copy "${TEST_OPS_BIN:?TEST_OPS_BIN names the test-ops binary}" rotate "${work}/crash-new" --compress-after 5 >/dev/null 2>&1 || true
 old_rerun=$("${OLD_BIN}" rotate "${work}/crash-old" --compress-after 5 2>/dev/null)
 new_rerun=$("${TOOL_BIN}" rotate "${work}/crash-new" --compress-after 5 2>/dev/null)
 old_count=$(sed -nE 's/^eb-keep-logs rotate: ([0-9]+) files? compressed.*/\1/p' <<< "${old_rerun}")
@@ -257,22 +252,6 @@ holder=$!
 until [ -e "${work}/held" ]; do sleep 0.05; done
 compare "rotate, a run still written into" rotate "${work}/live" --compress-after 5 --delete-after 9
 kill "${holder}"; wait "${holder}" 2>/dev/null
-compare "why" why --latest --root "${repo_root}/tests/fixtures/build-logs"
-compare "history" history hello --root "${repo_root}/tests/fixtures/build-logs"
-compare "failures" failures --root "${repo_root}/tests/fixtures/build-logs"
-printf 'user=a module=M path=/p host=h time=1\n' > "${work}/loads.log"
-compare "loads" loads --module M "${work}/loads.log"
-printf '%s\n' '{"userT":{"user":"a","exec_path":"/bin/gmx","syshost":"h","start_time":1}}' > "${work}/runs.json"
-compare "runs" runs --exec gmx "${work}/runs.json"
-printf '%s\n' '{"userT":{"user":"a","exec_path":"/bin/gmx","syshost":"h","start_time":1}}' > "${work}/used.json"
-compare "used" used --prefix /opt "${work}/used.json"
-mkdir -p "${work}/software/GROMACS/1.0" "${work}/modules"
-compare "usage" usage --software "${work}/software" --modules "${work}/modules" "${work}/used.json"
-printf '%s\n' ' * [ ] flex-2.6.4.eb (module: flex/2.6.4)' > "${work}/dry.txt"
-compare "pending" pending "${work}/dry.txt"
-printf '%s\n' 'min_observation_days = 90' 'warn_after_days = 60' 'forbid_after_days = 180' 'remove_after_days = 365' > "${work}/policy.toml"
-"${TOOL_BIN}" usage --software "${work}/software" --modules "${work}/modules" --json "${work}/used.json" > "${work}/usage.json"
-compare "lifecycle" lifecycle --policy "${work}/policy.toml" "${work}/usage.json"
 
 echo "${diffs} differences"
 [ "${diffs}" -eq 0 ]

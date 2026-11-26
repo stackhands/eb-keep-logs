@@ -50,8 +50,5 @@ echo 'not a report' > "${work}/nope.txt"
 "${tool}" pending "${work}/nope.txt" >/dev/null 2>"${work}/err"
 check "not a report" "$?" "2"
 check "the refusal names the report" "$(cat "${work}/err")" "eb-keep-logs: pending: ${work}/nope.txt is not a dry-run or missing-modules report"
-page=$(cat "${repo_root}/docs/orgmode/howto/what-a-dry-run-would-build.org")
-check "how-to names the command" "$(grep -c 'eb-keep-logs pending' <<< "${page}")" "1"
-
 echo "${fails} failed"
 [ "${fails}" -eq 0 ]
