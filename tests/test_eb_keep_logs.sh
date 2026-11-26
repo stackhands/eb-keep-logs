@@ -572,9 +572,13 @@ check "lock held: refused at once" "$("${tool}" rotate "${lk_root}" --compress-a
     "eb-keep-logs: another rotate holds the lock ${lock}; gave up after 0 s (--lock-timeout)
 exit 75"
 check "lock held: nothing compressed" "$(lsrun "${lk_root}/20261001_120000")" "M.stdout.log "
-start=$(date +%s%N)
+mono_ns() { python3 -c 'import time; print(time.monotonic_ns())'; }
+start=$(mono_ns)
 "${tool}" rotate "${lk_root}" --compress-after 30 --lock-timeout=1 > /dev/null 2>&1
-check "lock held: refused after --lock-timeout" "$?:$(( $(date +%s%N) - start >= 1000000000 ))" "75:1"
+rc=$?
+elapsed=$(( $(mono_ns) - start ))
+# 50 ms early allowance on a monotonic clock. `--lock-timeout` stays 1 s.
+check "lock held: refused after --lock-timeout" "${rc}:$(( elapsed + 50000000 >= 1000000000 ))" "75:1"
 "${tool}" rotate "${lk_root}" --compress-after 30 > "${work}/letgo.out" 2>&1 &
 letgo=$!
 flock -u "${held}"

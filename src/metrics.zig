@@ -82,7 +82,23 @@ fn lock(fd: fsx.fd_t) sys.Error!void {
     };
 }
 
+fn clockFile(path: [*:0]const u8) ?i64 {
+    const fd = sys.openat(fsx.cwd, std.mem.span(path), .{}, 0) catch return null;
+    defer sys.close(fd);
+    var buf: [64]u8 = undefined;
+    const n = sys.read(fd, &buf) catch return null;
+    if (n == 0) return null;
+    const text = std.mem.trim(u8, buf[0..n], " \t\r\n");
+    return std.fmt.parseInt(i64, text, 10) catch null;
+}
+
+/// `EB_KEEP_LOGS_CLOCK` is a file holding the stamp, so a test can freeze it
+/// and then jump it while a rotate waits on the metrics lock. Unset, the
+/// stamp is `CLOCK_REALTIME`.
 fn realtimeSeconds() i64 {
+    if (std.c.getenv("EB_KEEP_LOGS_CLOCK")) |path| {
+        if (clockFile(path)) |stamp| return stamp;
+    }
     var ts: linux.timespec = undefined;
     _ = linux.clock_gettime(.REALTIME, &ts);
     return ts.sec;
@@ -176,11 +192,7 @@ test "parse and render metrics" {
     ));
 }
 
-var sigusr1_hits: std.atomic.Value(usize) = .init(0);
-
-fn onUsr1(_: linux.SIG) callconv(.c) void {
-    _ = sigusr1_hits.fetchAdd(1, .seq_cst);
-}
+fn onUsr1(_: linux.SIG) callconv(.c) void {}
 
 test "lock retries EINTR while waiting and reports non-contention flock errors" {
     const gpa = std.testing.allocator;
@@ -199,31 +211,51 @@ test "lock retries EINTR while waiting and reports non-contention flock errors" 
     defer sys.close(waiter);
     _ = try sys.call(linux.flock, .{ held, @as(i32, std.posix.LOCK.EX) });
 
-    sigusr1_hits.store(0, .seq_cst);
     const handler: linux.Sigaction = .{ .handler = .{ .handler = &onUsr1 }, .mask = linux.sigemptyset(), .flags = 0 };
     var prev: linux.Sigaction = undefined;
     _ = linux.sigaction(.USR1, &handler, &prev);
     defer _ = linux.sigaction(.USR1, &prev, null);
 
+    var poke: [2]i32 = undefined;
+    try std.testing.expectEqual(linux.E.SUCCESS, linux.errno(linux.pipe2(&poke, .{ .CLOEXEC = true })));
+    defer {
+        _ = linux.close(poke[0]);
+        _ = linux.close(poke[1]);
+    }
+
     const pid = linux.getpid();
     const tid = linux.gettid();
     const Releaser = struct {
-        fn run(h: fsx.fd_t, target_pid: i32, target_tid: i32) void {
-            var ts: linux.timespec = .{ .sec = 0, .nsec = 15 * std.time.ns_per_ms };
-            _ = linux.nanosleep(&ts, null);
-            _ = linux.tgkill(target_pid, target_tid, .USR1);
-            _ = linux.nanosleep(&ts, null);
-            _ = linux.tgkill(target_pid, target_tid, .USR1);
-            _ = linux.nanosleep(&ts, null);
+        fn run(h: fsx.fd_t, target_pid: i32, target_tid: i32, poke_r: i32) void {
+            const fl = linux.fcntl(poke_r, linux.F.GETFL, 0);
+            _ = linux.fcntl(poke_r, linux.F.SETFL, fl | (1 << @bitOffsetOf(linux.O, "NONBLOCK")));
+            while (true) {
+                _ = linux.tgkill(target_pid, target_tid, .USR1);
+                var b: [1]u8 = undefined;
+                if (linux.read(poke_r, &b, 1) == 1) break;
+            }
             _ = linux.flock(h, std.posix.LOCK.UN);
         }
     };
-    const thread = try std.Thread.spawn(.{}, Releaser.run, .{ held, pid, tid });
+    const thread = try std.Thread.spawn(.{}, Releaser.run, .{ held, pid, tid, poke[0] });
     defer thread.join();
 
-    try lock(waiter);
+    // Record that blocking `flock` returned `EINTR` before the helper unlocks.
+    var eintr = false;
+    while (true) {
+        const rc = linux.flock(waiter, @as(i32, std.posix.LOCK.EX));
+        switch (linux.errno(rc)) {
+            .SUCCESS => break,
+            .INTR => {
+                eintr = true;
+                var b = [_]u8{1};
+                _ = linux.write(poke[1], &b, 1);
+            },
+            else => break,
+        }
+    }
     defer _ = linux.flock(waiter, std.posix.LOCK.UN);
-    try std.testing.expect(sigusr1_hits.load(.seq_cst) >= 1);
+    try std.testing.expect(eintr);
     try std.testing.expectEqual(linux.E.AGAIN, linux.errno(linux.flock(held, std.posix.LOCK.EX | std.posix.LOCK.NB)));
 
     const opath = try sys.openat(fsx.cwd, "/", .{ .PATH = true }, 0);

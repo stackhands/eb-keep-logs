@@ -681,7 +681,13 @@ _update_metrics() {
     bytes="${new_bytes}"
     # Choose completion time only after taking the metrics lock. Keep a later
     # completion already recorded by a concurrent, out-of-order rotation.
-    [ "${prune}" != "now" ] || prune=$(date +%s)
+    if [ "${prune}" = "now" ]; then
+        if [ -n "${EB_KEEP_LOGS_CLOCK:-}" ]; then
+            prune=$(tr -d '[:space:]' < "${EB_KEEP_LOGS_CLOCK}")
+        else
+            prune=$(date +%s)
+        fi
+    fi
     if [ -n "${prune}" ] && _u64_gt "${prune}" "${last}"; then
         last="${prune}"
     fi
