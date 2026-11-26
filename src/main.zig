@@ -1215,6 +1215,23 @@ fn listDir(gpa: Allocator, arena: Allocator, fd: fsx.fd_t, here: []const u8, vis
     return subdirs.items;
 }
 
+/// Open `rel` under `root`, one component at a time and without following
+/// a symbolic link. Empty `rel` is `root` itself. The caller closes the
+/// descriptor. -1 when a component cannot be opened, and nothing is left open.
+fn openNoFollow(root: fsx.fd_t, rel: []const u8) fsx.fd_t {
+    var fd = fsx.openDir(root, ".", false) catch return -1;
+    var it = std.mem.tokenizeScalar(u8, rel, '/');
+    while (it.next()) |name| {
+        const next = fsx.openDir(fd, name, false) catch {
+            sys.close(fd);
+            return -1;
+        };
+        sys.close(fd);
+        fd = next;
+    }
+    return fd;
+}
+
 /// Open again `up`, the directory at `path`, `root_len` bytes of which are
 /// `root`'s own: through ".." of `child`, a directory the walk entered from
 /// it, when that is still `up`; otherwise from `root`, one component at a
@@ -1224,16 +1241,8 @@ fn reopenDir(root: fsx.fd_t, root_len: usize, path: []const u8, up: WalkDir, chi
         if (sameDir(fd, up)) return fd;
         sys.close(fd);
     } else |_| {};
-    var fd = fsx.openDir(root, ".", false) catch return -1;
-    var it = std.mem.tokenizeScalar(u8, path[root_len..], '/');
-    while (it.next()) |name| {
-        const next = fsx.openDir(fd, name, false) catch {
-            sys.close(fd);
-            return -1;
-        };
-        sys.close(fd);
-        fd = next;
-    }
+    const fd = openNoFollow(root, path[root_len..]);
+    if (fd == -1) return -1;
     if (sameDir(fd, up)) return fd;
     sys.close(fd);
     return -1;
@@ -1245,16 +1254,22 @@ fn sameDir(fd: fsx.fd_t, d: WalkDir) bool {
 }
 
 /// gzip every *.log and *.txt regular file under `dir`, at any depth,
-/// without following symbolic links. `dir`'s own `.licensed-logs`, if it
-/// names a compressed file, follows that file right after it is
-/// compressed, as the shell script's own loop does, so a crash before
-/// the next file's compression leaves no more than that one file's own
-/// line to ever go stale.
+/// without following symbolic links. Every `.licensed-logs` under `dir`
+/// is rewritten after each file, so a line that names it names the `.gz`
+/// before the next file is compressed. A crash then leaves at most that
+/// one file's own line stale. The list in the run directory names logs
+/// nested under it, and a list elsewhere in the run may too, so every
+/// directory that holds a list is recorded before the first compression
+/// and rewritten after each file, as the shell script's `find` does.
 fn compressTree(c: Ctx, arena: Allocator, dir: fsx.fd_t, count: *usize) void {
+    var lists: std.ArrayList([]const u8) = .empty;
+    collectListDirs(c, arena, dir, &lists);
     const Compress = struct {
         c: Ctx,
         arena: Allocator,
         count: *usize,
+        root: fsx.fd_t,
+        lists: []const []const u8,
 
         fn visit(v: @This(), fd: fsx.fd_t, here: []const u8, files: []const []const u8) void {
             for (files) |n| {
@@ -1274,12 +1289,65 @@ fn compressTree(c: Ctx, arena: Allocator, dir: fsx.fd_t, count: *usize) void {
                 const to = v.arena.print("{s}.gz", .{from}) catch return;
                 var renames: Renames = .empty;
                 renames.put(v.arena, from, to) catch return;
+                // The file's own directory, even when the scan above missed
+                // its list, and every other list recorded under the run.
                 followLists(v.c, fd, &renames);
+                const here_st: ?fsx.Stat = fsx.fstat(fd) catch null;
+                followKnownLists(v.c, v.root, v.lists, &renames, here_st);
                 testKillAt(v.c, "after-rename");
             }
         }
     };
-    walkTree(c.gpa, arena, dir, Compress{ .c = c, .arena = arena, .count = count });
+    walkTree(c.gpa, arena, dir, Compress{
+        .c = c,
+        .arena = arena,
+        .count = count,
+        .root = dir,
+        .lists = lists.items,
+    });
+}
+
+/// Relative paths, from `root`, of directories that hold a `.licensed-logs`.
+/// `""` is `root` itself. The paths are copied onto `arena`.
+fn collectListDirs(c: Ctx, arena: Allocator, root: fsx.fd_t, out: *std.ArrayList([]const u8)) void {
+    var rb: [sys.path_max]u8 = undefined;
+    const top = fsx.realpathFd(root, &rb) catch return;
+    const top_copy = arena.dupe(u8, top) catch return;
+    const Collect = struct {
+        arena: Allocator,
+        top: []const u8,
+        out: *std.ArrayList([]const u8),
+
+        fn visit(v: @This(), fd: fsx.fd_t, here: []const u8, _: []const []const u8) void {
+            const st = fsx.statAt(fd, logs.licensed_list, false) catch return;
+            if (!st.isReg()) return;
+            if (!std.mem.startsWith(u8, here, v.top)) return;
+            const rel = if (here.len == v.top.len)
+                ""
+            else if (here.len > v.top.len and here[v.top.len] == '/')
+                here[v.top.len + 1 ..]
+            else
+                return;
+            v.out.append(v.arena, v.arena.dupe(u8, rel) catch return) catch return;
+        }
+    };
+    walkTree(c.gpa, arena, root, Collect{ .arena = arena, .top = top_copy, .out = out });
+}
+
+/// Rewrite each `.licensed-logs` recorded in `lists`, except the directory
+/// `skip` names: that one was just rewritten on its own descriptor. A
+/// directory that cannot be opened, because it moved during the walk, is
+/// left as it is.
+fn followKnownLists(c: Ctx, root: fsx.fd_t, lists: []const []const u8, renames: *const Renames, skip: ?fsx.Stat) void {
+    for (lists) |rel| {
+        const fd = openNoFollow(root, rel);
+        if (fd == -1) continue;
+        defer sys.close(fd);
+        if (skip) |st| if (fsx.fstat(fd)) |now| {
+            if (now.dev == st.dev and now.ino == st.ino) continue;
+        } else |_| {};
+        followLists(c, fd, renames);
+    }
 }
 
 /// Collect every *.log and *.txt regular file under `dir` that a rotation
@@ -1307,11 +1375,8 @@ fn previewTree(c: Ctx, arena: Allocator, dir: fsx.fd_t, paths: *std.ArrayList([]
     walkTree(c.gpa, arena, dir, Preview{ .arena = arena, .paths = paths });
 }
 
-/// Rewrite `dir`'s own `.licensed-logs`, if it has one, so it names the
-/// compressed files. `renames` only ever carries a file that lived
-/// directly in `dir`, since a `.licensed-logs` only ever names files
-/// that live beside it, so `dir`'s own entry, with no need to look under
-/// its subdirectories, is the only one a rename there could change. The
+/// Rewrite `dir`'s own `.licensed-logs`, if it has one and a line of it
+/// names a file in `renames`, so that line names the compressed file. The
 /// new list is written beside the old one, synced, renamed over it and
 /// its directory synced, as copyDurable does, so a reader or a crash
 /// finds one list or the other.
@@ -2315,7 +2380,9 @@ const walk_tests = struct {
         const raw = child.finish(&seal) orelse return error.TestUnexpectedResult;
         try std.testing.expect(linux.W.IFEXITED(raw));
         try std.testing.expectEqual(@as(u8, 0), linux.W.EXITSTATUS(raw));
-        try std.testing.expectEqual(@as(usize, 4), seal.seen);
+        // preview, the scan for `.licensed-logs`, and the compress walk
+        // each read the directory twice: its entries, then the end.
+        try std.testing.expectEqual(@as(usize, 6), seal.seen);
         try std.testing.expect((try fsx.statAt(root, "sealed/good/a.log.gz", false)).isReg());
         try std.testing.expectError(error.NotFound, fsx.statAt(root, "sealed/good/a.log", false));
         try std.testing.expect((try fsx.statAt(root, "also/b.log.gz", false)).isReg());
@@ -2387,6 +2454,72 @@ const walk_tests = struct {
         try std.testing.expect(std.mem.indexOf(u8, said, "cannot sync") == null);
     }
 };
+
+fn mkdirAt(dir: fsx.fd_t, name: [:0]const u8) sys.Error!void {
+    _ = try sys.call(linux.mkdirat, .{ dir, name.ptr, @as(linux.mode_t, 0o755) });
+}
+
+fn readWhole(gpa: Allocator, dir: fsx.fd_t, name: []const u8) ![]u8 {
+    const f = try fsx.openRegular(dir, name, false);
+    defer sys.close(f.fd);
+    return fsx.readAll(gpa, f.fd, 1 << 20);
+}
+
+test "rotate rewrites a .licensed-logs that names a log under another directory" {
+    const gpa = std.testing.allocator;
+    const base = try testDir(gpa, "lists");
+    defer gpa.free(base);
+    defer fsx.deleteTree(gpa, fsx.cwd, base) catch {};
+    const root = try fsx.openDir(fsx.cwd, base, false);
+    defer sys.close(root);
+    try mkdirAt(root, "easybuild-logs");
+    const logs_dir = try fsx.openDir(root, "easybuild-logs", false);
+    defer sys.close(logs_dir);
+    try mkdirAt(logs_dir, "Example-1.0");
+    const nested = try fsx.openDir(logs_dir, "Example-1.0", false);
+    defer sys.close(nested);
+    const log_fd = try sys.openat(nested, "easybuild-Example-1.0.log", .{ .ACCMODE = .WRONLY, .CREAT = true, .EXCL = true, .NOFOLLOW = true }, 0o644);
+    try sys.writeAll(log_fd, "nested\n");
+    sys.close(log_fd);
+    var rb: [sys.path_max]u8 = undefined;
+    const nested_real = try fsx.realpathFd(nested, &rb);
+    const marked = try std.fmt.allocPrint(gpa, "{s}/easybuild-Example-1.0.log\n", .{nested_real});
+    defer gpa.free(marked);
+    const parent_text = try std.fmt.allocPrint(gpa, "{s}keep-me\n", .{marked});
+    defer gpa.free(parent_text);
+    const parent = try sys.openat(root, logs.licensed_list, .{ .ACCMODE = .WRONLY, .CREAT = true, .EXCL = true, .NOFOLLOW = true }, 0o640);
+    try sys.writeAll(parent, parent_text);
+    sys.close(parent);
+    try mkdirAt(root, "later");
+    const later = try fsx.openDir(root, "later", false);
+    defer sys.close(later);
+    const later_list = try sys.openat(later, logs.licensed_list, .{ .ACCMODE = .WRONLY, .CREAT = true, .EXCL = true, .NOFOLLOW = true }, 0o644);
+    try sys.writeAll(later_list, marked);
+    sys.close(later_list);
+
+    var env_map = std.process.Environ.Map.init(gpa);
+    defer env_map.deinit();
+    var threaded = std.Io.Threaded.init(gpa, .{});
+    defer threaded.deinit();
+    var arena_state = std.heap.ArenaAllocator.init(gpa);
+    defer arena_state.deinit();
+    const ctx: Ctx = .{ .gpa = gpa, .io = threaded.io(), .env = &env_map, .envp = undefined };
+    var count: usize = 0;
+    compressTree(ctx, arena_state.allocator(), root, &count);
+    try std.testing.expectEqual(@as(usize, 1), count);
+    const want = try std.fmt.allocPrint(gpa, "{s}/easybuild-Example-1.0.log.gz\nkeep-me\n", .{nested_real});
+    defer gpa.free(want);
+    const got_parent = try readWhole(gpa, root, logs.licensed_list);
+    defer gpa.free(got_parent);
+    try std.testing.expectEqualStrings(want, got_parent);
+    const want_later = try std.fmt.allocPrint(gpa, "{s}/easybuild-Example-1.0.log.gz\n", .{nested_real});
+    defer gpa.free(want_later);
+    const got_later = try readWhole(gpa, later, logs.licensed_list);
+    defer gpa.free(got_later);
+    try std.testing.expectEqualStrings(want_later, got_later);
+    try std.testing.expectError(error.NotFound, fsx.statAt(nested, "easybuild-Example-1.0.log", false));
+    try std.testing.expect((try fsx.statAt(nested, "easybuild-Example-1.0.log.gz", false)).isReg());
+}
 
 test "a failed copy does not replace a log already kept" {
     const gpa = std.testing.allocator;
