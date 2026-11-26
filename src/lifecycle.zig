@@ -12,6 +12,7 @@ const fsx = common.fsx;
 const atomic = common.atomic;
 const proc = common.proc;
 const cli = common.cli;
+const cli_parse = @import("cli_parse.zig");
 const localtime = @import("localtime.zig");
 
 const Allocator = std.mem.Allocator;
@@ -591,23 +592,29 @@ fn formatUtcDate(arena: Allocator, epoch_sec: i64) Allocator.Error![]const u8 {
     return try arena.print("{d}-{d:0>2}-{d:0>2}", .{ d.year, d.month, d.day });
 }
 
-fn optionValue(
-    args: []const []const u8,
-    i: *usize,
-    arg: []const u8,
-    comptime option: []const u8,
-    comptime message: []const u8,
-) []const u8 {
-    const value = if (std.mem.startsWith(u8, arg, option ++ "="))
-        arg[option.len + 1 ..]
-    else blk: {
-        i.* += 1;
-        if (i.* >= args.len) die(message, .{});
-        break :blk args[i.*];
-    };
-    if (value.len == 0 or value[0] == '-') die(message, .{});
-    return value;
-}
+const lifecycle_cli = cli_parse.make(.{
+    .prog = "lifecycle",
+    .options = &.{
+        cli_parse.req("policy"),
+        cli_parse.strict("modulerc-out"),
+        cli_parse.append("easyconfigs"),
+        cli_parse.append("easystack"),
+        cli_parse.strict("eb-stack"),
+        cli_parse.strict("rebuild-set"),
+        cli_parse.strict("now"),
+        cli_parse.flag("json"),
+    },
+    .positionals = &.{cli_parse.one("FILE", true)},
+    .missing = &.{
+        .{ .name = "modulerc-out", .msg = "--modulerc-out needs a path" },
+        .{ .name = "easyconfigs", .msg = "--easyconfigs needs a directory" },
+        .{ .name = "easystack", .msg = "--easystack needs a file" },
+        .{ .name = "eb-stack", .msg = "--eb-stack needs a path" },
+        .{ .name = "rebuild-set", .msg = "--rebuild-set needs a file" },
+        .{ .name = "now", .msg = "--now needs an epoch" },
+        .{ .name = "FILE", .msg = "lifecycle needs a usage JSON file" },
+    },
+});
 
 const RebuildInfo = struct {
     changed: std.StringHashMapUnmanaged(void) = .empty,
@@ -1037,60 +1044,26 @@ pub fn cmdLifecycle(
     envp: proc.Envp,
     args: []const []const u8,
 ) u8 {
-    var policy_path: []const u8 = "";
-    var modulerc_out: ?[]const u8 = null;
-    var eb_stack_opt: ?[]const u8 = null;
-    var rebuild_set_opt: ?[]const u8 = null;
-    var now_opt: ?[]const u8 = null;
-    var json_out = false;
-    var usage_path: []const u8 = "";
-
-    var easyconfigs: std.ArrayList([]const u8) = .empty;
-    defer easyconfigs.deinit(gpa);
-    var easystacks: std.ArrayList([]const u8) = .empty;
-    defer easystacks.deinit(gpa);
-
-    var i: usize = 0;
-    while (i < args.len) : (i += 1) {
-        const arg = args[i];
-        if (std.mem.eql(u8, arg, "--policy") or std.mem.startsWith(u8, arg, "--policy=")) {
-            policy_path = optionValue(args, &i, arg, "--policy", "lifecycle needs --policy");
-        } else if (std.mem.eql(u8, arg, "--modulerc-out") or std.mem.startsWith(u8, arg, "--modulerc-out=")) {
-            modulerc_out = optionValue(args, &i, arg, "--modulerc-out", "--modulerc-out needs a path");
-        } else if (std.mem.eql(u8, arg, "--easyconfigs") or std.mem.startsWith(u8, arg, "--easyconfigs=")) {
-            const v = optionValue(args, &i, arg, "--easyconfigs", "--easyconfigs needs a directory");
-            easyconfigs.append(gpa, v) catch die("out of memory", .{});
-        } else if (std.mem.eql(u8, arg, "--easystack") or std.mem.startsWith(u8, arg, "--easystack=")) {
-            const v = optionValue(args, &i, arg, "--easystack", "--easystack needs a file");
-            easystacks.append(gpa, v) catch die("out of memory", .{});
-        } else if (std.mem.eql(u8, arg, "--eb-stack") or std.mem.startsWith(u8, arg, "--eb-stack=")) {
-            eb_stack_opt = optionValue(args, &i, arg, "--eb-stack", "--eb-stack needs a path");
-        } else if (std.mem.eql(u8, arg, "--rebuild-set") or std.mem.startsWith(u8, arg, "--rebuild-set=")) {
-            rebuild_set_opt = optionValue(args, &i, arg, "--rebuild-set", "--rebuild-set needs a file");
-        } else if (std.mem.eql(u8, arg, "--now") or std.mem.startsWith(u8, arg, "--now=")) {
-            now_opt = optionValue(args, &i, arg, "--now", "--now needs an epoch");
-        } else if (std.mem.eql(u8, arg, "--json")) {
-            json_out = true;
-        } else if (arg.len > 0 and arg[0] == '-') {
-            die("lifecycle does not know '{s}'", .{arg});
-        } else if (usage_path.len == 0) {
-            usage_path = arg;
-        } else {
-            die("lifecycle does not know '{s}'", .{arg});
-        }
-    }
-
-    if (policy_path.len == 0) die("lifecycle needs --policy", .{});
-    if (usage_path.len == 0) die("lifecycle needs a usage JSON file", .{});
-    if (rebuild_set_opt != null and easyconfigs.items.len > 0)
+    var parsed = lifecycle_cli.take(gpa, args);
+    defer parsed.deinit(gpa);
+    const policy_path = parsed.value("policy").?;
+    const modulerc_out = parsed.value("modulerc-out");
+    const eb_stack_opt = parsed.value("eb-stack");
+    const rebuild_set_opt = parsed.value("rebuild-set");
+    const now_opt = parsed.value("now");
+    const json_out = parsed.seen("json");
+    const usage_path = parsed.positional(0).?;
+    const easyconfigs = parsed.values("easyconfigs");
+    const easystacks = parsed.values("easystack");
+    if (rebuild_set_opt != null and easyconfigs.len > 0)
         die("lifecycle takes --easyconfigs or --rebuild-set, not both", .{});
-    if (easystacks.items.len > 0 and easyconfigs.items.len == 0)
+    if (easystacks.len > 0 and easyconfigs.len == 0)
         die("--easystack requires --easyconfigs", .{});
     if (modulerc_out) |out_p| {
         if (std.mem.indexOfScalar(u8, out_p, '\n') != null or std.mem.indexOfScalar(u8, out_p, 0) != null)
             die("--modulerc-out must not contain a newline", .{});
     }
-    for (easyconfigs.items) |ec_dir| {
+    for (easyconfigs) |ec_dir| {
         const d = fsx.openDir(fsx.cwd, ec_dir, true) catch
             die("easyconfigs directory {s} is not a directory", .{ec_dir});
         sys.close(d);
@@ -1201,7 +1174,7 @@ pub fn cmdLifecycle(
         defer gpa.free(rs_text);
         rebuild_info = parseRebuildSetJson(arena, rs_path, rs_text);
         dependents_checked = true;
-    } else if (candidates.items.len > 0 and easyconfigs.items.len > 0) {
+    } else if (candidates.items.len > 0 and easyconfigs.len > 0) {
         const path_env = env.get("PATH") orelse "";
         const eb_stack_exe = resolveExecutable(gpa, eb_stack_opt, path_env);
         defer gpa.free(eb_stack_exe);
@@ -1211,8 +1184,8 @@ pub fn cmdLifecycle(
             env,
             envp,
             eb_stack_exe,
-            easyconfigs.items,
-            easystacks.items,
+            easyconfigs,
+            easystacks,
             usage_in.packages,
             candidates.items,
         );

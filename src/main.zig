@@ -25,6 +25,7 @@ const syslog = common.syslog;
 /// journald, and the name in the structured-data identifier.
 const syslog_identity: syslog.Identity = .{ .app = "eb-keep-logs", .sd_name = "ebKeepLogs" };
 const metrics = @import("metrics.zig");
+const cli_parse = @import("cli_parse.zig");
 
 const Allocator = std.mem.Allocator;
 const tool = "eb-keep-logs";
@@ -747,42 +748,35 @@ const KeepStats = struct {
     }
 };
 
+const failed_cli = cli_parse.make(.{
+    .prog = "failed",
+    .policy = cli_parse.as_positional,
+    .options = &.{ cli_parse.value("syslog"), cli_parse.value("metrics-file") },
+    .positionals = &.{cli_parse.zeroOrMore("ARG")},
+    .missing = &.{
+        .{ .name = "syslog", .msg = "--syslog needs a target" },
+        .{ .name = "metrics-file", .msg = "--metrics-file needs a path" },
+    },
+});
+
 fn cmdFailed(c: Ctx, args: []const [:0]const u8) u8 {
-    var pos: std.ArrayList([]const u8) = .empty;
-    defer pos.deinit(c.gpa);
-    var syslog_v: ?[]const u8 = null;
-    var metrics_file: ?[]const u8 = null;
-    var i: usize = 0;
-    while (i < args.len) : (i += 1) {
-        const a = args[i];
-        if (std.mem.eql(u8, a, "--syslog")) {
-            if (i + 1 >= args.len) die("--syslog needs a target", .{});
-            i += 1;
-            syslog_v = args[i];
-        } else if (std.mem.startsWith(u8, a, "--syslog=")) {
-            syslog_v = a["--syslog=".len..];
-        } else if (std.mem.eql(u8, a, "--metrics-file")) {
-            if (i + 1 >= args.len) die("--metrics-file needs a path", .{});
-            i += 1;
-            metrics_file = args[i];
-        } else if (std.mem.startsWith(u8, a, "--metrics-file=")) {
-            metrics_file = a["--metrics-file=".len..];
-        } else {
-            pos.append(c.gpa, a) catch return 2;
-        }
-    }
-    if (pos.items.len < 3) die("failed needs STATUS NAME LOGDIR [TMP_LOGDIR]", .{});
-    const status = pos.items[0];
-    const name = pos.items[1];
-    const explicit: ?[]const u8 = if (pos.items.len >= 4 and pos.items[3].len > 0) pos.items[3] else null;
+    var parsed = failed_cli.take(c.gpa, args);
+    defer parsed.deinit(c.gpa);
+    const pos = parsed.positionals;
+    const syslog_v = parsed.value("syslog");
+    const metrics_file = parsed.value("metrics-file");
+    if (pos.len < 3) die("failed needs STATUS NAME LOGDIR [TMP_LOGDIR]", .{});
+    const status = pos[0];
+    const name = pos[1];
+    const explicit: ?[]const u8 = if (pos.len >= 4 and pos[3].len > 0) pos[3] else null;
     if (!allDigits(status)) die("STATUS must be a number, not '{s}'", .{status});
-    const logdir = fsx.openDir(fsx.cwd, pos.items[2], true) catch die("LOGDIR {s} is not a directory", .{pos.items[2]});
+    const logdir = fsx.openDir(fsx.cwd, pos[2], true) catch die("LOGDIR {s} is not a directory", .{pos[2]});
     defer sys.close(logdir);
     if (metrics_file) |p| if (p.len == 0) die("--metrics-file needs a path", .{});
     var kept: KeepStats = .{};
     defer updateMetrics(c, metrics_file, kept.logs, kept.bytes, false);
     const syslog_target = resolveSyslog(c, syslog_v);
-    const logdir_s = joinable(pos.items[2]);
+    const logdir_s = joinable(pos[2]);
     if (std.mem.indexOfNone(u8, status, "0") == null) return 0;
     closeBuildLogs(c, logdir, logdir_s, name, explicit);
 
@@ -1260,73 +1254,51 @@ fn readLinkAt(dir: fsx.fd_t, name: []const u8, out: *[sys.path_max]u8) sys.Error
     return out[0..n];
 }
 
+const rotate_cli = cli_parse.make(.{
+    .prog = "rotate",
+    .bare_unknown = true,
+    .extra = .static,
+    .extra_msg = "rotate takes one ROOT",
+    .options = &.{
+        cli_parse.value("lock-timeout"),
+        cli_parse.value("syslog"),
+        cli_parse.value("metrics-file"),
+        cli_parse.flag("dry-run"),
+        cli_parse.value("compress-after"),
+        cli_parse.value("delete-after"),
+    },
+    .positionals = &.{cli_parse.optional("ROOT")},
+    .missing = &.{
+        .{ .name = "lock-timeout", .msg = "--lock-timeout needs a number of seconds" },
+        .{ .name = "syslog", .msg = "--syslog needs a target" },
+        .{ .name = "metrics-file", .msg = "--metrics-file needs a path" },
+        .{ .name = "compress-after", .msg = "--compress-after needs a number of days" },
+        .{ .name = "delete-after", .msg = "--delete-after needs a number of days" },
+    },
+});
+
 fn cmdRotate(c: Ctx, args: []const [:0]const u8) u8 {
-    var root_s: ?[]const u8 = null;
-    var compress_v: ?[]const u8 = null;
-    var delete_v: ?[]const u8 = null;
-    var lock_v: []const u8 = "";
-    var syslog_v: ?[]const u8 = null;
-    var metrics_file: ?[]const u8 = null;
-    var dry_run = false;
-    var have_compress = false;
-    var have_delete = false;
-    var i: usize = 0;
-    while (i < args.len) : (i += 1) {
-        const a = args[i];
-        if (std.mem.eql(u8, a, "--lock-timeout")) {
-            if (i + 1 >= args.len) die("--lock-timeout needs a number of seconds", .{});
-            i += 1;
-            lock_v = args[i];
-        } else if (std.mem.startsWith(u8, a, "--lock-timeout=")) {
-            lock_v = a["--lock-timeout=".len..];
-        } else if (std.mem.eql(u8, a, "--syslog")) {
-            if (i + 1 >= args.len) die("--syslog needs a target", .{});
-            i += 1;
-            syslog_v = args[i];
-        } else if (std.mem.startsWith(u8, a, "--syslog=")) {
-            syslog_v = a["--syslog=".len..];
-        } else if (std.mem.eql(u8, a, "--metrics-file")) {
-            if (i + 1 >= args.len) die("--metrics-file needs a path", .{});
-            i += 1;
-            metrics_file = args[i];
-        } else if (std.mem.startsWith(u8, a, "--metrics-file=")) {
-            metrics_file = a["--metrics-file=".len..];
-        } else if (std.mem.eql(u8, a, "--dry-run")) {
-            dry_run = true;
-        } else if (std.mem.eql(u8, a, "--compress-after") or std.mem.eql(u8, a, "--delete-after")) {
-            const v: ?[]const u8 = if (i + 1 < args.len) args[i + 1] else null;
-            if (v == null) die("{s} needs a number of days", .{a});
-            i += 1;
-            if (a[2] == 'c') {
-                compress_v = v;
-                have_compress = true;
-            } else {
-                delete_v = v;
-                have_delete = true;
-            }
-        } else if (std.mem.startsWith(u8, a, "--compress-after=")) {
-            compress_v = a["--compress-after=".len..];
-            have_compress = true;
-        } else if (std.mem.startsWith(u8, a, "--delete-after=")) {
-            delete_v = a["--delete-after=".len..];
-            have_delete = true;
-        } else if (a.len > 0 and a[0] == '-') {
-            die("unknown option {s}", .{a});
-        } else {
-            if (root_s != null) die("rotate takes one ROOT", .{});
-            root_s = a;
-        }
-    }
+    var parsed = rotate_cli.take(c.gpa, args);
+    defer parsed.deinit(c.gpa);
+    const root_s = parsed.positional(0);
+    const compress_v = parsed.value("compress-after");
+    const delete_v = parsed.value("delete-after");
+    const lock_v = parsed.value("lock-timeout") orelse "";
+    const syslog_v = parsed.value("syslog");
+    const metrics_file = parsed.value("metrics-file");
+    const dry_run = parsed.seen("dry-run");
     const root_p = root_s orelse die("rotate needs ROOT", .{});
     if (root_p.len == 0) die("rotate needs ROOT", .{});
     if (metrics_file) |p| if (p.len == 0) die("--metrics-file needs a path", .{});
     const root = fsx.openDir(fsx.cwd, root_p, true) catch die("ROOT {s} is not a directory", .{root_p});
     defer sys.close(root);
-    const compress_after = parseDays("--compress-after", if (have_compress) compress_v else null);
+    const compress_after = parseDays("--compress-after", compress_v);
     var delete_after: ?u64 = null;
-    if (have_delete and delete_v.?.len > 0) {
-        delete_after = parseDays("--delete-after", delete_v);
-        if (delete_after.? <= compress_after) die("--delete-after must be later than --compress-after", .{});
+    if (delete_v) |v| {
+        if (v.len > 0) {
+            delete_after = parseDays("--delete-after", v);
+            if (delete_after.? <= compress_after) die("--delete-after must be later than --compress-after", .{});
+        }
     }
     const lock_timeout = if (lock_v.len > 0) parseSeconds(lock_v) else default_lock_timeout;
     const syslog_target = resolveSyslog(c, syslog_v);

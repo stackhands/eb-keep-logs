@@ -9,6 +9,7 @@ const common = @import("zig_common");
 const sys = common.sys;
 const fsx = common.fsx;
 const cli = common.cli;
+const cli_parse = @import("cli_parse.zig");
 
 const Allocator = std.mem.Allocator;
 const tool = "eb-keep-logs";
@@ -127,36 +128,22 @@ fn readLog(gpa: Allocator, path: []const u8) ?[]u8 {
     };
 }
 
+const loads_cli = cli_parse.make(.{
+    .prog = "loads",
+    .options = &.{ cli_parse.req("module"), cli_parse.flag("json") },
+    .positionals = &.{cli_parse.one("FILE", true)},
+    .missing = &.{
+        .{ .name = "FILE", .msg = "loads needs a log file" },
+    },
+});
+
 /// `loads --module NAME [--json] FILE`.
 pub fn cmdLoads(gpa: Allocator, args: []const []const u8) u8 {
-    var module: []const u8 = "";
-    var json_out = false;
-    var path: []const u8 = "";
-    var i: usize = 0;
-    while (i < args.len) : (i += 1) {
-        const a = args[i];
-        if (std.mem.eql(u8, a, "--json")) {
-            json_out = true;
-        } else if (std.mem.eql(u8, a, "--module") or std.mem.startsWith(u8, a, "--module=")) {
-            const v = if (std.mem.startsWith(u8, a, "--module="))
-                a["--module=".len..]
-            else blk: {
-                i += 1;
-                if (i >= args.len) die("loads needs --module", .{});
-                break :blk args[i];
-            };
-            if (v.len == 0 or v[0] == '-') die("loads needs --module", .{});
-            module = v;
-        } else if (a.len > 0 and a[0] == '-') {
-            die("loads does not know '{s}'", .{a});
-        } else if (path.len == 0) {
-            path = a;
-        } else {
-            die("loads does not know '{s}'", .{a});
-        }
-    }
-    if (module.len == 0) die("loads needs --module", .{});
-    if (path.len == 0) die("loads needs a log file", .{});
+    var parsed = loads_cli.take(gpa, args);
+    defer parsed.deinit(gpa);
+    const module = parsed.value("module").?;
+    const json_out = parsed.seen("json");
+    const path = parsed.positional(0).?;
     const text = readLog(gpa, path) orelse return 2;
     defer gpa.free(text);
     const body = if (json_out) blk: {

@@ -3,6 +3,7 @@
 const std = @import("std");
 const common = @import("zig_common");
 const cli = common.cli;
+const cli_parse = @import("cli_parse.zig");
 const fsx = common.fsx;
 const sys = common.sys;
 
@@ -122,34 +123,56 @@ fn lessInput(_: void, a: InputRecord, b: InputRecord) bool {
 }
 
 fn parseModule(gpa: Allocator, raw: []const u8) !ModuleRecord {
-    const sep = std.mem.indexOfScalar(u8, raw, '=') orelse
-        die("test-bundle needs --module NAME=PATH", .{});
+    if (!modulePairOk(raw)) die("test-bundle needs --module NAME=PATH", .{});
+    const sep = std.mem.indexOfScalar(u8, raw, '=').?;
     const name = std.mem.trim(u8, raw[0..sep], " \t");
     const path = std.mem.trim(u8, raw[sep + 1 ..], " \t");
-    if (name.len == 0 or path.len == 0) die("test-bundle needs --module NAME=PATH", .{});
     return .{
         .name = try gpa.dupe(u8, name),
         .path = try gpa.dupe(u8, path),
     };
 }
 
-fn optionValue(
-    args: []const []const u8,
-    i: *usize,
-    arg: []const u8,
-    comptime option: []const u8,
-    comptime message: []const u8,
-) []const u8 {
-    const value = if (std.mem.startsWith(u8, arg, option ++ "="))
-        arg[option.len + 1 ..]
-    else blk: {
-        i.* += 1;
-        if (i.* >= args.len) die(message, .{});
-        break :blk args[i.*];
-    };
-    if (value.len == 0 or value[0] == '-') die(message, .{});
-    return value;
+fn modulePairOk(raw: []const u8) bool {
+    const sep = std.mem.indexOfScalar(u8, raw, '=') orelse return false;
+    const name = std.mem.trim(u8, raw[0..sep], " \t");
+    const path = std.mem.trim(u8, raw[sep + 1 ..], " \t");
+    return name.len != 0 and path.len != 0;
 }
+
+fn validModule(gpa: Allocator, raw: []const u8) Allocator.Error!cli_parse.ValidationResult {
+    if (!modulePairOk(raw)) return .{ .err = try gpa.dupe(u8, "module") };
+    return .ok;
+}
+
+const bundle_cli = cli_parse.make(.{
+    .prog = "test-bundle",
+    .options = &.{
+        cli_parse.req("test-id"),
+        cli_parse.req("suite-revision"),
+        cli_parse.req("eessi-target"),
+        cli_parse.req("stdout"),
+        cli_parse.req("stderr"),
+        cli_parse.req("allocation"),
+        cli_parse.req("binding"),
+        cli_parse.req("cpu"),
+        cli_parse.req("gpu"),
+        cli_parse.strict("seed"),
+        cli_parse.strict("out"),
+        cli_parse.append("input"),
+        cli_parse.checked(cli_parse.append("module"), validModule),
+    },
+    .missing = &.{
+        .{ .name = "input", .msg = "test-bundle needs --input PATH" },
+        .{ .name = "module", .msg = "test-bundle needs --module NAME=PATH" },
+    },
+});
+
+const compare_cli = cli_parse.make(.{
+    .prog = "test-compare",
+    .options = &.{cli_parse.flag("json")},
+    .positionals = &.{cli_parse.zeroOrMore("FILE")},
+});
 
 fn combinedInputHash(gpa: Allocator, inputs: []const InputRecord) ![]u8 {
     var hash = std.crypto.hash.sha2.Sha256.init(.{});
@@ -182,69 +205,27 @@ pub fn cmdTestBundle(gpa: Allocator, args: []const []const u8) u8 {
     defer arena_state.deinit();
     const arena = arena_state.allocator();
 
-    var test_id: []const u8 = "";
-    var suite_revision: []const u8 = "";
-    var eessi_target: []const u8 = "";
-    var seed: []const u8 = "";
-    var allocation: []const u8 = "";
-    var binding: []const u8 = "";
-    var cpu: []const u8 = "";
-    var gpu: []const u8 = "";
-    var stdout_path: []const u8 = "";
-    var stderr_path: []const u8 = "";
-    var out_path: ?[]const u8 = null;
+    var parsed = bundle_cli.take(gpa, args);
+    defer parsed.deinit(gpa);
+    const test_id = parsed.value("test-id").?;
+    const suite_revision = parsed.value("suite-revision").?;
+    const eessi_target = parsed.value("eessi-target").?;
+    const seed = parsed.value("seed") orelse "";
+    const allocation = parsed.value("allocation").?;
+    const binding = parsed.value("binding").?;
+    const cpu = parsed.value("cpu").?;
+    const gpu = parsed.value("gpu").?;
+    const stdout_path = parsed.value("stdout").?;
+    const stderr_path = parsed.value("stderr").?;
+    const out_path = parsed.value("out");
     var inputs: std.ArrayList([]const u8) = .empty;
     defer inputs.deinit(arena);
+    for (parsed.values("input")) |value| inputs.append(arena, value) catch die("out of memory", .{});
     var modules: std.ArrayList(ModuleRecord) = .empty;
     defer modules.deinit(arena);
-
-    var i: usize = 0;
-    while (i < args.len) : (i += 1) {
-        const arg = args[i];
-        if (std.mem.eql(u8, arg, "--test-id") or std.mem.startsWith(u8, arg, "--test-id=")) {
-            test_id = optionValue(args, &i, arg, "--test-id", "test-bundle needs --test-id");
-        } else if (std.mem.eql(u8, arg, "--suite-revision") or std.mem.startsWith(u8, arg, "--suite-revision=")) {
-            suite_revision = optionValue(args, &i, arg, "--suite-revision", "test-bundle needs --suite-revision");
-        } else if (std.mem.eql(u8, arg, "--eessi-target") or std.mem.startsWith(u8, arg, "--eessi-target=")) {
-            eessi_target = optionValue(args, &i, arg, "--eessi-target", "test-bundle needs --eessi-target");
-        } else if (std.mem.eql(u8, arg, "--seed") or std.mem.startsWith(u8, arg, "--seed=")) {
-            seed = optionValue(args, &i, arg, "--seed", "test-bundle needs --seed");
-        } else if (std.mem.eql(u8, arg, "--allocation") or std.mem.startsWith(u8, arg, "--allocation=")) {
-            allocation = optionValue(args, &i, arg, "--allocation", "test-bundle needs --allocation");
-        } else if (std.mem.eql(u8, arg, "--binding") or std.mem.startsWith(u8, arg, "--binding=")) {
-            binding = optionValue(args, &i, arg, "--binding", "test-bundle needs --binding");
-        } else if (std.mem.eql(u8, arg, "--cpu") or std.mem.startsWith(u8, arg, "--cpu=")) {
-            cpu = optionValue(args, &i, arg, "--cpu", "test-bundle needs --cpu");
-        } else if (std.mem.eql(u8, arg, "--gpu") or std.mem.startsWith(u8, arg, "--gpu=")) {
-            gpu = optionValue(args, &i, arg, "--gpu", "test-bundle needs --gpu");
-        } else if (std.mem.eql(u8, arg, "--stdout") or std.mem.startsWith(u8, arg, "--stdout=")) {
-            stdout_path = optionValue(args, &i, arg, "--stdout", "test-bundle needs --stdout");
-        } else if (std.mem.eql(u8, arg, "--stderr") or std.mem.startsWith(u8, arg, "--stderr=")) {
-            stderr_path = optionValue(args, &i, arg, "--stderr", "test-bundle needs --stderr");
-        } else if (std.mem.eql(u8, arg, "--out") or std.mem.startsWith(u8, arg, "--out=")) {
-            out_path = optionValue(args, &i, arg, "--out", "test-bundle needs --out");
-        } else if (std.mem.eql(u8, arg, "--input") or std.mem.startsWith(u8, arg, "--input=")) {
-            const value = optionValue(args, &i, arg, "--input", "test-bundle needs --input PATH");
-            inputs.append(arena, value) catch die("out of memory", .{});
-        } else if (std.mem.eql(u8, arg, "--module") or std.mem.startsWith(u8, arg, "--module=")) {
-            const value = optionValue(args, &i, arg, "--module", "test-bundle needs --module NAME=PATH");
-            modules.append(arena, parseModule(arena, value) catch die("out of memory", .{})) catch die("out of memory", .{});
-        } else if (arg.len > 0 and arg[0] == '-') {
-            die("test-bundle does not know '{s}'", .{arg});
-        } else {
-            die("test-bundle does not know '{s}'", .{arg});
-        }
+    for (parsed.values("module")) |value| {
+        modules.append(arena, parseModule(arena, value) catch die("out of memory", .{})) catch die("out of memory", .{});
     }
-
-    if (test_id.len == 0) die("test-bundle needs --test-id", .{});
-    if (suite_revision.len == 0) die("test-bundle needs --suite-revision", .{});
-    if (eessi_target.len == 0) die("test-bundle needs --eessi-target", .{});
-    if (stdout_path.len == 0) die("test-bundle needs --stdout", .{});
-    if (stderr_path.len == 0) die("test-bundle needs --stderr", .{});
-    if (allocation.len == 0) die("test-bundle needs --allocation", .{});
-    if (binding.len == 0) die("test-bundle needs --binding", .{});
-    if (cpu.len == 0) die("test-bundle needs --cpu", .{});
-    if (gpu.len == 0) die("test-bundle needs --gpu", .{});
 
     const stdout_raw = readFile(gpa, stdout_path) orelse return 2;
     defer gpa.free(stdout_raw);
@@ -509,19 +490,11 @@ fn valueGpu(b: BundleCore) []const u8 {
 }
 
 pub fn cmdTestCompare(gpa: Allocator, args: []const []const u8) u8 {
-    var json_out = false;
-    var files: std.ArrayList([]const u8) = .empty;
-    defer files.deinit(gpa);
-    for (args) |arg| {
-        if (std.mem.eql(u8, arg, "--json")) {
-            json_out = true;
-        } else if (arg.len > 0 and arg[0] == '-') {
-            die("test-compare does not know '{s}'", .{arg});
-        } else {
-            files.append(gpa, arg) catch die("out of memory", .{});
-        }
-    }
-    if (files.items.len < 2) die("test-compare needs at least two bundle files", .{});
+    var parsed = compare_cli.take(gpa, args);
+    defer parsed.deinit(gpa);
+    const json_out = parsed.seen("json");
+    const files = parsed.positionals;
+    if (files.len < 2) die("test-compare needs at least two bundle files", .{});
 
     var arena_state = std.heap.ArenaAllocator.init(gpa);
     defer arena_state.deinit();
@@ -529,14 +502,14 @@ pub fn cmdTestCompare(gpa: Allocator, args: []const []const u8) u8 {
 
     var bundles: std.ArrayList(BundleCore) = .empty;
     defer bundles.deinit(arena);
-    for (files.items) |path| {
+    for (files) |path| {
         const text = readFile(gpa, path) orelse return 2;
         defer gpa.free(text);
-        const parsed = parseBundle(arena, path, text) catch {
+        const bundle = parseBundle(arena, path, text) catch {
             warn("test-compare: {s} is not a test-bundle schema_version {d} document", .{ path, bundle_schema_version });
             return 2;
         };
-        bundles.append(arena, parsed) catch die("out of memory", .{});
+        bundles.append(arena, bundle) catch die("out of memory", .{});
     }
 
     var diffs: std.ArrayList(FieldDiff) = .empty;
