@@ -219,9 +219,9 @@ class KeepLogsSyslogTests(unittest.TestCase):
             sock.close()
 
     def test_tcp_octet_counting_and_udp(self):
-        # The emitter writes the frame into a buffer. Unix datagram tests
-        # cover the RFC 5424 text; this one keeps the octet count and the
-        # one-datagram shape.
+        # The emitter writes the frame into a buffer. The two captures
+        # carry different timestamps, so each payload is checked against
+        # the message pattern. The datagram has no length prefix.
         tcp_path = os.path.join(self.work, "tcp.frame")
         env = self._env(EB_KEEP_LOGS_SYSLOG_CAPTURE=tcp_path)
         proc = self._run(
@@ -232,6 +232,7 @@ class KeepLogsSyslogTests(unittest.TestCase):
         frame = Path(tcp_path).read_text(encoding="utf-8")
         n_s, body = frame.split(" ", 1)
         self.assertEqual(int(n_s), len(body.encode("utf-8")))
+        self.assertIsNotNone(RFC5424_RE.fullmatch(body), body)
 
         udp_path = os.path.join(self.work, "udp.frame")
         env["EB_KEEP_LOGS_SYSLOG_CAPTURE"] = udp_path
@@ -241,7 +242,7 @@ class KeepLogsSyslogTests(unittest.TestCase):
         )
         self.assertEqual(proc2.returncode, 0, proc2.stderr)
         raw = Path(udp_path).read_text(encoding="utf-8")
-        self.assertEqual(raw, body)
+        self.assertIsNotNone(RFC5424_RE.fullmatch(raw), raw)
 
     def test_bad_syslog_target_refused_and_unreachable_non_fatal(self):
         bad = self._run(
