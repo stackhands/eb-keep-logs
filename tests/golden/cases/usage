@@ -1,4 +1,0 @@
-exit 0
---- stdout
-unused GROMACS/1.0
---- stderr

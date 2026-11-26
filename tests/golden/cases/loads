@@ -1,4 +1,0 @@
-exit 0
---- stdout
-user=a host=h time=1 path=/p
---- stderr

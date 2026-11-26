@@ -1,4 +1,0 @@
-exit 0
---- stdout
-keep GROMACS/1.0 hits=0 idle_days=unknown reason="observation window unknown (usage --since not set)"
---- stderr

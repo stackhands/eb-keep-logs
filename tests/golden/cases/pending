@@ -1,4 +1,0 @@
-exit 0
---- stdout
-build flex/2.6.4
---- stderr
