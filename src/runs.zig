@@ -10,6 +10,7 @@ const common = @import("zig_common");
 const sys = common.sys;
 const fsx = common.fsx;
 const cli = common.cli;
+const cli_parse = @import("cli_parse.zig");
 
 const Allocator = std.mem.Allocator;
 const tool = "eb-keep-logs";
@@ -198,36 +199,22 @@ pub fn formatRuns(gpa: Allocator, text: []const u8, exec: []const u8) (Allocator
     return try out.toOwnedSlice(gpa);
 }
 
+const runs_cli = cli_parse.make(.{
+    .prog = "runs",
+    .options = &.{ cli_parse.req("exec"), cli_parse.flag("json") },
+    .positionals = &.{cli_parse.one("FILE", true)},
+    .missing = &.{
+        .{ .name = "FILE", .msg = "runs needs a record file" },
+    },
+});
+
 /// `runs --exec PATH [--json] FILE`.
 pub fn cmdRuns(gpa: Allocator, args: []const []const u8) u8 {
-    var exec: []const u8 = "";
-    var json_out = false;
-    var path: []const u8 = "";
-    var i: usize = 0;
-    while (i < args.len) : (i += 1) {
-        const a = args[i];
-        if (std.mem.eql(u8, a, "--json")) {
-            json_out = true;
-        } else if (std.mem.eql(u8, a, "--exec") or std.mem.startsWith(u8, a, "--exec=")) {
-            const v = if (std.mem.startsWith(u8, a, "--exec="))
-                a["--exec=".len..]
-            else blk: {
-                i += 1;
-                if (i >= args.len) die("runs needs --exec", .{});
-                break :blk args[i];
-            };
-            if (v.len == 0 or v[0] == '-') die("runs needs --exec", .{});
-            exec = v;
-        } else if (a.len > 0 and a[0] == '-') {
-            die("runs does not know '{s}'", .{a});
-        } else if (path.len == 0) {
-            path = a;
-        } else {
-            die("runs does not know '{s}'", .{a});
-        }
-    }
-    if (exec.len == 0) die("runs needs --exec", .{});
-    if (path.len == 0) die("runs needs a record file", .{});
+    var parsed = runs_cli.take(gpa, args);
+    defer parsed.deinit(gpa);
+    const exec = parsed.value("exec").?;
+    const json_out = parsed.seen("json");
+    const path = parsed.positional(0).?;
     const text = readLog(gpa, path) orelse return 2;
     defer gpa.free(text);
     var arena = std.heap.ArenaAllocator.init(gpa);
