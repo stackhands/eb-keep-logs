@@ -1,6 +1,6 @@
 //! The searches eb-keep-logs runs over a log, written out instead of taken
 //! from a regular expression engine. Each path search returns the last
-//! match, as the shell version's `grep -o ... | tail -n 1` does.
+//! match, as `grep -o ... | tail -n 1` would.
 const std = @import("std");
 
 /// The bytes POSIX [:space:] and PCRE \s match.
@@ -132,7 +132,7 @@ pub fn lastMesonDir(text: []const u8, utf8_locale: bool) ?[]const u8 {
 /// Whether an EasyBuild log is another build's than easyconfig `name`'s: it
 /// shows EasyBuild processing an easyconfig ("processing EasyBuild
 /// easyconfig PATH") and never names `name`.eb, which a build's own log does
-/// on its command line. As `grep -q` and `grep -qF` in the shell version.
+/// on its command line. As `grep -q` and `grep -qF` would.
 pub fn otherBuild(text: []const u8, name: []const u8) bool {
     if (std.mem.find(u8, text, "processing EasyBuild easyconfig ") == null) return false;
     var pos: usize = 0;
