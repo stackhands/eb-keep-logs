@@ -82,8 +82,8 @@ fn lock(fd: fsx.fd_t) sys.Error!void {
     };
 }
 
-fn clockFile(path: [*:0]const u8) ?i64 {
-    const fd = sys.openat(fsx.cwd, std.mem.span(path), .{}, 0) catch return null;
+fn clockFile(path: []const u8) ?i64 {
+    const fd = sys.openat(fsx.cwd, path, .{}, 0) catch return null;
     defer sys.close(fd);
     var buf: [64]u8 = undefined;
     const n = sys.read(fd, &buf) catch return null;
@@ -92,11 +92,46 @@ fn clockFile(path: [*:0]const u8) ?i64 {
     return std.fmt.parseInt(i64, text, 10) catch null;
 }
 
+/// The value of `name` in `/proc/self/environ`, copied into `buf`. The
+/// binary does not link libc, so this is the getenv the product can make.
+fn envFile(name: []const u8, buf: []u8) ?[]const u8 {
+    const opened = fsx.openRegular(fsx.cwd, "/proc/self/environ", false) catch return null;
+    defer sys.close(opened.fd);
+    var chunk: [4096]u8 = undefined;
+    var held: usize = 0;
+    var at_entry = true;
+    var copying = false;
+    var ncopy: usize = 0;
+    while (true) {
+        const n = sys.read(opened.fd, &chunk) catch return null;
+        if (n == 0) return null;
+        for (chunk[0..n]) |b| {
+            if (copying) {
+                if (b == 0) return buf[0..ncopy];
+                if (ncopy == buf.len) return null;
+                buf[ncopy] = b;
+                ncopy += 1;
+                continue;
+            }
+            if (at_entry and held < name.len and b == name[held]) {
+                held += 1;
+                if (held == name.len) {
+                    if (b == '=') copying = true else at_entry = false;
+                }
+                continue;
+            }
+            held = 0;
+            at_entry = b == 0;
+        }
+    }
+}
+
 /// `EB_KEEP_LOGS_CLOCK` is a file holding the stamp, so a test can freeze it
 /// and then jump it while a rotate waits on the metrics lock. Unset, the
 /// stamp is `CLOCK_REALTIME`.
 fn realtimeSeconds() i64 {
-    if (std.c.getenv("EB_KEEP_LOGS_CLOCK")) |path| {
+    var path_buf: [sys.path_max]u8 = undefined;
+    if (envFile("EB_KEEP_LOGS_CLOCK=", &path_buf)) |path| {
         if (clockFile(path)) |stamp| return stamp;
     }
     var ts: linux.timespec = undefined;
