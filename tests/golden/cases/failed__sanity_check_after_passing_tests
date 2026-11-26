@@ -1,0 +1,4 @@
+exit 0
+--- stdout
+Failed build log: @WORK@/logs/Sanity.failed.ebout.log
+--- stderr

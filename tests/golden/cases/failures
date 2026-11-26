@@ -1,0 +1,14 @@
+exit 0
+--- stdout
+@REPO@/tests/fixtures/build-logs: 8 failed builds in 7 runs
+
+RUN              TARGET          STEP         DURATION  NAME
+20261117_035825  sapphirerapids  fetch        48s       hello-2.12.1-GCCcore-14.2.0
+20261117_040032  sapphirerapids  patch        41s       hello-2.12.1-GCCcore-14.2.0
+20261117_040119  sapphirerapids  -            -         hello-2.12.1-GCCcore-14.2.0
+20261117_040311  sapphirerapids  configure    2m24s     hello-2.12.1-GCCcore-14.2.0
+20261117_040615  sapphirerapids  build        3m06s     hello-2.12.1-GCCcore-14.2.0
+20261117_040928  sapphirerapids  build        2m30s     hello-2.12.1-GCCcore-14.2.0
+20261117_041222  sapphirerapids  sanitycheck  2m54s     hello-2.12.1-GCCcore-13.3.0
+20261117_041222  sapphirerapids  test         2m33s     hello-2.12.1-GCCcore-14.2.0
+--- stderr

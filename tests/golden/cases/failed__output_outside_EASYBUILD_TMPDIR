@@ -1,0 +1,5 @@
+exit 0
+--- stdout
+Failed build log: @WORK@/logs/Cmd.failed.ebout.log
+Failed command output not kept: @WORK@/ebtmp-link/eb-1/run-shell-cmd-output/make-1/out.txt is not under EASYBUILD_TMPDIR.
+--- stderr

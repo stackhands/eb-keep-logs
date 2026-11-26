@@ -1,0 +1,4 @@
+exit 2
+--- stdout
+--- stderr
+eb-keep-logs: --lock-timeout needs a number of seconds

@@ -1,0 +1,4 @@
+exit 2
+--- stdout
+--- stderr
+eb-keep-logs: cannot lock @WORK@/symlock/.eb-keep-logs-rotate.lock: SymLink

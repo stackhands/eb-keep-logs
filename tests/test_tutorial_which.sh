@@ -1,13 +1,9 @@
 #!/bin/bash
-# The tutorial installs the shell script. It has to say that why and history
-# are in the Zig build only, and how to build that program.
+# The tutorial has to say how to build the program, and link the how-to of
+# why.
 set -eu
 cd "$(dirname -- "$0")/.."
 page=docs/orgmode/tutorials/keep-a-failed-build-log.org
-grep -F 'in the Zig build only' "$page" >/dev/null || {
-    echo "the tutorial does not say why and history are in the Zig build only" >&2
-    exit 1
-}
 grep -F 'zig build -Drelease=true' "$page" >/dev/null || {
     echo "the tutorial does not say how to build the Zig program" >&2
     exit 1

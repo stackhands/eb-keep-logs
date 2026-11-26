@@ -1,0 +1,4 @@
+exit 0
+--- stdout
+eb-keep-logs rotate: 0 files compressed, 0 runs deleted under @WORK@/compress-overflow
+--- stderr

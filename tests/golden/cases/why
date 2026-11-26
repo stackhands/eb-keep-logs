@@ -1,0 +1,4 @@
+exit 0
+--- stdout
+@REPO@/tests/fixtures/build-logs/20261117_042207: 0 failed builds of 2
+--- stderr

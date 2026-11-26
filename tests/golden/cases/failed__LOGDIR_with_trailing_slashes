@@ -1,0 +1,4 @@
+exit 0
+--- stdout
+Failed build log: @WORK@/logs/Slash.failed.ebout.log
+--- stderr

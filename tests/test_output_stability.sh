@@ -6,7 +6,7 @@ set -u
 repo_root=$(cd "$(dirname "$0")/.." && pwd)
 tool="${TOOL_BIN:?TOOL_BIN names the Zig build}"
 case "${tool}" in /*) ;; *) tool="${PWD}/${tool}" ;; esac
-old_bin="${repo_root}/eb-keep-logs"
+golden="${repo_root}/tests/golden/stability"
 
 fails=0
 # shellcheck source=tests/lib/check.sh
@@ -52,8 +52,9 @@ expect() {
 " "" "${tool}" failed 3 Foo logs
 )
 
-# failed and rotate match the reference shell implementation byte-for-byte.
-mkdir -p "${work}/bin" "${work}/logs-o" "${work}/logs-n"
+# failed and rotate print, byte for byte, what the shell implementation
+# printed, which tests/golden/stability holds.
+mkdir -p "${work}/bin" "${work}/logs-n"
 printf '== processing EasyBuild easyconfig /ec/Foo-1.0.eb\nerror: bad\n' > "${work}/eb.log"
 cat > "${work}/bin/eb" <<EOF
 #!/bin/bash
@@ -61,23 +62,18 @@ echo "${work}/eb.log"
 EOF
 chmod +x "${work}/bin/eb"
 
-PATH="${work}/bin:${PATH}" "${old_bin}" failed 1 Foo-1.0 "${work}/logs-o" > "${work}/failed-o.out" 2> "${work}/failed-o.err"
 PATH="${work}/bin:${PATH}" "${tool}" failed 1 Foo-1.0 "${work}/logs-n" > "${work}/failed-n.out" 2> "${work}/failed-n.err"
-sed "s|${work}/logs-o|LOGDIR|g" "${work}/failed-o.out" > "${work}/failed-o.norm"
 sed "s|${work}/logs-n|LOGDIR|g" "${work}/failed-n.out" > "${work}/failed-n.norm"
-check "failed stdout byte-identical" "$(cmp -s "${work}/failed-o.norm" "${work}/failed-n.norm" && echo ok)" "ok"
-check "failed stderr byte-identical" "$(cmp -s "${work}/failed-o.err" "${work}/failed-n.err" && echo ok)" "ok"
-check "failed kept log byte-identical" "$(cmp -s "${work}/logs-o/Foo-1.0.failed.ebout.log" "${work}/logs-n/Foo-1.0.failed.ebout.log" && echo ok)" "ok"
+check "failed stdout byte-identical" "$(cmp -s "${golden}/failed.out" "${work}/failed-n.norm" && echo ok)" "ok"
+check "failed stderr byte-identical" "$(cmp -s "${golden}/failed.err" "${work}/failed-n.err" && echo ok)" "ok"
+check "failed kept log byte-identical" "$(cmp -s "${golden}/failed.kept" "${work}/logs-n/Foo-1.0.failed.ebout.log" && echo ok)" "ok"
 
-mkdir -p "${work}/rot-o/20261001_120000" "${work}/rot-n/20261001_120000"
-printf 'log line\n' > "${work}/rot-o/20261001_120000/a.log"
+mkdir -p "${work}/rot-n/20261001_120000"
 printf 'log line\n' > "${work}/rot-n/20261001_120000/a.log"
-EB_KEEP_LOGS_NOW=1794873600 "${old_bin}" rotate "${work}/rot-o" --compress-after 5 > "${work}/rot-o.out" 2> "${work}/rot-o.err"
 EB_KEEP_LOGS_NOW=1794873600 "${tool}" rotate "${work}/rot-n" --compress-after 5 > "${work}/rot-n.out" 2> "${work}/rot-n.err"
-sed "s|${work}/rot-o|ROOT|g" "${work}/rot-o.out" > "${work}/rot-o.norm"
 sed "s|${work}/rot-n|ROOT|g" "${work}/rot-n.out" > "${work}/rot-n.norm"
-check "rotate stdout byte-identical" "$(cmp -s "${work}/rot-o.norm" "${work}/rot-n.norm" && echo ok)" "ok"
-check "rotate stderr byte-identical" "$(cmp -s "${work}/rot-o.err" "${work}/rot-n.err" && echo ok)" "ok"
+check "rotate stdout byte-identical" "$(cmp -s "${golden}/rotate.out" "${work}/rot-n.norm" && echo ok)" "ok"
+check "rotate stderr byte-identical" "$(cmp -s "${golden}/rotate.err" "${work}/rot-n.err" && echo ok)" "ok"
 
 # Zig-only subcommands produce exact unchanged outputs.
 why_out=$(cd "${repo_root}" && "${tool}" why --root tests/fixtures/build-logs 20261117_041222)

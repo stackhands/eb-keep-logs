@@ -1,0 +1,4 @@
+exit 0
+--- stdout
+eb-keep-logs rotate dry-run: 0 files would be compressed, 0 runs would be deleted under @WORK@/now-overflow
+--- stderr

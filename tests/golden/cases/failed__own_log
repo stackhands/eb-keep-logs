@@ -1,0 +1,4 @@
+exit 0
+--- stdout
+Failed build log: @WORK@/logs/Ring-1.0.failed.ebout.log
+--- stderr

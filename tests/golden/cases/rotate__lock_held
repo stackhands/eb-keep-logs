@@ -1,0 +1,4 @@
+exit 75
+--- stdout
+--- stderr
+eb-keep-logs: another rotate holds the lock @WORK@/logs/.eb-keep-logs-rotate.lock; gave up after 0 s (--lock-timeout)
