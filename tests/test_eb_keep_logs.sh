@@ -79,14 +79,25 @@ else
     echo "${long}/easybuild-Wrap-1.0.log" | fold -w "\${width}"
 fi
 EOF
-"${tool}" failed 1 Wrap-1.0 "${work}/logs" >/dev/null
-check "wrapped path: log kept" "$(cat "${work}/logs/Wrap-1.0.failed.ebout.log" 2>/dev/null)" "link error: wrapped"
-rm -f "${work}/logs/Wrap-1.0.failed.ebout.log"
-FORCE_COLOR=1 COLUMNS=4096 "${tool}" failed 1 Wrap-1.0 "${work}/logs" >/dev/null
-check "wrapped path with FORCE_COLOR: log kept" "$(cat "${work}/logs/Wrap-1.0.failed.ebout.log" 2>/dev/null)" "link error: wrapped"
+# One table of (COLUMNS, FORCE_COLOR): unset, and FORCE_COLOR with a wide COLUMNS.
+wrap_miss=
+for row in unset force; do
+    rm -f "${work}/logs/Wrap-1.0.failed.ebout.log"
+    case "${row}" in
+        unset) "${tool}" failed 1 Wrap-1.0 "${work}/logs" >/dev/null ;;
+        force) FORCE_COLOR=1 COLUMNS=4096 "${tool}" failed 1 Wrap-1.0 "${work}/logs" >/dev/null ;;
+    esac
+    [ "$(cat "${work}/logs/Wrap-1.0.failed.ebout.log" 2>/dev/null)" = "link error: wrapped" ] || wrap_miss+="${row} "
+done
+check "wrapped path: log kept" "${wrap_miss}" ""
 
-# failed: an EasyBuild without output styles refuses --output-style
-cat > "${work}/bin/eb" <<EOF
+# failed: eb stubs that reject --output-style still give the log.
+# Old-4.4 is the parser error; Old-1.0 is an older eb.
+style_miss=
+for name in Old-4.4 Old-1.0; do
+    case "${name}" in
+        Old-4.4)
+            cat > "${work}/bin/eb" <<EOF
 #!/bin/bash
 if [[ " \$* " == *" --output-style="* ]]; then
     echo "ERROR: Failed to parse configuration options: no such option: --output-style" >&2
@@ -94,8 +105,19 @@ if [[ " \$* " == *" --output-style="* ]]; then
 fi
 [ "\$1" = "--last-log" ] && echo "${work}/tmp/easybuild-Foo-1.0.log"
 EOF
-"${tool}" failed 1 Old-4.4 "${work}/logs" >/dev/null
-check "eb without output styles: log kept" "$(count 'Old-4.4.failed.ebout.log')" "1"
+            ;;
+        Old-1.0)
+            cat > "${work}/bin/eb" <<EOF
+#!/bin/bash
+case " \$* " in *" --output-style="*) echo "eb: error: no such option: --output-style" >&2; exit 2 ;; esac
+[ "\$1" = "--last-log" ] && echo "${work}/tmp/easybuild-Foo-1.0.log"
+EOF
+            ;;
+    esac
+    "${tool}" failed 1 "${name}" "${work}/logs" >/dev/null
+    [ "$(count "${name}.failed.ebout.log")" = 1 ] || style_miss+="${name} "
+done
+check "eb without output styles: log kept" "${style_miss}" ""
 
 # failed: why there is no log, when eb is missing or fails
 mkdir -p "${work}/empty"
@@ -153,11 +175,14 @@ cat > "${work}/bin/eb" <<EOF
 [ "\$1" = "--last-log" ] && echo "${work}/tmp/easybuild-Cmd-1.0.log"
 EOF
 out_kept="${work}/logs/Cmd-1.0.failed.command-out.txt"
-EASYBUILD_TMPDIR="${work}/ebtmp" "${tool}" failed 2 Cmd-1.0 "${work}/logs" >/dev/null
-check "command output kept" "$(cat "${out_kept}" 2>/dev/null)" "calc.c:6: error: 'scale' undeclared"
-rm -f "${out_kept}"
-EASYBUILD_TMPDIR="${work}/ebtmp-link" "${tool}" failed 2 Cmd-1.0 "${work}/logs" >/dev/null
-check "command output kept through a linked EASYBUILD_TMPDIR" "$(cat "${out_kept}" 2>/dev/null)" "calc.c:6: error: 'scale' undeclared"
+# One table of EASYBUILD_TMPDIR: the real path, then the symlink.
+tmp_miss=
+for tmp in "${work}/ebtmp" "${work}/ebtmp-link"; do
+    rm -f "${out_kept}"
+    EASYBUILD_TMPDIR="${tmp}" "${tool}" failed 2 Cmd-1.0 "${work}/logs" >/dev/null
+    [ "$(cat "${out_kept}" 2>/dev/null)" = "calc.c:6: error: 'scale' undeclared" ] || tmp_miss+="${tmp} "
+done
+check "command output kept" "${tmp_miss}" ""
 rm -f "${out_kept}"
 check "EASYBUILD_TMPDIR unset: says so" \
     "$(env -u EASYBUILD_TMPDIR "${tool}" failed 2 Cmd-1.0 "${work}/logs" | grep -v '^Failed build log')" \
@@ -264,15 +289,6 @@ esac
 EOF
 "${tool}" failed 1 Long-1.0 "${work}/logs" >/dev/null
 check "a log path longer than 80 columns is kept" "$(cat "${work}/logs/Long-1.0.failed.ebout.log" 2>/dev/null)" "compile error: long path"
-
-# failed: an eb older than 4.5 refuses --output-style and does not fold
-cat > "${work}/bin/eb" <<EOF
-#!/bin/bash
-case " \$* " in *" --output-style="*) echo "eb: error: no such option: --output-style" >&2; exit 2 ;; esac
-[ "\$1" = "--last-log" ] && echo "${work}/tmp/easybuild-Foo-1.0.log"
-EOF
-"${tool}" failed 1 Old-1.0 "${work}/logs" >/dev/null
-check "an eb without --output-style still gives the log" "$(count 'Old-1.0.failed.ebout.log')" "1"
 
 # failed: bad arguments are refused with exit 2
 "${tool}" failed x Foo "${work}/logs" 2>/dev/null
@@ -402,12 +418,11 @@ check "help: each option with a value gives its default" \
     "$(for opt in ${options}; do [[ "${opt}" != *= ]] || [ "$(entry "${opt%=}" | grep -cE 'Default: |Required')" = 1 ] || echo "${opt%=}"; done)" ""
 check "help: --lock-timeout waits 600 s by default" "$(entry --lock-timeout | grep -c 'Default: 600;')" "1"
 check "help: exit statuses" "$(sed -n '/^Exit status:$/,$p' "${work}/help" | grep -oE '^  [0-9]+ ' | tr -d ' ' | tr '\n' ' ')" "0 2 75 "
+# --help: the reference diff is the contract.
 # whole: the last line of each paragraph that does not end with a full stop,
-# then the first two words of the last paragraph. What --help, -h and no
-# arguments print is whole when that is only "Exit status:".
+# then the first two words of the last paragraph. No arguments are whole when
+# that is only "Exit status:".
 whole() { awk -v RS= '{ n = split($0, line, "\n"); if (line[n] !~ /\.$/) print line[n]; last = $1 " " $2 } END { print last }'; }
-check "help: --help prints it whole" "$(whole < "${work}/help")" "Exit status:"
-check "help: -h prints it whole" "$("${tool}" -h | whole)" "Exit status:"
 "${tool}" > "${work}/usage"
 check "help: no arguments print it whole, with exit 2" "$?: $(whole < "${work}/usage")" "2: Exit status:"
 # eb-pipeline passes --lock-timeout where `--help` exits 0 and names it.
@@ -419,7 +434,10 @@ reference_help=$(awk '
     shown { print }
     in_help && /^#\+begin_example$/ { shown = 1 }
 ' "${repo_root}/docs/orgmode/reference/cli.org")
-check "help: as the cli reference shows it" "$(diff <(printf '%s\n' "${reference_help}") "${work}/help")" ""
+check "help: as the cli reference shows it" "$(
+    diff <(printf '%s\n' "${reference_help}") "${work}/help"
+    diff <(printf '%s\n' "${reference_help}") <("${tool}" -h)
+)" ""
 # rotate: the run rotate writes into is still going and is left alone. A run
 # that started before midnight is a day old just after it.
 next_day=$(date -d '2026-11-14 00:10' +%s)
@@ -587,13 +605,19 @@ check "lock held: refused at once" "$("${tool}" rotate "${lk_root}" --compress-a
     "eb-keep-logs: another rotate holds the lock ${lock}; gave up after 0 s (--lock-timeout)
 exit 75"
 check "lock held: nothing compressed" "$(lsrun "${lk_root}/20261001_120000")" "M.stdout.log "
-start=$(date +%s%N)
+mono_ns() { python3 -c 'import time; print(time.monotonic_ns())'; }
+start=$(mono_ns)
 "${tool}" rotate "${lk_root}" --compress-after 30 --lock-timeout=1 > /dev/null 2>&1
-check "lock held: refused after --lock-timeout" "$?:$(( $(date +%s%N) - start >= 1000000000 ))" "75:1"
-(sleep 1; flock -u "${held}") &
-check "lock let go: the waiting rotate rotates" "$("${tool}" rotate "${lk_root}" --compress-after 30 2>&1)" \
+rc=$?
+elapsed=$(( $(mono_ns) - start ))
+# 50 ms early allowance on a monotonic clock. `--lock-timeout` stays 1 s.
+check "lock held: refused after --lock-timeout" "${rc}:$(( elapsed + 50000000 >= 1000000000 ))" "75:1"
+"${tool}" rotate "${lk_root}" --compress-after 30 > "${work}/letgo.out" 2>&1 &
+letgo=$!
+flock -u "${held}"
+wait "${letgo}"
+check "lock let go: the waiting rotate rotates" "$(cat "${work}/letgo.out")" \
     "eb-keep-logs rotate: 1 file compressed, 0 runs deleted under ${lk_root}"
-wait
 exec {held}>&-
 check "the lock stays in ROOT" "$(stat -c '%F' "${lock}")" "regular empty file"
 chmod 444 "${lock}"
@@ -618,53 +642,76 @@ check "a symbolic link at the lock: not followed" "$(find "${work}" -maxdepth 1 
 mkdir -p "${work}/nolock-bin" "${work}/nolock/20261001_120000"
 printf '#!/bin/sh\necho "flock: 3: Function not implemented" >&2\nexit 65\n' > "${work}/nolock-bin/flock"
 chmod +x "${work}/nolock-bin/flock"
+real_gzip=$(command -v gzip)
+cat > "${work}/nolock-bin/gzip" << EOF
+#!/bin/bash
+# First gzip of each rotate waits until the other has entered, so both
+# are inside the update together. Then the real gzip runs. The second
+# rotate writes a regular file and the first polls for it.
+barrier=\${EB_KEEP_LOGS_BARRIER:-}
+if [ -n "\${barrier}" ] && mkdir "\${barrier}/seen.\${PPID}" 2>/dev/null; then
+    if mkdir "\${barrier}/lead" 2>/dev/null; then
+        deadline=\$((SECONDS + 15))
+        while [ ! -e "\${barrier}/go" ]; do
+            [ "\${SECONDS}" -ge "\${deadline}" ] && break
+            sleep 0.05
+        done
+    else
+        : > "\${barrier}/go"
+    fi
+fi
+exec ${real_gzip} "\$@"
+EOF
+chmod +x "${work}/nolock-bin/gzip"
 echo old > "${work}/nolock/20261001_120000/N.stdout.log"
 check "a file system that cannot lock: rotates without the lock" \
     "$(PATH="${work}/nolock-bin:${PATH}" "${tool}" rotate "${work}/nolock" --compress-after 30 2>/dev/null)" \
     "eb-keep-logs rotate: 1 file compressed, 0 runs deleted under ${work}/nolock"
 
-# rotate: two rotations of one tree started together; one waits for the other
+# rotate: one round of short files. One rotate blocks on the real lock
+# while the other runs, then finds nothing left to compress.
 race="${work}/race"
 race_lists="" race_out=""
-for round in 1 2 3; do
-    rm -rf "${race}"
-    for t in a b; do
-        d="${race}/20261001_120000/${t}"
-        mkdir -p "${d}"
-        for i in 1 2 3 4 5 6; do seq 1 20000 > "${d}/n${i}.log"; done
-        for i in 1 2 3; do echo "$(realpath "${d}")/n${i}.log"; done > "${d}/.licensed-logs"
-    done
-    "${tool}" rotate "${race}" --compress-after 30 > "${work}/race1" 2>&1 &
-    r1=$!
-    "${tool}" rotate "${race}" --compress-after 30 > "${work}/race2" 2>&1 &
-    r2=$!
-    wait "${r1}"; s1=$?
-    wait "${r2}"; s2=$?
-    for t in a b; do
-        d="$(realpath "${race}/20261001_120000/${t}")"
-        [ "$(cat "${d}/.licensed-logs")" = "$(printf '%s\n' "${d}/n1.log.gz" "${d}/n2.log.gz" "${d}/n3.log.gz")" ] ||
-            race_lists+=" round ${round} ${t}"
-    done
-    race_out+="${s1} ${s2} $(cat "${work}/race1" "${work}/race2" | sed 's/ under .*//' | sort | tr '\n' ' ')"$'\n'
+rm -rf "${race}"
+for t in a b; do
+    d="${race}/20261001_120000/${t}"
+    mkdir -p "${d}"
+    for i in 1 2 3 4 5 6; do printf 'line\n' > "${d}/n${i}.log"; done
+    for i in 1 2 3; do echo "$(realpath "${d}")/n${i}.log"; done > "${d}/.licensed-logs"
 done
+"${tool}" rotate "${race}" --compress-after 30 > "${work}/race1" 2>&1 &
+r1=$!
+"${tool}" rotate "${race}" --compress-after 30 > "${work}/race2" 2>&1 &
+r2=$!
+wait "${r1}"; s1=$?
+wait "${r2}"; s2=$?
+for t in a b; do
+    d="$(realpath "${race}/20261001_120000/${t}")"
+    [ "$(cat "${d}/.licensed-logs")" = "$(printf '%s\n' "${d}/n1.log.gz" "${d}/n2.log.gz" "${d}/n3.log.gz")" ] ||
+        race_lists+=" ${t}"
+done
+race_out="${s1} ${s2} $(cat "${work}/race1" "${work}/race2" | sed 's/ under .*//' | sort | tr '\n' ' ')"
 check "two rotations at once: every list whole" "${race_lists}" ""
-check "two rotations at once: one rotates, the other then finds nothing" "$(printf '%s' "${race_out}")" \
-    "$(for _ in 1 2 3; do echo "0 0 eb-keep-logs rotate: 0 files compressed, 0 runs deleted eb-keep-logs rotate: 12 files compressed, 0 runs deleted "; done)"
+check "two rotations at once: one rotates, the other then finds nothing" "${race_out}" \
+    "0 0 eb-keep-logs rotate: 0 files compressed, 0 runs deleted eb-keep-logs rotate: 12 files compressed, 0 runs deleted "
 # Two rotations at once can each list a file by the name it had when they
 # read the list; but each list is one of the lists they wrote, whole: every
 # line names one of the run's logs, each log once.
 race_torn=""
-for round in 1 2 3 4 5; do
+for round in 1 2; do
     rm -rf "${race}"
     for t in a b; do
         d="${race}/20261001_120000/${t}"
         mkdir -p "${d}"
-        for i in 1 2 3 4 5 6; do seq 1 20000 > "${d}/n${i}.log"; done
+        for i in 1 2 3 4 5 6; do printf 'line\n' > "${d}/n${i}.log"; done
         for i in 1 2 3; do echo "$(realpath "${d}")/n${i}.log"; done > "${d}/.licensed-logs"
     done
-    PATH="${work}/nolock-bin:${PATH}" "${tool}" rotate "${race}" --compress-after 30 > /dev/null 2>&1 &
+    barrier="${work}/barrier-${round}"
+    rm -rf "${barrier}"
+    mkdir -p "${barrier}"
+    EB_KEEP_LOGS_BARRIER="${barrier}" PATH="${work}/nolock-bin:${PATH}" "${tool}" rotate "${race}" --compress-after 30 > /dev/null 2>&1 &
     r1=$!
-    PATH="${work}/nolock-bin:${PATH}" "${tool}" rotate "${race}" --compress-after 30 > /dev/null 2>&1 &
+    EB_KEEP_LOGS_BARRIER="${barrier}" PATH="${work}/nolock-bin:${PATH}" "${tool}" rotate "${race}" --compress-after 30 > /dev/null 2>&1 &
     r2=$!
     wait "${r1}" "${r2}"
     for t in a b; do

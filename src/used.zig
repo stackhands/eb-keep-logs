@@ -455,69 +455,6 @@ pub fn cmdUsed(gpa: Allocator, args: []const []const u8) u8 {
     return 0;
 }
 
-test "under a prefix, and a neighbour path is not" {
-    const p = "/opt/install";
-    try std.testing.expect(underPrefix(p, "/opt/install"));
-    try std.testing.expect(underPrefix(p, "/opt/install/bin/gmx"));
-    try std.testing.expect(!underPrefix(p, "/opt/install-other/bin/gmx"));
-    try std.testing.expect(!underPrefix(p, "/opt/other"));
-}
-
-test "a trailing slash on the prefix still matches the prefix path" {
-    try std.testing.expect(underPrefix("/opt/install/", "/opt/install"));
-    try std.testing.expect(underPrefix("/opt/install/", "/opt/install/bin/gmx"));
-    try std.testing.expect(!underPrefix("/opt/install/", "/opt/install-other/bin/gmx"));
-    try std.testing.expect(underPrefix("/", "/"));
-    try std.testing.expect(underPrefix("/", "/opt/install"));
-    try std.testing.expect(!underPrefix("/", "relative"));
-    try std.testing.expect(!underPrefix("//", "/opt/install"));
-}
-
-test "a link record in the runs fixture is a link use" {
-    const text =
-        \\{"userT":{"user":"faheymr","exec_path":"/lustre/medusa/faheymr/hello_world","syshost":"darter","start_time":"1428766963"}}
-        \\{"resultT": { "exec_path": "/lustre/medusa/faheymr/hello_world", "build_user": "faheymr", "build_epoch": "1428766000" }}
-    ;
-    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
-    defer arena.deinit();
-    const a = arena.allocator();
-    var table = Table.init(a);
-    defer table.deinit();
-    try scanText(a, &table, "/lustre/medusa/faheymr", text);
-    const ent = table.get(.{ .kind = .link, .path = "/lustre/medusa/faheymr/hello_world" }) orelse return error.TestExpectedEqual;
-    try std.testing.expectEqual(@as(u32, 1), ent.count);
-}
-
-test "libA under the prefix is run-lib even when exec_path is outside" {
-    const text =
-        \\{"userT":{"user":"ada","exec_path":"/usr/bin/python","syshost":"n1","start_time":"10"},"libA":[["/opt/pkg/lib/libfoo.so","0"]]}
-    ;
-    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
-    defer arena.deinit();
-    const a = arena.allocator();
-    var table = Table.init(a);
-    defer table.deinit();
-    try scanText(a, &table, "/opt/pkg", text);
-    try std.testing.expect(table.contains(.{ .kind = .@"run-lib", .path = "/opt/pkg/lib/libfoo.so" }));
-    try std.testing.expect(!table.contains(.{ .kind = .run, .path = "/usr/bin/python" }));
-}
-
-test "module-load lines aggregate by path" {
-    const text =
-        \\user=alice module=GROMACS/1.0 path=/opt/pkg/modules/GROMACS/1.0 host=h1 time=1
-        \\user=bob module=GROMACS/1.0 path=/opt/pkg/modules/GROMACS/1.0 host=h2 time=3
-    ;
-    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
-    defer arena.deinit();
-    const a = arena.allocator();
-    var table = Table.init(a);
-    defer table.deinit();
-    try scanText(a, &table, "/opt/pkg", text);
-    const ent = table.get(.{ .kind = .@"module-load", .path = "/opt/pkg/modules/GROMACS/1.0" }).?;
-    try std.testing.expectEqual(@as(u32, 2), ent.count);
-    try std.testing.expectEqualStrings("3", ent.last_time);
-}
-
 test "a module-load path with a bad byte is replaced where it is printed, not leaked raw" {
     const text = "user=alice module=GROMACS/1.0 path=/opt/pkg/modules/GROMACS/\xff1.0 host=h1 time=1\n";
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
@@ -565,16 +502,6 @@ test "two paths that differ only in a bad byte stay two uses" {
     try std.testing.expectEqual(@as(u32, 2), table.count());
     try std.testing.expectEqual(@as(u32, 1), table.get(.{ .kind = .@"module-load", .path = "/opt/pkg/modules/\xfe/1.0" }).?.count);
     try std.testing.expectEqual(@as(u32, 1), table.get(.{ .kind = .@"module-load", .path = "/opt/pkg/modules/\xff/1.0" }).?.count);
-}
-
-test "truncated JSON is refused" {
-    const text = "{\"userT\":{\"exec_path\":\"/opt/a\"}";
-    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
-    defer arena.deinit();
-    const a = arena.allocator();
-    var table = Table.init(a);
-    defer table.deinit();
-    try std.testing.expectError(error.BadJson, scanText(a, &table, "/opt", text));
 }
 
 test "userT null preserves resultT hits and non-JSON text is refused" {

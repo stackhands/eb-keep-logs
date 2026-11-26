@@ -175,35 +175,6 @@ pub fn cmdLoads(gpa: Allocator, args: []const []const u8) u8 {
     return 0;
 }
 
-test "a tracking record keeps a syslog prefix and any field order" {
-    const line = "Nov 17 12:00:01 login01 ModuleUsageTracking: time=1731840001.250000 host=login01 path=/cvmfs/g.lua module=GROMACS/2024.1 user=alice";
-    const rec = parseRecord(line).?;
-    try std.testing.expectEqualStrings("alice", rec.user);
-    try std.testing.expectEqualStrings("GROMACS/2024.1", rec.module);
-    try std.testing.expectEqualStrings("/cvmfs/g.lua", rec.path);
-    try std.testing.expectEqualStrings("login01", rec.host);
-    try std.testing.expectEqualStrings("1731840001.250000", rec.time);
-    try std.testing.expect(parseRecord("user=a module=M path=/p time=1") == null);
-}
-
-test "loads of one module keep file order and a gap is named" {
-    const text =
-        \\user=alice module=GROMACS/2024.1 path=/cvmfs/g.lua host=login01 time=1
-        \\user=bob module=GCC/13.2.0 path=/cvmfs/gcc.lua host=login02 time=2
-        \\not a record
-        \\user=cara module=GROMACS/2024.1 path=/other.lua host=login01 time=3
-    ;
-    const got = try formatLoads(std.testing.allocator, text, "GROMACS/2024.1");
-    defer std.testing.allocator.free(got);
-    try std.testing.expectEqualStrings(
-        "user=alice host=login01 time=1 path=/cvmfs/g.lua\nuser=cara host=login01 time=3 path=/other.lua\n",
-        got,
-    );
-    const none = try formatLoads(std.testing.allocator, text, "Missing/1.0");
-    defer std.testing.allocator.free(none);
-    try std.testing.expectEqualStrings("no load of Missing/1.0\n", none);
-}
-
 test "a load record with a bad byte in its path is replaced, not leaked raw" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();

@@ -48,15 +48,28 @@ fresh="${work}/collector/fresh.prom"
 (umask 077; PATH="${work}/bin:${PATH}" "${tool}" failed --metrics-file "${fresh}" 0 Fresh "${work}/logs" >/dev/null)
 [ "$(stat -c %a "${fresh}")" = 644 ]
 chmod 640 "${metrics}"
-# Hold the sidecar lock across a second boundary. Completion time must be
-# chosen after the lock is acquired, not before waiting for it.
+# Hold the sidecar lock. The stamp stays 1000 until the rotate is inside
+# the lock, then jumps. The sample must be that post-lock value.
+clock="${work}/clock"
+printf '1000\n' > "${clock}"
 metrics_lock="${work}/collector/.eb-keep-logs.prom.lock"
 exec {held}>>"${metrics_lock}"
 flock -n "${held}"
-(umask 077; EB_KEEP_LOGS_NOW=1700000000 "${tool}" rotate "${work}/root" --compress-after 1 --metrics-file "${metrics}" >/dev/null) &
+(umask 077; EB_KEEP_LOGS_CLOCK="${clock}" "${tool}" rotate "${work}/root" --compress-after 1 --metrics-file "${metrics}" >/dev/null) &
 rotator=$!
-sleep 2
-released=$(date +%s)
+in_lock() {
+    local pid=$1 w c
+    w=$(cat "/proc/${pid}/wchan" 2>/dev/null || true)
+    case "${w}" in *lock*) return 0 ;; esac
+    for c in $(pgrep -P "${pid}" 2>/dev/null || true); do
+        in_lock "${c}" && return 0
+    done
+    return 1
+}
+while kill -0 "${rotator}" 2>/dev/null; do
+    in_lock "${rotator}" && break
+done
+printf '2500\n' > "${clock}"
 flock -u "${held}"
 wait "${rotator}"
 exec {held}>&-
@@ -66,8 +79,7 @@ promtool check metrics < "${metrics}"
 grep -qx 'eb_keep_logs_logs_kept_total 10' "${metrics}"
 grep -qx 'eb_keep_logs_bytes_kept_total 60' "${metrics}"
 pruned=$(awk '$1 == "eb_keep_logs_last_prune_timestamp_seconds" { print $2 }' "${metrics}")
-[ "${pruned}" -ge "${released}" ] && [ "${pruned}" -le "${finished}" ]
-[ "${pruned}" -ne 1700000000 ]
+[ "${pruned}" = 2500 ]
 
 # Concurrent rotations of different roots share the metrics lock. A later
 # completion already present wins over out-of-order older completions.

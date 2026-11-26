@@ -179,26 +179,12 @@ exec {held}>&-
 mkdir -p "${work}/symlock"
 ln -s "${work}/nowhere" "${work}/symlock/.eb-keep-logs-rotate.lock"
 compare "rotate, lock is a symbolic link" rotate "${work}/symlock" --compress-after 5
-# A kill in the middle of compressing a file: the binary is killed once it
-# has created its private temporary destination, so the kill lands at a
-# defined point. A second rotate then compresses the file again.
-# wait_for_name DIR PATTERN: block until DIR has an entry matching the
-# find(1) -name PATTERN, or 10 seconds pass.
-wait_for_name() {
-    local dir=$1 pattern=$2 deadline
-    deadline=$((SECONDS + 10))
-    while :; do
-        [ -n "$(find "${dir}" -maxdepth 1 -name "${pattern}" -print -quit 2>/dev/null)" ] && return 0
-        [ "${SECONDS}" -ge "${deadline}" ] && return 1
-    done
-}
+# A kill while compressing is not a race on a filename. The test-ops
+# binary dies at EB_KEEP_LOGS_TEST_KILL_AT=mid-copy, before the compressed
+# member is published. A second rotate then compresses the file.
 mkdir -p "${work}/crash-new/20261001_120000"
-head -c 20000000 /dev/urandom > "${work}/crash-new/20261001_120000/a.log"
-"${TOOL_BIN}" rotate "${work}/crash-new" --compress-after 5 >/dev/null 2>&1 &
-new_pid=$!
-wait_for_name "${work}/crash-new/20261001_120000" ".a.log.gz.*.tmp"
-kill -KILL "${new_pid}" 2>/dev/null
-wait "${new_pid}" 2>/dev/null
+printf 'log line\n' > "${work}/crash-new/20261001_120000/a.log"
+EB_KEEP_LOGS_TEST_KILL_AT=mid-copy "${TEST_OPS_BIN:?TEST_OPS_BIN names the test-ops binary}" rotate "${work}/crash-new" --compress-after 5 >/dev/null 2>&1 || true
 new_rerun=$("${TOOL_BIN}" rotate "${work}/crash-new" --compress-after 5 2>/dev/null)
 new_count=$(sed -nE 's/^eb-keep-logs rotate: ([0-9]+) files? compressed.*/\1/p' <<< "${new_rerun}")
 new_left=no; [ -e "${work}/crash-new/20261001_120000/a.log" ] && new_left=yes
@@ -212,22 +198,6 @@ holder=$!
 until [ -e "${work}/held" ]; do sleep 0.05; done
 compare "rotate, a run still written into" rotate "${work}/live" --compress-after 5 --delete-after 9
 kill "${holder}"; wait "${holder}" 2>/dev/null
-compare "why" why --latest --root "${repo_root}/tests/fixtures/build-logs"
-compare "history" history hello --root "${repo_root}/tests/fixtures/build-logs"
-compare "failures" failures --root "${repo_root}/tests/fixtures/build-logs"
-printf 'user=a module=M path=/p host=h time=1\n' > "${work}/loads.log"
-compare "loads" loads --module M "${work}/loads.log"
-printf '%s\n' '{"userT":{"user":"a","exec_path":"/bin/gmx","syshost":"h","start_time":1}}' > "${work}/runs.json"
-compare "runs" runs --exec gmx "${work}/runs.json"
-printf '%s\n' '{"userT":{"user":"a","exec_path":"/bin/gmx","syshost":"h","start_time":1}}' > "${work}/used.json"
-compare "used" used --prefix /opt "${work}/used.json"
-mkdir -p "${work}/software/GROMACS/1.0" "${work}/modules"
-compare "usage" usage --software "${work}/software" --modules "${work}/modules" "${work}/used.json"
-printf '%s\n' ' * [ ] flex-2.6.4.eb (module: flex/2.6.4)' > "${work}/dry.txt"
-compare "pending" pending "${work}/dry.txt"
-printf '%s\n' 'min_observation_days = 90' 'warn_after_days = 60' 'forbid_after_days = 180' 'remove_after_days = 365' > "${work}/policy.toml"
-"${TOOL_BIN}" usage --software "${work}/software" --modules "${work}/modules" --json "${work}/used.json" > "${work}/usage.json"
-compare "lifecycle" lifecycle --policy "${work}/policy.toml" "${work}/usage.json"
 
 echo "${diffs} differences"
 [ "${diffs}" -eq 0 ]

@@ -74,8 +74,10 @@ pub fn build(b: *std.Build) void {
     suite.expectExitCode(0);
     suite.has_side_effects = true;
     // Fixed invocations, against the expected output under tests/golden/cases.
-    const diff = b.addSystemCommand(&.{ "bash", "-c", "TOOL_BIN=\"$0\" exec bash tests/test_cases.sh" });
+    // The killed-mid-compress case runs the test-ops binary.
+    const diff = b.addSystemCommand(&.{ "bash", "-c", "TOOL_BIN=\"$0\" TEST_OPS_BIN=\"$1\" exec bash tests/test_cases.sh" });
     diff.addArtifactArg(exe);
+    diff.addArtifactArg(test_ops_exe);
     diff.setCwd(b.path("."));
     diff.expectExitCode(0);
     diff.has_side_effects = true;

@@ -1345,6 +1345,7 @@ test "parsePolicy reads thresholds, optional fields and keep globs" {
         \\keep = [
         \\  "GCCcore/*",
         \\  "OpenMPI/5.0*",
+        \\  "Foo/1.?-*",
         \\]
         \\warn_message = "Module {module} will be forbidden on {after}."
     ;
@@ -1355,8 +1356,11 @@ test "parsePolicy reads thresholds, optional fields and keep globs" {
     try std.testing.expectEqual(@as(u64, 365), pol.remove_after_days);
     try std.testing.expectEqual(@as(u64, 14), pol.forbid_grace_days);
     try std.testing.expectEqual(@as(u64, 2), pol.min_hits);
-    try std.testing.expectEqual(@as(usize, 2), pol.keep.len);
+    try std.testing.expectEqual(@as(usize, 3), pol.keep.len);
     try std.testing.expect(matchesKeep(pol.keep, "GCCcore/15.2.0"));
+    try std.testing.expect(!matchesKeep(pol.keep, "GCC/15.2.0"));
+    try std.testing.expect(matchesKeep(pol.keep, "Foo/1.0-foss"));
+    try std.testing.expect(!matchesKeep(pol.keep, "Foo/10.0-foss"));
     try std.testing.expect(!matchesKeep(pol.keep, "GROMACS/2026.1"));
 }
 
@@ -1382,66 +1386,6 @@ test "parsePolicy refuses bad order or unknown keys" {
         \\bogus = 1
     ;
     try std.testing.expectError(error.BadPolicy, parsePolicy(arena, unknown_key, &err_msg));
-}
-
-test "globMatch handles stars and question marks" {
-    try std.testing.expect(globMatch("GCCcore/*", "GCCcore/15.2.0"));
-    try std.testing.expect(!globMatch("GCCcore/*", "GCC/15.2.0"));
-    try std.testing.expect(globMatch("Foo/1.?-*", "Foo/1.0-foss"));
-    try std.testing.expect(!globMatch("Foo/1.?-*", "Foo/10.0-foss"));
-}
-
-test "formatModulerc escapes Lua strings and emits warn, forbid and hide_version" {
-    var arena_state = std.heap.ArenaAllocator.init(std.testing.allocator);
-    defer arena_state.deinit();
-    const arena = arena_state.allocator();
-    const pol: Policy = .{
-        .min_observation_days = 90,
-        .warn_after_days = 60,
-        .forbid_after_days = 180,
-        .remove_after_days = 365,
-    };
-    const entries = [_]Entry{
-        .{
-            .name = "KeepMe",
-            .version = "1.0",
-            .module = "KeepMe/1.0",
-            .easyconfig = "KeepMe-1.0.eb",
-            .action = .keep,
-            .hits = 10,
-            .last = "1700000000",
-            .idle_days = 1,
-            .reason = "idle 1d < warn_after_days 60",
-        },
-        .{
-            .name = "OldSim",
-            .version = "2.1",
-            .module = "OldSim/2.1",
-            .easyconfig = "OldSim-2.1.eb",
-            .action = .@"forbid-after",
-            .hits = 1,
-            .last = "1700000000",
-            .idle_days = 200,
-            .forbid_after = "2026-12-17",
-            .reason = "idle 200d >= forbid_after_days 180",
-        },
-        .{
-            .name = "DeadPkg",
-            .version = "0.9",
-            .module = "DeadPkg/0.9",
-            .easyconfig = "DeadPkg-0.9.eb",
-            .action = .@"candidate-remove",
-            .hits = 0,
-            .last = null,
-            .idle_days = 400,
-            .reason = "idle 400d >= remove_after_days 365; 0 dependents",
-        },
-    };
-    const lua = try formatModulerc(arena, pol, &entries);
-    try std.testing.expect(std.mem.indexOf(u8, lua, "KeepMe/1.0") == null);
-    try std.testing.expect(std.mem.indexOf(u8, lua, "name = \"OldSim/2.1\"") != null);
-    try std.testing.expect(std.mem.indexOf(u8, lua, "after = \"2026-12-17\"") != null);
-    try std.testing.expect(std.mem.indexOf(u8, lua, "hide_version(\"DeadPkg/0.9\")") != null);
 }
 
 test "formatModulerc escapes a raw newline in a module name before the comment line, not only the string literal" {

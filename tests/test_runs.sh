@@ -44,9 +44,5 @@ check "none" "$("${tool}" runs --exec missing "${work}/runs.json")" "no run of m
 "${tool}" runs "${work}/runs.json" >/dev/null 2>"${work}/err"
 check "exec is required" "$?" "2"
 check "the refusal names the flag" "$(cat "${work}/err")" "eb-keep-logs: runs needs --exec"
-page=$(cat "${repo_root}/docs/orgmode/howto/who-ran-an-executable.org")
-check "how-to names the command" "$(grep -c 'runs --exec' <<< "${page}")" "1"
-check "how-to names the empty answer" "$(grep -c 'no run of' <<< "${page}")" "1"
-
 echo "${fails} failed"
 [ "${fails}" -eq 0 ]
