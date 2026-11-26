@@ -1,0 +1,1 @@
+The shell script `eb-keep-logs` 0.1.0 is no longer in the repository; the binary is the one implementation. `tests/test_cases.sh` holds the binary to the script's recorded output on the invocations `tests/differential.sh` compared, and COMPAT.md stays as the record of what changed for a site that ran the script.

@@ -16,8 +16,7 @@
 # Not done here, because it is prose: the README sentence on what `main` has
 # that the latest release lacks, the "Release X.Y.Z runs ..." rows of
 # install.org, the `--version` example with a commit in
-# docs/orgmode/reference/cli.org, and a COMPAT.md row for each new deliberate
-# difference from the shell script. Edit those in a commit before the bump.
+# docs/orgmode/reference/cli.org. Edit those in a commit before the bump.
 #
 # Needs: towncrier (or uvx). A refused run can leave
 # edited files behind; `git checkout -- .` puts the tree back.

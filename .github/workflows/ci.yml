@@ -13,18 +13,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
-        with:
-          python-version: "3.14"
-      - name: Install promtool 3.7.3
-        run: |
-          curl -fsSLO https://github.com/prometheus/prometheus/releases/download/v3.7.3/prometheus-3.7.3.linux-amd64.tar.gz
-          echo 'fc9e5da126817438cf2820d9a7206c75e3122802ba8d20add3a6219a59ca6913  prometheus-3.7.3.linux-amd64.tar.gz' | sha256sum -c -
-          tar -xzf prometheus-3.7.3.linux-amd64.tar.gz
-          sudo install -m 0755 prometheus-3.7.3.linux-amd64/promtool /usr/local/bin/promtool
-      - run: shellcheck -S warning eb-keep-logs tests/test_eb_keep_logs.sh tests/test_metrics.sh tests/corpus/run.sh tests/corpus/make-fixtures.sh
-      - run: bash tests/test_eb_keep_logs.sh
-      - run: bash tests/test_metrics.sh
+      - run: shellcheck -S warning tests/test_eb_keep_logs.sh tests/test_metrics.sh tests/test_output_stability.sh tests/test_tutorial_which.sh tests/corpus/run.sh tests/corpus/make-fixtures.sh
       - name: no site names in the tree
         run: |
           ! git grep -nIiE 'snellius|snel-|surf\.nl|/gpfs/|/projects/0|rg\.terra|scratch-shared|scratch-node' -- . ':!.github/workflows/ci.yml'
@@ -60,7 +49,7 @@ jobs:
           tar -xzf "${archive}"
           sudo install -m 0755 "prometheus-3.7.3.linux-${arch}/promtool" /usr/local/bin/promtool
       - run: zig fmt --check build.zig build.zig.zon src
-      - run: shellcheck -S warning tests/differential.sh tests/test_metrics.sh tests/test_why.sh tests/test_json_schemas.sh tests/test_crash_safety.sh tests/test_rotate_fsync_durability.sh tests/lib/check.sh tests/test_report_utf8_safety.sh tests/test_lifecycle_modulerc_safety.sh
+      - run: shellcheck -S warning tests/test_cases.sh tests/test_metrics.sh tests/test_why.sh tests/test_json_schemas.sh tests/test_crash_safety.sh tests/test_rotate_fsync_durability.sh tests/lib/check.sh tests/test_report_utf8_safety.sh tests/test_lifecycle_modulerc_safety.sh
       - run: pip install jsonschema
       - uses: ./.github/actions/install-strace
       - run: zig build test --summary all
