@@ -1,0 +1,1 @@
+The README says which commands only the Zig binary has and lists loads, runs, used, pending, test-bundle, test-compare and --metrics-file, and COMPAT.md lists --syslog and --metrics-file for failed and rotate.

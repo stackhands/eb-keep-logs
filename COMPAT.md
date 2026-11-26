@@ -9,7 +9,7 @@ on the same invocations.
 
 | | |
 |---|---|
-| commands | `failed STATUS NAME LOGDIR [TMP_LOGDIR]`, `rotate ROOT --compress-after DAYS [--delete-after DAYS] [--dry-run] [--lock-timeout SECONDS]`, `-h`, `--help`, `--version` |
+| commands | `failed [--syslog TARGET] [--metrics-file PATH] STATUS NAME LOGDIR [TMP_LOGDIR]`, `rotate [--syslog TARGET] [--metrics-file PATH] ROOT --compress-after DAYS [--delete-after DAYS] [--dry-run] [--lock-timeout SECONDS]`, `-h`, `--help`, `--version` |
 | usage | the same text on stdout for `-h`, `--help` and no arguments |
 | exit codes | 0 on success and on every `failed` that got past its arguments; 2 for a refused invocation, after `eb-keep-logs: MESSAGE` on stderr; 2 with the usage text on stdout for no arguments; 75 when another `rotate` holds ROOT's lock past `--lock-timeout`, after `eb-keep-logs: another rotate holds the lock ROOT/.eb-keep-logs-rotate.lock; gave up after N s (--lock-timeout)` on stderr |
 | one rotate at a time | `rotate` holds an exclusive flock(2) on `ROOT/.eb-keep-logs-rotate.lock`, created when missing, from before it reads ROOT until it exits; it waits up to `--lock-timeout` seconds for it, 600 without the option or with an empty value, 0 not at all, 999999999 at most; it opens the file for reading when it may not write it; a lock file that cannot be opened, or a symbolic link or non-regular file at its name, is refused, exit 2; on a file system that cannot lock, `rotate` says so on stderr and rotates without the lock |
