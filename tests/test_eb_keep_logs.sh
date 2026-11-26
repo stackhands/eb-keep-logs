@@ -613,14 +613,18 @@ real_gzip=$(command -v gzip)
 cat > "${work}/nolock-bin/gzip" << EOF
 #!/bin/bash
 # First gzip of each rotate waits until the other has entered, so both
-# are inside the update together. Then the real gzip runs.
+# are inside the update together. Then the real gzip runs. The second
+# rotate writes a regular file and the first polls for it.
 barrier=\${EB_KEEP_LOGS_BARRIER:-}
-if [ -n "\${barrier}" ] && [ ! -e "\${barrier}/seen.\${PPID}" ]; then
-    : > "\${barrier}/seen.\${PPID}"
+if [ -n "\${barrier}" ] && mkdir "\${barrier}/seen.\${PPID}" 2>/dev/null; then
     if mkdir "\${barrier}/lead" 2>/dev/null; then
-        read -r _ < "\${barrier}/go"
+        deadline=\$((SECONDS + 15))
+        while [ ! -e "\${barrier}/go" ]; do
+            [ "\${SECONDS}" -ge "\${deadline}" ] && break
+            sleep 0.05
+        done
     else
-        echo go > "\${barrier}/go"
+        : > "\${barrier}/go"
     fi
 fi
 exec ${real_gzip} "\$@"
@@ -673,7 +677,6 @@ for round in 1 2; do
     barrier="${work}/barrier-${round}"
     rm -rf "${barrier}"
     mkdir -p "${barrier}"
-    mkfifo "${barrier}/go"
     EB_KEEP_LOGS_BARRIER="${barrier}" PATH="${work}/nolock-bin:${PATH}" "${tool}" rotate "${race}" --compress-after 30 > /dev/null 2>&1 &
     r1=$!
     EB_KEEP_LOGS_BARRIER="${barrier}" PATH="${work}/nolock-bin:${PATH}" "${tool}" rotate "${race}" --compress-after 30 > /dev/null 2>&1 &
