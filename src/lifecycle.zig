@@ -1345,6 +1345,7 @@ test "parsePolicy reads thresholds, optional fields and keep globs" {
         \\keep = [
         \\  "GCCcore/*",
         \\  "OpenMPI/5.0*",
+        \\  "Foo/1.?-*",
         \\]
         \\warn_message = "Module {module} will be forbidden on {after}."
     ;
@@ -1355,8 +1356,11 @@ test "parsePolicy reads thresholds, optional fields and keep globs" {
     try std.testing.expectEqual(@as(u64, 365), pol.remove_after_days);
     try std.testing.expectEqual(@as(u64, 14), pol.forbid_grace_days);
     try std.testing.expectEqual(@as(u64, 2), pol.min_hits);
-    try std.testing.expectEqual(@as(usize, 2), pol.keep.len);
+    try std.testing.expectEqual(@as(usize, 3), pol.keep.len);
     try std.testing.expect(matchesKeep(pol.keep, "GCCcore/15.2.0"));
+    try std.testing.expect(!matchesKeep(pol.keep, "GCC/15.2.0"));
+    try std.testing.expect(matchesKeep(pol.keep, "Foo/1.0-foss"));
+    try std.testing.expect(!matchesKeep(pol.keep, "Foo/10.0-foss"));
     try std.testing.expect(!matchesKeep(pol.keep, "GROMACS/2026.1"));
 }
 
@@ -1382,13 +1386,6 @@ test "parsePolicy refuses bad order or unknown keys" {
         \\bogus = 1
     ;
     try std.testing.expectError(error.BadPolicy, parsePolicy(arena, unknown_key, &err_msg));
-}
-
-test "globMatch handles stars and question marks" {
-    try std.testing.expect(globMatch("GCCcore/*", "GCCcore/15.2.0"));
-    try std.testing.expect(!globMatch("GCCcore/*", "GCC/15.2.0"));
-    try std.testing.expect(globMatch("Foo/1.?-*", "Foo/1.0-foss"));
-    try std.testing.expect(!globMatch("Foo/1.?-*", "Foo/10.0-foss"));
 }
 
 test "formatModulerc escapes a raw newline in a module name before the comment line, not only the string literal" {

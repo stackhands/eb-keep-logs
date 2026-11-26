@@ -79,14 +79,25 @@ else
     echo "${long}/easybuild-Wrap-1.0.log" | fold -w "\${width}"
 fi
 EOF
-"${tool}" failed 1 Wrap-1.0 "${work}/logs" >/dev/null
-check "wrapped path: log kept" "$(cat "${work}/logs/Wrap-1.0.failed.ebout.log" 2>/dev/null)" "link error: wrapped"
-rm -f "${work}/logs/Wrap-1.0.failed.ebout.log"
-FORCE_COLOR=1 COLUMNS=4096 "${tool}" failed 1 Wrap-1.0 "${work}/logs" >/dev/null
-check "wrapped path with FORCE_COLOR: log kept" "$(cat "${work}/logs/Wrap-1.0.failed.ebout.log" 2>/dev/null)" "link error: wrapped"
+# One table of (COLUMNS, FORCE_COLOR): unset, and FORCE_COLOR with a wide COLUMNS.
+wrap_miss=
+for row in unset force; do
+    rm -f "${work}/logs/Wrap-1.0.failed.ebout.log"
+    case "${row}" in
+        unset) "${tool}" failed 1 Wrap-1.0 "${work}/logs" >/dev/null ;;
+        force) FORCE_COLOR=1 COLUMNS=4096 "${tool}" failed 1 Wrap-1.0 "${work}/logs" >/dev/null ;;
+    esac
+    [ "$(cat "${work}/logs/Wrap-1.0.failed.ebout.log" 2>/dev/null)" = "link error: wrapped" ] || wrap_miss+="${row} "
+done
+check "wrapped path: log kept" "${wrap_miss}" ""
 
-# failed: an EasyBuild without output styles refuses --output-style
-cat > "${work}/bin/eb" <<EOF
+# failed: eb stubs that reject --output-style still give the log.
+# Old-4.4 is the parser error; Old-1.0 is an older eb.
+style_miss=
+for name in Old-4.4 Old-1.0; do
+    case "${name}" in
+        Old-4.4)
+            cat > "${work}/bin/eb" <<EOF
 #!/bin/bash
 if [[ " \$* " == *" --output-style="* ]]; then
     echo "ERROR: Failed to parse configuration options: no such option: --output-style" >&2
@@ -94,8 +105,19 @@ if [[ " \$* " == *" --output-style="* ]]; then
 fi
 [ "\$1" = "--last-log" ] && echo "${work}/tmp/easybuild-Foo-1.0.log"
 EOF
-"${tool}" failed 1 Old-4.4 "${work}/logs" >/dev/null
-check "eb without output styles: log kept" "$(count 'Old-4.4.failed.ebout.log')" "1"
+            ;;
+        Old-1.0)
+            cat > "${work}/bin/eb" <<EOF
+#!/bin/bash
+case " \$* " in *" --output-style="*) echo "eb: error: no such option: --output-style" >&2; exit 2 ;; esac
+[ "\$1" = "--last-log" ] && echo "${work}/tmp/easybuild-Foo-1.0.log"
+EOF
+            ;;
+    esac
+    "${tool}" failed 1 "${name}" "${work}/logs" >/dev/null
+    [ "$(count "${name}.failed.ebout.log")" = 1 ] || style_miss+="${name} "
+done
+check "eb without output styles: log kept" "${style_miss}" ""
 
 # failed: why there is no log, when eb is missing or fails
 mkdir -p "${work}/empty"
@@ -153,11 +175,14 @@ cat > "${work}/bin/eb" <<EOF
 [ "\$1" = "--last-log" ] && echo "${work}/tmp/easybuild-Cmd-1.0.log"
 EOF
 out_kept="${work}/logs/Cmd-1.0.failed.command-out.txt"
-EASYBUILD_TMPDIR="${work}/ebtmp" "${tool}" failed 2 Cmd-1.0 "${work}/logs" >/dev/null
-check "command output kept" "$(cat "${out_kept}" 2>/dev/null)" "calc.c:6: error: 'scale' undeclared"
-rm -f "${out_kept}"
-EASYBUILD_TMPDIR="${work}/ebtmp-link" "${tool}" failed 2 Cmd-1.0 "${work}/logs" >/dev/null
-check "command output kept through a linked EASYBUILD_TMPDIR" "$(cat "${out_kept}" 2>/dev/null)" "calc.c:6: error: 'scale' undeclared"
+# One table of EASYBUILD_TMPDIR: the real path, then the symlink.
+tmp_miss=
+for tmp in "${work}/ebtmp" "${work}/ebtmp-link"; do
+    rm -f "${out_kept}"
+    EASYBUILD_TMPDIR="${tmp}" "${tool}" failed 2 Cmd-1.0 "${work}/logs" >/dev/null
+    [ "$(cat "${out_kept}" 2>/dev/null)" = "calc.c:6: error: 'scale' undeclared" ] || tmp_miss+="${tmp} "
+done
+check "command output kept" "${tmp_miss}" ""
 rm -f "${out_kept}"
 check "EASYBUILD_TMPDIR unset: says so" \
     "$(env -u EASYBUILD_TMPDIR "${tool}" failed 2 Cmd-1.0 "${work}/logs" | grep -v '^Failed build log')" \
@@ -265,15 +290,6 @@ EOF
 "${tool}" failed 1 Long-1.0 "${work}/logs" >/dev/null
 check "a log path longer than 80 columns is kept" "$(cat "${work}/logs/Long-1.0.failed.ebout.log" 2>/dev/null)" "compile error: long path"
 
-# failed: an eb older than 4.5 refuses --output-style and does not fold
-cat > "${work}/bin/eb" <<EOF
-#!/bin/bash
-case " \$* " in *" --output-style="*) echo "eb: error: no such option: --output-style" >&2; exit 2 ;; esac
-[ "\$1" = "--last-log" ] && echo "${work}/tmp/easybuild-Foo-1.0.log"
-EOF
-"${tool}" failed 1 Old-1.0 "${work}/logs" >/dev/null
-check "an eb without --output-style still gives the log" "$(count 'Old-1.0.failed.ebout.log')" "1"
-
 # failed: bad arguments are refused with exit 2
 "${tool}" failed x Foo "${work}/logs" 2>/dev/null
 check "non-numeric status refused" "$?" "2"
@@ -374,7 +390,6 @@ check "rotate without --compress-after refused" "$?" "2"
 # then the first two words of the last paragraph. No arguments are whole when
 # that is only "Exit status:".
 whole() { awk -v RS= '{ n = split($0, line, "\n"); if (line[n] !~ /\.$/) print line[n]; last = $1 " " $2 } END { print last }'; }
-check "help: -h prints it whole" "$("${tool}" -h | whole)" "Exit status:"
 "${tool}" > "${work}/usage"
 check "help: no arguments print it whole, with exit 2" "$?: $(whole < "${work}/usage")" "2: Exit status:"
 # eb-pipeline passes --lock-timeout where `--help` exits 0 and names it.
@@ -386,7 +401,10 @@ reference_help=$(awk '
     shown { print }
     in_help && /^#\+begin_example$/ { shown = 1 }
 ' "${repo_root}/docs/orgmode/reference/cli.org")
-check "help: as the cli reference shows it" "$(diff <(printf '%s\n' "${reference_help}") "${work}/help")" ""
+check "help: as the cli reference shows it" "$(
+    diff <(printf '%s\n' "${reference_help}") "${work}/help"
+    diff <(printf '%s\n' "${reference_help}") <("${tool}" -h)
+)" ""
 # rotate: the run rotate writes into is still going and is left alone. A run
 # that started before midnight is a day old just after it.
 next_day=$(date -d '2026-11-14 00:10' +%s)

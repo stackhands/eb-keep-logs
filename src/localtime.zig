@@ -429,25 +429,16 @@ pub fn load(gpa: Allocator, tz: ?[]const u8, tzdir: ?[]const u8) Zone {
     return .{ .footer = p };
 }
 
-test "posix rules" {
-    const ams = try parsePosix("CET-1CEST,M3.5.0,M10.5.0/3");
-    const z: Zone = .{ .footer = ams };
-    // 2026-11-13 00:00 local is 2026-11-12 23:00 UTC.
-    try std.testing.expectEqual(@as(?i64, daysFromCivil(2026, 11, 13) * 86400 - 3600), z.fromLocal(daysFromCivil(2026, 11, 13) * 86400));
-    // 2026-07-01 00:00 local is CEST.
-    try std.testing.expectEqual(@as(?i64, daysFromCivil(2026, 7, 1) * 86400 - 7200), z.fromLocal(daysFromCivil(2026, 7, 1) * 86400));
-    const chi: Zone = .{ .footer = try parsePosix("CST6CDT,M3.2.0,M11.1.0") };
-    try std.testing.expectEqual(@as(?i64, daysFromCivil(2026, 11, 13) * 86400 + 6 * 3600), chi.fromLocal(daysFromCivil(2026, 11, 13) * 86400));
-    const utc: Zone = .{};
-    try std.testing.expectEqual(@as(?i64, 0), utc.fromLocal(0));
-    try std.testing.expectError(error.Bad, parsePosix("X1"));
-}
-
 test "a rule string is read and applied as glibc reads and applies it" {
     const gpa = std.testing.allocator;
     // TZ, a date, and what `TZ=... date -d DATE +%s` prints with glibc 2.39,
     // null where it refuses the date.
     const rows = [_]struct { tz: []const u8, y: i64, m: u8, d: u8, want: ?i64 }{
+        // The three zones the shell date checks also follow: winter CET,
+        // summer CEST, and November CST.
+        .{ .tz = "CET-1CEST,M3.5.0,M10.5.0/3", .y = 2026, .m = 11, .d = 13, .want = daysFromCivil(2026, 11, 13) * 86400 - 3600 },
+        .{ .tz = "CET-1CEST,M3.5.0,M10.5.0/3", .y = 2026, .m = 7, .d = 1, .want = daysFromCivil(2026, 7, 1) * 86400 - 7200 },
+        .{ .tz = "CST6CDT,M3.2.0,M11.1.0", .y = 2026, .m = 11, .d = 13, .want = daysFromCivil(2026, 11, 13) * 86400 + 6 * 3600 },
         // Text after the rules is not read.
         .{ .tz = "CET-1CEST,M3.5.0,M10.5.0/3x", .y = 2026, .m = 11, .d = 1, .want = 1793487600 },
         // Without an end rule, daylight time ends on the first Sunday in
@@ -489,6 +480,9 @@ test "a rule string is read and applied as glibc reads and applies it" {
         defer z.deinit();
         try std.testing.expectEqual(r.want, z.fromLocal(daysFromCivil(r.y, r.m, r.d) * 86400));
     }
+    const utc: Zone = .{};
+    try std.testing.expectEqual(@as(?i64, 0), utc.fromLocal(0));
+    try std.testing.expectError(error.Bad, parsePosix("X1"));
 }
 
 test "a local midnight inside a DST gap does not exist" {

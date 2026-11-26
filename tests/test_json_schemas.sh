@@ -53,26 +53,30 @@ remove_after_days = 365
 EOF
 
 fails=0
-run() {
+# One table of command and schema. A miss names the command.
+schema_miss=
+schema_row() {
     local title=$1
     shift
-    if "$@"; then
-        echo "ok   ${title}"
-    else
-        echo "FAIL ${title}" >&2
-        fails=$((fails + 1))
-    fi
+    "$@" || schema_miss="${schema_miss}${title}"$'\n'
 }
 
-run "why" validate why why --json "${logs}/20261117_041222"
-run "history" validate history history --json --root "${logs}" hello-2.12.1-GCCcore-13.3.0
-run "failures" validate failures failures --json --root "${logs}" --package hello --since 2026-11-17
-run "loads" validate loads loads --module GROMACS/2024.1 --json "${work}/moduleUsage.log"
-run "runs" validate runs runs --exec gmx --json "${work}/runs.json"
-run "pending dry-run" validate pending pending --json "${work}/dry.txt"
-run "used" validate used used --prefix "${software}/Foo/1.0" --json "${work}/xalt.json"
-run "usage" validate usage usage --software "${software}" --modules "${modules}" --json "${work}/xalt.json" "${work}/lmod.log"
-run "lifecycle" validate lifecycle lifecycle --policy "${work}/policy.toml" --now 1794873600 --json "${work}/usage.json"
+schema_row "why" validate why why --json "${logs}/20261117_041222"
+schema_row "history" validate history history --json --root "${logs}" hello-2.12.1-GCCcore-13.3.0
+schema_row "failures" validate failures failures --json --root "${logs}" --package hello --since 2026-11-17
+schema_row "loads" validate loads loads --module GROMACS/2024.1 --json "${work}/moduleUsage.log"
+schema_row "runs" validate runs runs --exec gmx --json "${work}/runs.json"
+schema_row "pending dry-run" validate pending pending --json "${work}/dry.txt"
+schema_row "used" validate used used --prefix "${software}/Foo/1.0" --json "${work}/xalt.json"
+schema_row "usage" validate usage usage --software "${software}" --modules "${modules}" --json "${work}/xalt.json" "${work}/lmod.log"
+schema_row "lifecycle" validate lifecycle lifecycle --policy "${work}/policy.toml" --now 1794873600 --json "${work}/usage.json"
+if [ -n "${schema_miss}" ]; then
+    echo "FAIL json schemas" >&2
+    printf '%s' "${schema_miss}" >&2
+    fails=$((fails + 1))
+else
+    echo "ok   json schemas"
+fi
 
 echo "${fails} failed"
 [ "${fails}" -eq 0 ]
