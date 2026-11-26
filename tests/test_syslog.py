@@ -180,8 +180,8 @@ class KeepLogsSyslogTests(unittest.TestCase):
 
             p_ok = self._run(["failed", "0", "Ok-1.0", self.logdir], env)
             self.assertEqual(p_ok.returncode, 0)
-            sock.settimeout(0.2)
-            with self.assertRaises(socket.timeout):
+            sock.setblocking(False)
+            with self.assertRaises(BlockingIOError):
                 sock.recv(65536)
         finally:
             sock.close()

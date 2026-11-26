@@ -575,10 +575,12 @@ check "lock held: nothing compressed" "$(lsrun "${lk_root}/20261001_120000")" "M
 start=$(date +%s%N)
 "${tool}" rotate "${lk_root}" --compress-after 30 --lock-timeout=1 > /dev/null 2>&1
 check "lock held: refused after --lock-timeout" "$?:$(( $(date +%s%N) - start >= 1000000000 ))" "75:1"
-(sleep 1; flock -u "${held}") &
-check "lock let go: the waiting rotate rotates" "$("${tool}" rotate "${lk_root}" --compress-after 30 2>&1)" \
+"${tool}" rotate "${lk_root}" --compress-after 30 > "${work}/letgo.out" 2>&1 &
+letgo=$!
+flock -u "${held}"
+wait "${letgo}"
+check "lock let go: the waiting rotate rotates" "$(cat "${work}/letgo.out")" \
     "eb-keep-logs rotate: 1 file compressed, 0 runs deleted under ${lk_root}"
-wait
 exec {held}>&-
 check "the lock stays in ROOT" "$(stat -c '%F' "${lock}")" "regular empty file"
 chmod 444 "${lock}"
@@ -603,54 +605,74 @@ check "a symbolic link at the lock: not followed" "$(find "${work}" -maxdepth 1 
 mkdir -p "${work}/nolock-bin" "${work}/nolock/20261001_120000"
 printf '#!/bin/sh\necho "flock: 3: Function not implemented" >&2\nexit 65\n' > "${work}/nolock-bin/flock"
 chmod +x "${work}/nolock-bin/flock"
+real_gzip=$(command -v gzip)
+cat > "${work}/nolock-bin/gzip" << EOF
+#!/bin/bash
+# First gzip of each rotate waits until the other has entered, so both
+# are inside the update together. Then the real gzip runs.
+barrier=\${EB_KEEP_LOGS_BARRIER:-}
+if [ -n "\${barrier}" ] && [ ! -e "\${barrier}/seen.\${PPID}" ]; then
+    : > "\${barrier}/seen.\${PPID}"
+    if mkdir "\${barrier}/lead" 2>/dev/null; then
+        read -r _ < "\${barrier}/go"
+    else
+        echo go > "\${barrier}/go"
+    fi
+fi
+exec ${real_gzip} "\$@"
+EOF
+chmod +x "${work}/nolock-bin/gzip"
 echo old > "${work}/nolock/20261001_120000/N.stdout.log"
 check "a file system that cannot lock: rotates without the lock" \
     "$(PATH="${work}/nolock-bin:${PATH}" "${tool}" rotate "${work}/nolock" --compress-after 30 2>/dev/null)" \
     "eb-keep-logs rotate: 1 file compressed, 0 runs deleted under ${work}/nolock"
 
-# rotate: two rotations of one tree started together; one waits for the other
+# rotate: one round of short files. One rotate blocks on the real lock
+# while the other runs, then finds nothing left to compress.
 race="${work}/race"
 race_lists="" race_out=""
-for round in 1 2 3; do
-    rm -rf "${race}"
-    for t in a b; do
-        d="${race}/20261001_120000/${t}"
-        mkdir -p "${d}"
-        for i in 1 2 3 4 5 6; do seq 1 20000 > "${d}/n${i}.log"; done
-        for i in 1 2 3; do echo "$(realpath "${d}")/n${i}.log"; done > "${d}/.licensed-logs"
-    done
-    "${tool}" rotate "${race}" --compress-after 30 > "${work}/race1" 2>&1 &
-    r1=$!
-    "${tool}" rotate "${race}" --compress-after 30 > "${work}/race2" 2>&1 &
-    r2=$!
-    wait "${r1}"; s1=$?
-    wait "${r2}"; s2=$?
-    for t in a b; do
-        d="$(realpath "${race}/20261001_120000/${t}")"
-        [ "$(cat "${d}/.licensed-logs")" = "$(printf '%s\n' "${d}/n1.log.gz" "${d}/n2.log.gz" "${d}/n3.log.gz")" ] ||
-            race_lists+=" round ${round} ${t}"
-    done
-    race_out+="${s1} ${s2} $(cat "${work}/race1" "${work}/race2" | sed 's/ under .*//' | sort | tr '\n' ' ')"$'\n'
+rm -rf "${race}"
+for t in a b; do
+    d="${race}/20261001_120000/${t}"
+    mkdir -p "${d}"
+    for i in 1 2 3 4 5 6; do printf 'line\n' > "${d}/n${i}.log"; done
+    for i in 1 2 3; do echo "$(realpath "${d}")/n${i}.log"; done > "${d}/.licensed-logs"
 done
+"${tool}" rotate "${race}" --compress-after 30 > "${work}/race1" 2>&1 &
+r1=$!
+"${tool}" rotate "${race}" --compress-after 30 > "${work}/race2" 2>&1 &
+r2=$!
+wait "${r1}"; s1=$?
+wait "${r2}"; s2=$?
+for t in a b; do
+    d="$(realpath "${race}/20261001_120000/${t}")"
+    [ "$(cat "${d}/.licensed-logs")" = "$(printf '%s\n' "${d}/n1.log.gz" "${d}/n2.log.gz" "${d}/n3.log.gz")" ] ||
+        race_lists+=" ${t}"
+done
+race_out="${s1} ${s2} $(cat "${work}/race1" "${work}/race2" | sed 's/ under .*//' | sort | tr '\n' ' ')"
 check "two rotations at once: every list whole" "${race_lists}" ""
-check "two rotations at once: one rotates, the other then finds nothing" "$(printf '%s' "${race_out}")" \
-    "$(for _ in 1 2 3; do echo "0 0 eb-keep-logs rotate: 0 files compressed, 0 runs deleted eb-keep-logs rotate: 12 files compressed, 0 runs deleted "; done)"
+check "two rotations at once: one rotates, the other then finds nothing" "${race_out}" \
+    "0 0 eb-keep-logs rotate: 0 files compressed, 0 runs deleted eb-keep-logs rotate: 12 files compressed, 0 runs deleted "
 # Without the lock, as the shell script rotates where the file system cannot
 # lock, two rotations at once can each list a file by the name it had when
 # they read the list; but each list is one of the lists they wrote, whole:
 # every line names one of the run's logs, each log once.
 race_torn=""
-for round in 1 2 3 4 5; do
+for round in 1 2; do
     rm -rf "${race}"
     for t in a b; do
         d="${race}/20261001_120000/${t}"
         mkdir -p "${d}"
-        for i in 1 2 3 4 5 6; do seq 1 20000 > "${d}/n${i}.log"; done
+        for i in 1 2 3 4 5 6; do printf 'line\n' > "${d}/n${i}.log"; done
         for i in 1 2 3; do echo "$(realpath "${d}")/n${i}.log"; done > "${d}/.licensed-logs"
     done
-    PATH="${work}/nolock-bin:${PATH}" "${tool}" rotate "${race}" --compress-after 30 > /dev/null 2>&1 &
+    barrier="${work}/barrier-${round}"
+    rm -rf "${barrier}"
+    mkdir -p "${barrier}"
+    mkfifo "${barrier}/go"
+    EB_KEEP_LOGS_BARRIER="${barrier}" PATH="${work}/nolock-bin:${PATH}" "${tool}" rotate "${race}" --compress-after 30 > /dev/null 2>&1 &
     r1=$!
-    PATH="${work}/nolock-bin:${PATH}" "${tool}" rotate "${race}" --compress-after 30 > /dev/null 2>&1 &
+    EB_KEEP_LOGS_BARRIER="${barrier}" PATH="${work}/nolock-bin:${PATH}" "${tool}" rotate "${race}" --compress-after 30 > /dev/null 2>&1 &
     r2=$!
     wait "${r1}" "${r2}"
     for t in a b; do

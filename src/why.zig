@@ -1566,7 +1566,12 @@ test "gunzip reads what gzip wrote, and refuses what it did not" {
     const gpa = testing.allocator;
     var plain: std.ArrayList(u8) = .empty;
     defer plain.deinit(gpa);
-    for (0..20000) |i| try plain.print(gpa, "== line {d} of a log that repeats itself\n", .{i % 700});
+    // Two windows, enough to cross a window boundary twice.
+    const two_windows = std.compress.flate.max_window_len * 2;
+    var n: usize = 0;
+    while (plain.items.len < two_windows) : (n += 1) {
+        try plain.print(gpa, "== line {d} of a log that repeats itself\n", .{n % 700});
+    }
     var aw: std.Io.Writer.Allocating = try .initCapacity(gpa, 4096);
     defer aw.deinit();
     const window = try gpa.alloc(u8, std.compress.flate.max_window_len);
