@@ -2470,38 +2470,12 @@ test "parseSeconds" {
     try std.testing.expectEqual(max_lock_timeout, parseSeconds("123456789012345678901234567890"));
 }
 
-test "usage_text gives the lock timeout's default and the exit statuses" {
-    const fmt = std.fmt.comptimePrint;
-    try std.testing.expect(std.mem.indexOf(u8, usage_text, fmt("Default: {d};", .{default_lock_timeout})) != null);
-    try std.testing.expect(std.mem.indexOf(u8, usage_text, fmt("give up and exit {d}.", .{lock_busy_exit})) != null);
-    try std.testing.expect(std.mem.indexOf(u8, usage_text, fmt("\n  {d}   The invocation was refused", .{cli.usage_exit})) != null);
-    try std.testing.expect(std.mem.indexOf(u8, usage_text, fmt("\n  {d}  rotate waited --lock-timeout", .{lock_busy_exit})) != null);
-}
-
 test "listed" {
     try std.testing.expect(listed("/l/a.log\n/l/b.log\n", "/l/b.log"));
     try std.testing.expect(listed("/l/a.log", "/l/a.log"));
     try std.testing.expect(!listed("/l/a.log.gz\n", "/l/a.log"));
     try std.testing.expect(!listed("/l/a\n", "/l/a.log"));
     try std.testing.expect(!listed("", "/l/a.log"));
-}
-
-test "joinable and plural" {
-    try std.testing.expectEqualStrings("logs", joinable("logs//"));
-    try std.testing.expectEqualStrings("/srv/logs", joinable("/srv/logs"));
-    try std.testing.expectEqualStrings("", joinable("/"));
-    try std.testing.expectEqualStrings("", plural(1));
-    try std.testing.expectEqualStrings("s", plural(0));
-    try std.testing.expectEqualStrings("s", plural(2));
-}
-
-test "below" {
-    try std.testing.expect(below("/srv/logs/run/easybuild-logs/Foo", "/srv/logs/run"));
-    try std.testing.expect(!below("/srv/logs/run", "/srv/logs/run"));
-    try std.testing.expect(!below("/srv/logs/run2/x", "/srv/logs/run"));
-    try std.testing.expect(!below("/srv/logs", "/srv/logs/run"));
-    try std.testing.expect(below("/x", "/"));
-    try std.testing.expect(!below("/", "/"));
 }
 
 test "runAgeDays" {

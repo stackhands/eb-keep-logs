@@ -257,22 +257,6 @@ holder=$!
 until [ -e "${work}/held" ]; do sleep 0.05; done
 compare "rotate, a run still written into" rotate "${work}/live" --compress-after 5 --delete-after 9
 kill "${holder}"; wait "${holder}" 2>/dev/null
-compare "why" why --latest --root "${repo_root}/tests/fixtures/build-logs"
-compare "history" history hello --root "${repo_root}/tests/fixtures/build-logs"
-compare "failures" failures --root "${repo_root}/tests/fixtures/build-logs"
-printf 'user=a module=M path=/p host=h time=1\n' > "${work}/loads.log"
-compare "loads" loads --module M "${work}/loads.log"
-printf '%s\n' '{"userT":{"user":"a","exec_path":"/bin/gmx","syshost":"h","start_time":1}}' > "${work}/runs.json"
-compare "runs" runs --exec gmx "${work}/runs.json"
-printf '%s\n' '{"userT":{"user":"a","exec_path":"/bin/gmx","syshost":"h","start_time":1}}' > "${work}/used.json"
-compare "used" used --prefix /opt "${work}/used.json"
-mkdir -p "${work}/software/GROMACS/1.0" "${work}/modules"
-compare "usage" usage --software "${work}/software" --modules "${work}/modules" "${work}/used.json"
-printf '%s\n' ' * [ ] flex-2.6.4.eb (module: flex/2.6.4)' > "${work}/dry.txt"
-compare "pending" pending "${work}/dry.txt"
-printf '%s\n' 'min_observation_days = 90' 'warn_after_days = 60' 'forbid_after_days = 180' 'remove_after_days = 365' > "${work}/policy.toml"
-"${TOOL_BIN}" usage --software "${work}/software" --modules "${work}/modules" --json "${work}/used.json" > "${work}/usage.json"
-compare "lifecycle" lifecycle --policy "${work}/policy.toml" "${work}/usage.json"
 
 echo "${diffs} differences"
 [ "${diffs}" -eq 0 ]

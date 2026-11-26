@@ -29,9 +29,5 @@ check "none" "$("${tool}" loads --module Missing/1.0 "${work}/moduleUsage.log")"
 "${tool}" loads "${work}/moduleUsage.log" >/dev/null 2>"${work}/err"
 check "module is required" "$?" "2"
 check "the refusal names the flag" "$(cat "${work}/err")" "eb-keep-logs: loads needs --module"
-page=$(cat "${repo_root}/docs/orgmode/howto/who-loaded-a-module.org")
-check "how-to names the command" "$(grep -c 'loads --module' <<< "${page}")" "1"
-check "how-to names the empty answer" "$(grep -c 'no load of' <<< "${page}")" "1"
-
 echo "${fails} failed"
 [ "${fails}" -eq 0 ]

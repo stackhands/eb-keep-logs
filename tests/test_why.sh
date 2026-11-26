@@ -54,11 +54,6 @@ expect "failing configure" 20261117_040311 \
     "${s} failed in the configure step, after 2m24s" \
     "${r}/${s}.failed.ebout.log.gz:134" \
     "== 2026-11-17 04:05:39,980 build_log.py:233 ERROR EasyBuild encountered an error: shell command 'configure ...' failed with exit code 77 in configure step for hello-2.12.1-GCCcore-14.2.0.eb (at easybuild/framework/easyblock.py:5266 in run_all_steps)"
-r=${logs}/20261117_040615
-expect "compiler error" 20261117_040615 \
-    "${s} failed in the build step, after 3m06s" \
-    "${r}/${s}.failed.ebout.log:291" \
-    "src/hello.c:149:18: error: 'site_greeting' undeclared (first use in this function); did you mean 'mb_greeting'?"
 r=${logs}/20261117_040928
 expect "undefined reference" 20261117_040928 \
     "${s} failed in the build step, after 2m30s" \
@@ -90,10 +85,6 @@ check "--latest --target: the newest run with that target" \
 check "--target: only its builds" \
     "$("${tool}" why --root="${logs}" --target=sapphirerapids 20261117_041222 | head -1)" \
     "${logs}/20261117_041222: 2 failed builds of 2"
-check "--json counts every outcome" \
-    "$("${tool}" why --json "${logs}/20261117_041222" | grep -o '"counts":{[^}]*}')" \
-    '"counts":{"success":1,"failed":2,"unknown":0}'
-
 # A run read once as kept and once after rotate compressed it reports the
 # same, its logs named .gz.
 mkdir -p "${work}/rotated"

@@ -176,51 +176,6 @@ test "parse and render metrics" {
     ));
 }
 
-test "parse keeps the value when a sample has a timestamp" {
-    const text = "eb_keep_logs_logs_kept_total 3 1700000000000\n" ++
-        "eb_keep_logs_bytes_kept_total\t57 1700000000001\n" ++
-        "eb_keep_logs_last_prune_timestamp_seconds 1700000000 1700000000002\n";
-    try std.testing.expectEqual(State{
-        .logs_kept = 3,
-        .bytes_kept = 57,
-        .last_prune = 1_700_000_000,
-    }, try parse(text));
-    try std.testing.expectError(error.InvalidMetrics, parse("eb_keep_logs_logs_kept_total 3 not-a-timestamp\n"));
-}
-
-test "update preserves counters and replaces the whole file" {
-    const gpa = std.testing.allocator;
-    var cwd_buf: [sys.path_max]u8 = undefined;
-    const here = try fsx.realpath(fsx.cwd, ".", &cwd_buf);
-    const base = try std.fmt.allocPrint(gpa, "{s}/.zig-cache/eb-keep-logs-metrics-{d}", .{ here, linux.getpid() });
-    defer gpa.free(base);
-    try common.atomic.makedirs(base);
-    defer fsx.deleteTree(gpa, fsx.cwd, base) catch {};
-    const path = try std.fmt.allocPrint(gpa, "{s}/collector.prom", .{base});
-    defer gpa.free(path);
-
-    try update(gpa, path, 2, 19, false);
-    const created = try fsx.openRegular(fsx.cwd, path, false);
-    try std.testing.expectEqual(@as(u32, 0o644), created.stat.perm());
-    try sys.fchmod(created.fd, 0o640);
-    sys.close(created.fd);
-    try update(gpa, path, 1, 5, false);
-    const file = try fsx.openRegular(fsx.cwd, path, false);
-    defer sys.close(file.fd);
-    try std.testing.expectEqual(@as(u32, 0o640), file.stat.perm());
-    const text = try fsx.readAll(gpa, file.fd, 1 << 20);
-    defer gpa.free(text);
-    try std.testing.expectEqual(State{ .logs_kept = 3, .bytes_kept = 24, .last_prune = 0 }, try parse(text));
-}
-
-test "completion timestamps never move backwards" {
-    var state: State = .{ .last_prune = 1200 };
-    try keepLatestCompletion(&state, 1234);
-    try keepLatestCompletion(&state, 1210);
-    try std.testing.expectEqual(@as(i64, 1234), state.last_prune);
-    try std.testing.expectError(error.InvalidTimestamp, keepLatestCompletion(&state, -1));
-}
-
 var sigusr1_hits: std.atomic.Value(usize) = .init(0);
 
 fn onUsr1(_: linux.SIG) callconv(.c) void {

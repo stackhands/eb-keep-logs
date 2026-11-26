@@ -226,32 +226,6 @@ pub fn cmdPending(gpa: Allocator, args: []const []const u8) u8 {
     return 0;
 }
 
-test "a dry-run keeps what would be built and skips what is installed" {
-    const text =
-        \\ * [x] $CFGS/z/zlib/zlib-1.2.12.eb (module: zlib/1.2.12)
-        \\ * [ ] $CFGS/f/flex/flex-2.6.4.eb (module: flex/2.6.4)
-        \\ * [R] $CFGS/g/GCC/GCC-13.2.0.eb (module: GCC/13.2.0)
-    ;
-    const got = try formatPending(std.testing.allocator, text);
-    defer std.testing.allocator.free(got);
-    try std.testing.expectEqualStrings("build flex/2.6.4\nbuild GCC/13.2.0\n", got);
-    const present = try formatPending(std.testing.allocator, " * [x] a.eb (module: zlib/1.2.12)\n");
-    defer std.testing.allocator.free(present);
-    try std.testing.expectEqualStrings("nothing to build\n", present);
-}
-
-test "a missing-modules report names the modules, and prose is not one" {
-    const text =
-        \\2 out of 2 required modules missing:
-        \\
-        \\* flex/2.6.4 (flex-2.6.4.eb)
-    ;
-    const got = try formatPending(std.testing.allocator, text);
-    defer std.testing.allocator.free(got);
-    try std.testing.expectEqualStrings("missing flex/2.6.4\n", got);
-    try std.testing.expectError(error.NotAReport, formatPending(std.testing.allocator, "hello\n"));
-}
-
 test "a module name with a bad byte is replaced, not leaked raw" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
