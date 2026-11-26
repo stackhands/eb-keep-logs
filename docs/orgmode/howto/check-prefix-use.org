@@ -10,7 +10,7 @@ Before uninstalling or retiring an install tree, see whether XALT or Lmod record
 
 ** Before starting
 
-- The Zig build of =eb-keep-logs=. The shell script answers =used= with =used is in the Zig build only=.
+- =eb-keep-logs= 0.2.0 or later. The shell script 0.1.0 answers =used= with =used is in the Zig build only=.
 - Files of XALT JSON objects and/or Lmod ModuleUsageTracking lines, as the site already keeps.
   Run records carry =userT= and optionally =libA=. Link records carry =resultT= and =linkA=.
   Package records carry =package_path=. Lmod lines carry =path= under the module tree.
@@ -45,7 +45,7 @@ Before uninstalling or retiring an install tree, see whether XALT or Lmod record
 
 | Message | Cause | What to do |
 |---|---|---|
-| =eb-keep-logs: used is in the Zig build only= | The =eb-keep-logs= on =PATH= is the shell script. | Put the Zig build first on =PATH=. |
+| =eb-keep-logs: used is in the Zig build only= | The =eb-keep-logs= on =PATH= is the shell script 0.1.0. | Put the Zig build first on =PATH=. |
 | =eb-keep-logs: used needs --prefix= | =--prefix= was omitted or empty. | Pass the install tree to check. |
 | =eb-keep-logs: used needs a record file= | No file was given. | Pass at least one record file. |
 | =eb-keep-logs: used: PATH is not XALT run JSON= | A file held truncated or invalid JSON. | Fix the file; partial hits from a bad object are not printed. |

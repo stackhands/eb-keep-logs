@@ -31,9 +31,8 @@ With Zig 0.17.1, from the top of the repository:
 zig build test
 #+end_src
 
-This runs the unit tests, the command-line suite =tests/test_eb_keep_logs.sh= against the binary, and =tests/differential.sh=, which runs the shell script and the binary on the same invocations.
-=bash tests/test_eb_keep_logs.sh= runs the suite against the shell script.
-A deliberate difference between the two has its row in =COMPAT.md=, which [[file:reference/compatibility.org][Compatibility]] shows, and its label in =tests/differential.sh=.
+This runs the unit tests, the command-line suites such as =tests/test_eb_keep_logs.sh= against the binary, and =tests/test_cases.sh=, which compares the binary's output on fixed invocations with the files under =tests/golden/cases=.
+A change that alters one of those outputs on purpose rewrites them with =RECORD=1 TOOL_BIN=zig-out/bin/eb-keep-logs bash tests/test_cases.sh=; the diff of =tests/golden= shows what changed.
 
 ** The log corpus
 

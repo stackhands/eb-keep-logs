@@ -35,9 +35,7 @@ sha256sum --check --ignore-missing SHA256SUMS
 install -m 0755 "eb-keep-logs-$v-$arch-linux-musl" ~/.local/bin/eb-keep-logs
 ```
 
-The shell script `eb-keep-logs` in this repository is the reference for `failed` and `rotate`, with the same options and output; copy it onto `PATH`.
-It refuses `why`, `history`, `failures`, `loads`, `runs`, `used`, `usage`, `pending`, `test-bundle`, `test-compare` and `lifecycle` with `is in the Zig build only` and exit 2: only the binary has them.
-It needs `bash`, coreutils, GNU `grep` (for `grep -P`), `sed`, `find`, `gzip`, `awk`, `flock` from util-linux for `rotate` and, for `failed`, `eb`.
+The binary is the one implementation. The shell script it was ported from, 0.1.0, is no longer in the repository; [COMPAT.md](https://github.com/stackhands/eb-keep-logs/blob/main/COMPAT.md) lists what the binary keeps of its interface and where it differs.
 Without `grep -P` it still keeps the log and the command output, but not the meson testlog.
 
 There is no EasyBuild recipe for eb-keep-logs here or in the EasyBuild easyconfigs repository.
@@ -50,11 +48,9 @@ zig build -Drelease=true
 zig-out/bin/eb-keep-logs --version
 ```
 
-`zig build test` runs its unit tests, the shell test suite against the
-binary, and `tests/differential.sh`, which runs the shell script and the
-binary on the same invocations.
-[COMPAT.md](https://github.com/stackhands/eb-keep-logs/blob/main/COMPAT.md) lists what the two share and where they differ on
-purpose.
+`zig build test` runs its unit tests, the shell test suites against the
+binary, and `tests/test_cases.sh`, which compares the binary's output on
+fixed invocations with the expected output under `tests/golden/cases`.
 
 ## Keep a failed build's logs
 

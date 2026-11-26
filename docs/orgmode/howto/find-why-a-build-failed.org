@@ -9,7 +9,7 @@ Use this after a run in which builds failed, to see for each the EasyBuild step 
 
 ** Before you start
 
-- =eb-keep-logs= on your =PATH= as the release binary or a Zig build; the shell script in the repository has no =why= or =history=.
+- =eb-keep-logs= 0.2.0 or later on your =PATH=; the shell script 0.1.0 has no =why= or =history=.
 - A log tree, here =~/build-logs=, whose runs are named by their date and time, =YYYYMMDD_HHMMSS=, as [[file:call-from-a-pipeline.org][Call eb-keep-logs from a build pipeline]] makes them.
   A run keeps each build's =NAME.stdout.log= and, for a failed build, =NAME.failed.ebout.log=, in its own directory or in a directory per target, as eb-pipeline keeps them.
 
@@ -126,7 +126,7 @@ Use this after a run in which builds failed, to see for each the EasyBuild step 
 
 | Message                                      | Cause                                                                                                     | What to do                                                       |
 |----------------------------------------------+-----------------------------------------------------------------------------------------------------------+------------------------------------------------------------------|
-| =eb-keep-logs: why is in the Zig build only= | The =eb-keep-logs= on your =PATH= is the shell script.                                                    | Put the Zig build first on =PATH=.                               |
+| =eb-keep-logs: why is in the Zig build only= | The =eb-keep-logs= on your =PATH= is the shell script 0.1.0.                                                    | Put the Zig build first on =PATH=.                               |
 | =eb-keep-logs: ROOT PATH is not a directory= | =--root= names no directory.                                                                              | Give =--root= the log tree.                                      |
 | =eb-keep-logs: no run under ROOT; it holds no directory named YYYYMMDD_HHMMSS. Give --root the directory of the runs, or name one run= | =ROOT= holds no directory named =YYYYMMDD_HHMMSS=. =ROOT= is the current directory when =--root= is left out. | Give =--root= the directory that holds the runs, or name one run. |
 | =RUN: 0 failed builds of 0=                  | The run holds no =NAME.stdout.log= or =NAME.failed.ebout.log=, in its own directory or one below it.      | Check that the pipeline writes its logs where =why= reads them.  |

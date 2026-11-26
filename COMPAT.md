@@ -1,9 +1,12 @@
 # Compatibility of the Zig build with the shell script
 
-The Zig build (0.2.0 and later) keeps the shell script's (0.1.0) interface. The shell
-script stays in the repository as the reference: `tests/test_eb_keep_logs.sh`
-runs against either through `TOOL_BIN`, and `tests/differential.sh` runs both
-on the same invocations.
+The Zig build (0.2.0 and later) keeps the interface of the shell script it
+was ported from (0.1.0), which is no longer in the repository. This page is
+for a site that ran the script: what the binary keeps, and where it differs.
+`tests/test_cases.sh` compares the binary with the script's own output on
+fixed invocations, recorded under `tests/golden/cases`, and
+`tests/test_output_stability.sh` does the same for `failed` and `rotate`
+byte for byte.
 
 ## Kept
 

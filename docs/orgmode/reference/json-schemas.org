@@ -6,7 +6,7 @@
 
 The Zig build's =--json= on =why=, =history=, =failures=, =loads=, =runs=, =used=, =usage=, =pending=, =test-compare= and =lifecycle= prints one line of JSON with =schema_version= 1.
 The =test-bundle= command always writes one JSON document with =schema_version= 1.
-The shell script refuses those commands; see [[file:compatibility.org][Compatibility]].
+The shell script 0.1.0 refused those commands; see [[file:compatibility.org][Compatibility]].
 Each document is validated in CI against a JSON Schema file in the repository tree under =docs/orgmode/reference/json/=.
 The schemas use draft 2020-12; a new =schema_version= may drop or rename a key, or change what one means.
 
