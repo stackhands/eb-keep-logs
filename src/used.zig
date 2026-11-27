@@ -69,8 +69,9 @@ fn parseEpoch(text: []const u8) ?f64 {
 }
 
 /// One path-bearing record parsed from XALT JSON or an Lmod tracking line.
-/// `module` is set only for an Lmod record. Numeric JSON times have an empty
-/// `time` (as `used` has always printed) and a populated `epoch`.
+/// `module` is set only for an Lmod record. A numeric JSON time has an empty
+/// `time` and a populated `epoch`. The listing prints that epoch when it is
+/// the newest time for the path.
 pub const Hit = struct {
     kind: Kind,
     path: []const u8,
@@ -108,7 +109,7 @@ const Table = std.HashMap(Key, Entry, struct {
     }
 }, std.hash_map.default_max_load_percentage);
 
-fn noteHit(gpa: Allocator, table: *Table, kind: Kind, path: []const u8, time: []const u8) !void {
+fn noteHit(gpa: Allocator, table: *Table, kind: Kind, path: []const u8, time: []const u8, epoch: ?f64) !void {
     const owned_path = try gpa.dupe(u8, path);
     const key = Key{ .kind = kind, .path = owned_path };
     const gop = try table.getOrPut(key);
@@ -116,13 +117,15 @@ fn noteHit(gpa: Allocator, table: *Table, kind: Kind, path: []const u8, time: []
     var ent = gop.value_ptr;
     if (!gop.found_existing) ent.* = .{};
     ent.count += 1;
-    if (time.len == 0) return;
-    const n = parseTime(time) orelse return;
-    if (ent.last_num) |prev| {
-        if (n <= prev) return;
-    }
+    // A numeric JSON time has no text. Compare the epoch anyway, and print
+    // the number when that hit is the newest.
+    const n: f64 = if (time.len > 0) (parseTime(time) orelse return) else (epoch orelse return);
+    if (ent.last_num) |prev| if (n <= prev) return;
     ent.last_num = n;
-    ent.last_time = try gpa.dupe(u8, time);
+    ent.last_time = if (time.len > 0)
+        try gpa.dupe(u8, time)
+    else
+        try std.fmt.allocPrint(gpa, "{d}", .{n});
 }
 
 fn pathFromPair(pair: std.json.Value) ?[]const u8 {
@@ -294,7 +297,7 @@ pub fn scanText(gpa: Allocator, table: *Table, prefix: []const u8, text: []const
     const hits = try parseHits(gpa, text);
     for (hits) |hit| {
         if (!underPrefix(prefix, hit.path)) continue;
-        try noteHit(gpa, table, hit.kind, hit.path, hit.time);
+        try noteHit(gpa, table, hit.kind, hit.path, hit.time, hit.epoch);
     }
 }
 
@@ -515,4 +518,35 @@ test "userT null preserves resultT hits and non-JSON text is refused" {
     try std.testing.expectEqual(@as(usize, 1), hits.len);
     try std.testing.expectEqual(Kind.link, hits[0].kind);
     try std.testing.expectError(error.BadJson, parseHits(a, "not json or lmod\n"));
+}
+
+test "the newest numeric JSON time replaces an older textual time" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const older_text =
+        \\{"userT":{"exec_path":"/opt/pkg/bin/x","start_time":"100"}}
+        \\{"userT":{"exec_path":"/opt/pkg/bin/x","start_time":300}}
+        \\
+    ;
+    var table = Table.init(a);
+    defer table.deinit();
+    try scanText(a, &table, "/opt/pkg", older_text);
+    try std.testing.expectEqualStrings(
+        "path=/opt/pkg/bin/x kind=run last=300 count=2\n",
+        try formatText(a, "/opt/pkg", &table),
+    );
+
+    const newer_text =
+        \\{"userT":{"exec_path":"/opt/pkg/bin/x","start_time":50}}
+        \\{"userT":{"exec_path":"/opt/pkg/bin/x","start_time":"400"}}
+        \\
+    ;
+    var later = Table.init(a);
+    defer later.deinit();
+    try scanText(a, &later, "/opt/pkg", newer_text);
+    try std.testing.expectEqualStrings(
+        "path=/opt/pkg/bin/x kind=run last=400 count=2\n",
+        try formatText(a, "/opt/pkg", &later),
+    );
 }
