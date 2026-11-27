@@ -1,0 +1,1 @@
+When a sample has a label set, a failed run still increments the counters. `rotate` records its completion time. Quoted label values may contain `\"`, `\\`, `\n` and `}`. A bad escape, a repeated label name, or a value that is not valid UTF-8 leaves the metrics file unchanged. The exposition written back has no labels.

@@ -18,21 +18,149 @@ const bytes_name = "eb_keep_logs_bytes_kept_total";
 const prune_name = "eb_keep_logs_last_prune_timestamp_seconds";
 
 /// The value of a sample named `name`, or null when `line` is some other
-/// sample. Prometheus puts one integer timestamp after the value, and a
-/// tab separates the fields the same way a space does. A line that starts
-/// with `name` and is not that sample is invalid.
-fn parseSample(line: []const u8, comptime name: []const u8) !?[]const u8 {
-    if (!std.mem.startsWith(u8, line, name)) return null;
-    if (line.len <= name.len or (line[name.len] != ' ' and line[name.len] != '\t')) return error.InvalidMetrics;
-    var rest = std.mem.trim(u8, line[name.len + 1 ..], " \t\r");
-    if (rest.len == 0) return error.InvalidMetrics;
-    const cut = std.mem.findAny(u8, rest, " \t") orelse return rest;
-    const value = rest[0..cut];
-    rest = std.mem.trim(u8, rest[cut..], " \t\r");
-    if (rest.len == 0) return value;
-    if (std.mem.findAny(u8, rest, " \t") != null) return error.InvalidMetrics;
-    _ = std.fmt.parseInt(i64, rest, 10) catch return error.InvalidMetrics;
+/// sample. A label set may sit between the name and the value. Quoted text
+/// uses the Prometheus escapes `\\`, `\n` and `\"`, and a `}` inside quotes
+/// does not end the set. Prometheus puts one integer timestamp after the
+/// value, and a tab separates the fields the same way a space does. A line
+/// that starts with `name` and is not that sample is invalid.
+fn parseSample(line_in: []const u8, comptime name: []const u8) !?[]const u8 {
+    if (!std.mem.startsWith(u8, line_in, name)) return null;
+    const line = std.mem.trimEnd(u8, line_in, "\r");
+    if (line.len <= name.len) return error.InvalidMetrics;
+    const next = line[name.len];
+    if (next != '{' and next != ' ' and next != '\t') return error.InvalidMetrics;
+    var scan: SampleScan = .{ .line = line, .i = name.len };
+    scan.skipWs();
+    if (scan.i < scan.line.len and scan.line[scan.i] == '{') {
+        try scan.skipLabelSet();
+        scan.skipWs();
+    }
+    if (scan.i >= scan.line.len) return error.InvalidMetrics;
+    const value_at = scan.i;
+    while (scan.i < scan.line.len and scan.line[scan.i] != ' ' and scan.line[scan.i] != '\t') scan.i += 1;
+    const value = scan.line[value_at..scan.i];
+    if (value.len == 0) return error.InvalidMetrics;
+    scan.skipWs();
+    if (scan.i < scan.line.len) {
+        const ts_at = scan.i;
+        while (scan.i < scan.line.len and scan.line[scan.i] != ' ' and scan.line[scan.i] != '\t') scan.i += 1;
+        const ts = scan.line[ts_at..scan.i];
+        scan.skipWs();
+        if (scan.i < scan.line.len or ts.len == 0) return error.InvalidMetrics;
+        _ = std.fmt.parseInt(i64, ts, 10) catch return error.InvalidMetrics;
+    }
     return value;
+}
+
+const SampleScan = struct {
+    line: []const u8,
+    i: usize,
+    storage: [4096]u8 = undefined,
+    used: usize = 0,
+    seen: [64][]const u8 = undefined,
+    seen_n: usize = 0,
+
+    fn skipWs(self: *SampleScan) void {
+        while (self.i < self.line.len and (self.line[self.i] == ' ' or self.line[self.i] == '\t')) self.i += 1;
+    }
+
+    fn push(self: *SampleScan, byte: u8) !void {
+        if (self.used >= self.storage.len) return error.InvalidMetrics;
+        self.storage[self.used] = byte;
+        self.used += 1;
+    }
+
+    /// Unescape a Prometheus quoted string. `self.i` is on the opening quote
+    /// and finishes just after the closing quote.
+    fn readQuoted(self: *SampleScan) ![]const u8 {
+        if (self.i >= self.line.len or self.line[self.i] != '"') return error.InvalidMetrics;
+        self.i += 1;
+        const start = self.used;
+        while (self.i < self.line.len) {
+            const c = self.line[self.i];
+            self.i += 1;
+            if (c == '"') return self.storage[start..self.used];
+            if (c == '\\') {
+                if (self.i >= self.line.len) return error.InvalidMetrics;
+                const e = self.line[self.i];
+                self.i += 1;
+                switch (e) {
+                    '\\', '"' => try self.push(e),
+                    'n' => try self.push('\n'),
+                    else => return error.InvalidMetrics,
+                }
+            } else try self.push(c);
+        }
+        return error.InvalidMetrics;
+    }
+
+    fn readName(self: *SampleScan) ![]const u8 {
+        if (self.i >= self.line.len) return error.InvalidMetrics;
+        if (self.line[self.i] == '"') return self.readQuoted();
+        if (!labelNameStart(self.line[self.i])) return error.InvalidMetrics;
+        const start = self.i;
+        self.i += 1;
+        while (self.i < self.line.len and labelNameCont(self.line[self.i])) self.i += 1;
+        return self.line[start..self.i];
+    }
+
+    fn remember(self: *SampleScan, label_name: []const u8) !void {
+        if (!legacyLabelName(label_name)) return error.InvalidMetrics;
+        for (self.seen[0..self.seen_n]) |prev| {
+            if (std.mem.eql(u8, prev, label_name)) return error.InvalidMetrics;
+        }
+        if (self.seen_n >= self.seen.len) return error.InvalidMetrics;
+        self.seen[self.seen_n] = label_name;
+        self.seen_n += 1;
+    }
+
+    fn skipLabelSet(self: *SampleScan) !void {
+        if (self.i >= self.line.len or self.line[self.i] != '{') return error.InvalidMetrics;
+        self.i += 1;
+        self.skipWs();
+        if (self.i < self.line.len and self.line[self.i] == '}') {
+            self.i += 1;
+            return;
+        }
+        while (true) {
+            const label_name = try self.readName();
+            try self.remember(label_name);
+            self.skipWs();
+            if (self.i >= self.line.len or self.line[self.i] != '=') return error.InvalidMetrics;
+            self.i += 1;
+            self.skipWs();
+            const value = try self.readQuoted();
+            if (!std.unicode.utf8ValidateSlice(value)) return error.InvalidMetrics;
+            self.skipWs();
+            if (self.i >= self.line.len) return error.InvalidMetrics;
+            if (self.line[self.i] == '}') {
+                self.i += 1;
+                return;
+            }
+            if (self.line[self.i] != ',') return error.InvalidMetrics;
+            self.i += 1;
+            self.skipWs();
+            if (self.i < self.line.len and self.line[self.i] == '}') {
+                self.i += 1;
+                return;
+            }
+        }
+    }
+};
+
+fn labelNameStart(c: u8) bool {
+    return (c >= 'a' and c <= 'z') or (c >= 'A' and c <= 'Z') or c == '_';
+}
+
+fn labelNameCont(c: u8) bool {
+    return labelNameStart(c) or (c >= '0' and c <= '9');
+}
+
+fn legacyLabelName(name: []const u8) bool {
+    if (name.len == 0 or std.mem.eql(u8, name, "__name__")) return false;
+    if (!labelNameStart(name[0])) return false;
+    for (name[1..]) |c| if (!labelNameCont(c)) return false;
+    return true;
 }
 
 fn parse(text: []const u8) !State {
@@ -224,6 +352,28 @@ test "parse and render metrics" {
     try std.testing.expectError(error.InvalidMetrics, parse("eb_keep_logs_logs_kept_total NaN\n"));
     try std.testing.expectError(error.InvalidMetrics, parse(
         "eb_keep_logs_logs_kept_total 1\neb_keep_logs_logs_kept_total 2\n",
+    ));
+}
+
+test "parse reads a counter beside an escaped label set" {
+    const labeled = "eb_keep_logs_logs_kept_total{path=\"say \\\"hi\\\"\",raw=\"x}y\",bs=\"a\\\\\"} 4 1700000000000\n" ++
+        "eb_keep_logs_bytes_kept_total{msg=\"line\\nnext\"}\t20\n" ++
+        "eb_keep_logs_last_prune_timestamp_seconds{ when = \"x\" , } 9\n";
+    try std.testing.expectEqual(State{
+        .logs_kept = 4,
+        .bytes_kept = 20,
+        .last_prune = 9,
+    }, try parse(labeled));
+    try std.testing.expectEqual(@as(u64, 4), (try parse("eb_keep_logs_logs_kept_total{} 4\n")).logs_kept);
+    try std.testing.expectEqual(@as(u64, 4), (try parse("eb_keep_logs_logs_kept_total{path=\"z\"}4\n")).logs_kept);
+    try std.testing.expectEqual(@as(u64, 4), (try parse("eb_keep_logs_logs_kept_total{path=\"caf\xc3\xa9\"} 4\n")).logs_kept);
+    try std.testing.expectError(error.InvalidMetrics, parse("eb_keep_logs_logs_kept_total{path=\"a\\q\"} 4\n"));
+    try std.testing.expectError(error.InvalidMetrics, parse("eb_keep_logs_logs_kept_total{a=\"1\",a=\"2\"} 4\n"));
+    try std.testing.expectError(error.InvalidMetrics, parse("eb_keep_logs_logs_kept_total{\"a\"=\"1\",a=\"2\"} 4\n"));
+    try std.testing.expectError(error.InvalidMetrics, parse("eb_keep_logs_logs_kept_total{path=\"\xff\"} 4\n"));
+    try std.testing.expectError(error.InvalidMetrics, parse("eb_keep_logs_logs_kept_total{__name__=\"x\"} 4\n"));
+    try std.testing.expectError(error.InvalidMetrics, parse(
+        "eb_keep_logs_logs_kept_total 1\neb_keep_logs_logs_kept_total{a=\"b\"} 2\n",
     ));
 }
 
