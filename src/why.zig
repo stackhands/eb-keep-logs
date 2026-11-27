@@ -8,6 +8,7 @@ const std = @import("std");
 const common = @import("zig_common");
 const sys = common.sys;
 const fsx = common.fsx;
+const logs = common.logs;
 const cli = common.cli;
 const utf8_text = @import("utf8_text.zig");
 
@@ -75,29 +76,12 @@ pub fn readLog(gpa: Allocator, dir: fsx.fd_t, name: []const u8) ReadError![]u8 {
     return gunzip(gpa, raw);
 }
 
-/// The bytes the gzip data `raw` holds, its members one after another as
-/// `gzip -d` gives them; `read_limit` or more of them is an error. The
-/// inflater only reads a member's CRC-32 and size, so they are checked
-/// here.
+/// Bytes `gzip -d` would yield from `raw`, members one after another.
+/// `read_limit` or more of them is an error. Zero bytes after the last
+/// member are padding, as `gzip -d` treats them. `logs.gunzip` does
+/// this read.
 pub fn gunzip(gpa: Allocator, raw: []const u8) (Allocator.Error || error{ StreamTooLong, BadGzip })![]u8 {
-    const window = try gpa.alloc(u8, std.compress.flate.max_window_len);
-    defer gpa.free(window);
-    var in: std.Io.Reader = .fixed(raw);
-    var out: std.ArrayList(u8) = .empty;
-    errdefer out.deinit(gpa);
-    while (true) {
-        var d: std.compress.flate.Decompress = .init(&in, .gzip, window);
-        const start = out.items.len;
-        d.reader.appendRemaining(gpa, &out, .limited(read_limit - start)) catch |err| switch (err) {
-            error.ReadFailed => return error.BadGzip,
-            else => |e| return e,
-        };
-        const m = d.container_metadata.gzip;
-        const member = out.items[start..];
-        if (m.crc != std.hash.Crc32.hash(member) or m.count != @as(u32, @truncate(member.len)))
-            return error.BadGzip;
-        if (in.bufferedLen() == 0) return out.toOwnedSlice(gpa);
-    }
+    return logs.gunzip(gpa, raw, read_limit);
 }
 
 /// A line of a log: its text without the newline, its number from 1, and
@@ -1596,6 +1580,27 @@ test "gunzip reads what gzip wrote, and refuses what it did not" {
     try testing.expectError(error.BadGzip, gunzip(gpa, bad));
     try testing.expectError(error.BadGzip, gunzip(gpa, aw.written()[0 .. aw.written().len / 2]));
     try testing.expectError(error.BadGzip, gunzip(gpa, "not gzip at all"));
+}
+
+test "gunzip reads zero bytes after the last member" {
+    const gpa = testing.allocator;
+    var aw: std.Io.Writer.Allocating = try .initCapacity(gpa, 64);
+    defer aw.deinit();
+    const window = try gpa.alloc(u8, std.compress.flate.max_window_len);
+    defer gpa.free(window);
+    const data = "rotated log line\n";
+    var c = try std.compress.flate.Compress.init(&aw.writer, window, .gzip, .best);
+    try c.writer.writeAll(data);
+    try c.finish();
+    const padded = try std.mem.concat(gpa, u8, &.{ aw.written(), &(@as([16]u8, @splat(0))) });
+    defer gpa.free(padded);
+    const got = try gunzip(gpa, padded);
+    defer gpa.free(got);
+    try testing.expectEqualStrings(data, got);
+
+    const junk = try std.mem.concat(gpa, u8, &.{ aw.written(), &[_]u8{ 0, 1 } });
+    defer gpa.free(junk);
+    try testing.expectError(error.BadGzip, gunzip(gpa, junk));
 }
 
 test "clip and utf8" {
