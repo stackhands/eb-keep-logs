@@ -345,6 +345,23 @@ check "compressed content intact" "$(zcat "${root}/20261001_120000/site-zen4/A.s
 check "closed log stays closed" "$(stat -c '%A' "${root}/20261001_120000/site-zen4/B.failed.ebout.log.gz" | cut -c8-10)" "---"
 check ".licensed-logs follows" "$(cat "${root}/20261001_120000/site-zen4/.licensed-logs")" "$(realpath "${root}/20261001_120000/site-zen4")/B.failed.ebout.log.gz"
 check ".licensed-logs follows: no temporary file left" "$(find "${root}/20261001_120000" -name '.licensed-logs?*' | wc -l)" "0"
+# A run's .licensed-logs names logs in its subdirectories: that is where a
+# nested EasyBuild log is marked. Every list under the run follows the file
+# to its .gz, including a list that does not sit beside the log.
+nest="${work}/nest"
+mkdir -p "${nest}/20261001_120000/easybuild-logs/Example-1.0" "${nest}/20261001_120000/later"
+echo nested > "${nest}/20261001_120000/easybuild-logs/Example-1.0/easybuild-Example-1.0.log"
+nested_log=$(realpath "${nest}/20261001_120000/easybuild-logs/Example-1.0/easybuild-Example-1.0.log")
+printf '%s\nkeep-me\n' "${nested_log}" > "${nest}/20261001_120000/.licensed-logs"
+printf '%s\n' "${nested_log}" > "${nest}/20261001_120000/later/.licensed-logs"
+"${tool}" rotate "${nest}" --compress-after 30 >/dev/null
+check "a list above a compressed log names the archive" \
+    "$(cat "${nest}/20261001_120000/.licensed-logs")" \
+    "${nested_log}.gz
+keep-me"
+check "a list elsewhere in the run names the archive" \
+    "$(cat "${nest}/20261001_120000/later/.licensed-logs")" \
+    "${nested_log}.gz"
 # The new list is written to a file of its own beside the old one, not
 # through a symbolic link planted at a fixed name.
 planted="${work}/planted/20261001_120000/site-zen4"
