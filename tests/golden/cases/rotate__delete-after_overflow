@@ -1,0 +1,4 @@
+exit 2
+--- stdout
+--- stderr
+eb-keep-logs: --delete-after needs a number of days

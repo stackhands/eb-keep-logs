@@ -1,0 +1,4 @@
+exit 2
+--- stdout
+--- stderr
+eb-keep-logs: failed needs STATUS NAME LOGDIR [TMP_LOGDIR]

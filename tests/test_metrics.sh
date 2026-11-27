@@ -2,8 +2,7 @@
 # Exercise the opt-in Prometheus textfile output.
 set -u
 
-repo_root=$(cd "$(dirname "$0")/.." && pwd)
-tool="${TOOL_BIN:-${repo_root}/eb-keep-logs}"
+tool="${TOOL_BIN:?TOOL_BIN names the eb-keep-logs binary}"
 command -v promtool >/dev/null || {
     echo "promtool is required for tests/test_metrics.sh" >&2
     exit 1
@@ -95,30 +94,13 @@ wait "${rotate_a}" "${rotate_b}"
 promtool check metrics < "${metrics}"
 grep -qx "eb_keep_logs_last_prune_timestamp_seconds ${future}" "${metrics}"
 
-# The shell implementation must not publish a temporary file when restoring
-# its mode fails. The Zig implementation performs the equivalent fchmod
-# before rename and its unit tests exercise that path's ordering.
-if [ "$(head -c 2 "${tool}")" = '#!' ]; then
-    mkdir -p "${work}/no-chmod"
-    cat > "${work}/no-chmod/chmod" <<'EOF'
-#!/bin/sh
-exit 1
-EOF
-    /bin/chmod +x "${work}/no-chmod/chmod"
-    before=$(sha256sum "${metrics}")
-    mode_error=$(PATH="${work}/no-chmod:${PATH}" "${tool}" failed --metrics-file "${metrics}" 0 ModeFailure "${work}/logs" 2>&1 >/dev/null)
-    case "${mode_error}" in *"cannot set temporary file mode"*) ;; *) exit 1 ;; esac
-    [ "$(sha256sum "${metrics}")" = "${before}" ]
-    [ "$(find "${work}/collector" -maxdepth 1 -name '*.tmp' -print | wc -l)" -eq 0 ]
-fi
-
 # A malformed prior file is preserved instead of resetting the counters.
 printf 'eb_keep_logs_logs_kept_total NaN\n' > "${metrics}"
 before=$(sha256sum "${metrics}")
 PATH="${work}/bin:${PATH}" "${tool}" failed --metrics-file "${metrics}" 0 Third "${work}/logs" >/dev/null 2>&1
 [ "$(sha256sum "${metrics}")" = "${before}" ]
 
-# Both implementations accept the full u64 counter range and preserve the
+# The full u64 counter range is accepted, and the
 # previous exposition when one more keep would overflow it.
 cat > "${metrics}" <<'EOF'
 # HELP eb_keep_logs_logs_kept_total Log files kept by eb-keep-logs.

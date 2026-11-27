@@ -6,7 +6,7 @@ set -u
 
 repo_root=$(cd "$(dirname "$0")/.." && pwd)
 # TOOL_BIN runs the suite against another build of the tool.
-tool="${TOOL_BIN:-${repo_root}/eb-keep-logs}"
+tool="${TOOL_BIN:?TOOL_BIN names the eb-keep-logs binary}"
 unset EB_PIPELINE_LOG_DIR
 
 fails=0
@@ -363,7 +363,7 @@ check "a list elsewhere in the run names the archive" \
     "$(cat "${nest}/20261001_120000/later/.licensed-logs")" \
     "${nested_log}.gz"
 # The new list is written to a file of its own beside the old one, not
-# through a symbolic link at the fixed name the shell script used to write to.
+# through a symbolic link planted at a fixed name.
 planted="${work}/planted/20261001_120000/site-zen4"
 mkdir -p "${planted}"
 echo log > "${planted}/P.stdout.log"
@@ -621,8 +621,8 @@ ln -s "${work}/nowhere" "${work}/symlock/.eb-keep-logs-rotate.lock"
 "${tool}" rotate "${work}/symlock" --compress-after 30 >/dev/null 2>&1
 check "a symbolic link at the lock: refused" "$?" "2"
 check "a symbolic link at the lock: not followed" "$(find "${work}" -maxdepth 1 -name nowhere | wc -l)" "0"
-# A file system that cannot lock, as flock(1) reports it to the shell script;
-# the Zig build calls flock(2), which locks here.
+# A flock(1) on PATH that reports a file system that cannot lock; the
+# binary calls flock(2), which locks here.
 mkdir -p "${work}/nolock-bin" "${work}/nolock/20261001_120000"
 printf '#!/bin/sh\necho "flock: 3: Function not implemented" >&2\nexit 65\n' > "${work}/nolock-bin/flock"
 chmod +x "${work}/nolock-bin/flock"
@@ -678,10 +678,9 @@ race_out="${s1} ${s2} $(cat "${work}/race1" "${work}/race2" | sed 's/ under .*//
 check "two rotations at once: every list whole" "${race_lists}" ""
 check "two rotations at once: one rotates, the other then finds nothing" "${race_out}" \
     "0 0 eb-keep-logs rotate: 0 files compressed, 0 runs deleted eb-keep-logs rotate: 12 files compressed, 0 runs deleted "
-# Without the lock, as the shell script rotates where the file system cannot
-# lock, two rotations at once can each list a file by the name it had when
-# they read the list; but each list is one of the lists they wrote, whole:
-# every line names one of the run's logs, each log once.
+# Two rotations at once can each list a file by the name it had when they
+# read the list; but each list is one of the lists they wrote, whole: every
+# line names one of the run's logs, each log once.
 race_torn=""
 for round in 1 2; do
     rm -rf "${race}"

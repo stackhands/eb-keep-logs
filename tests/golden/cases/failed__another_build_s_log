@@ -1,0 +1,4 @@
+exit 0
+--- stdout
+No EasyBuild log to keep for Calc-1.0: @WORK@/easybuild-ring.log is another build's log.
+--- stderr

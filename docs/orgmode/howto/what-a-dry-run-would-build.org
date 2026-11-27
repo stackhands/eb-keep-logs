@@ -11,7 +11,7 @@ A module marked =[x]= is already installed and is not listed.
 
 ** Before you start
 
-- The Zig build of =eb-keep-logs=. The shell script answers =pending= with =pending is in the Zig build only=.
+- =eb-keep-logs= 0.2.0 or later. The shell script 0.1.0 answers =pending= with =pending is in the Zig build only=.
 - A file that holds the report. =eb -Dr= prints a dry run, and =eb -M= prints the missing modules.
   The shapes are the ones in [[https://docs.easybuild.io/using-easybuild/][Getting an overview of planned installations]].
 
@@ -33,7 +33,7 @@ A module marked =[x]= is already installed and is not listed.
 
 | Message | Cause | What to do |
 |---|---|---|
-| =eb-keep-logs: pending is in the Zig build only= | The =eb-keep-logs= on =PATH= is the shell script. | Put the Zig build first on =PATH=. |
+| =eb-keep-logs: pending is in the Zig build only= | The =eb-keep-logs= on =PATH= is the shell script 0.1.0. | Put the Zig build first on =PATH=. |
 | =eb-keep-logs: pending needs a report= | No file was given. | Pass the path of the saved report. |
 | =eb-keep-logs: pending: PATH is not a dry-run or missing-modules report= | The file has neither shape. | Point it at the output of =eb --dry-run= or =eb --missing-modules=. |
 | =eb-keep-logs: pending does not know 'OPTION'= | An option was given. | The command takes the report path and nothing else. |

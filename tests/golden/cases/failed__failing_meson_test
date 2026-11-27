@@ -1,0 +1,6 @@
+exit 0
+--- stdout
+Failed build log: @WORK@/logs/Tests.failed.ebout.log
+Failed command output: @WORK@/logs/Tests.failed.command-out.txt
+Failed meson test log: @WORK@/logs/Tests.failed.meson-testlog.txt
+--- stderr

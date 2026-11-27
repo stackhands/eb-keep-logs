@@ -1,0 +1,4 @@
+exit 2
+--- stdout
+--- stderr
+eb-keep-logs: unknown command 'bogus' (failed, rotate, why, history, failures, loads, runs, used, usage, pending, test-bundle, test-compare, lifecycle, --help)

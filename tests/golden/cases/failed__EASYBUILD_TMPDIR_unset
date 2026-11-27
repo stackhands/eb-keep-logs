@@ -1,0 +1,5 @@
+exit 0
+--- stdout
+Failed build log: @WORK@/logs/Cmd.failed.ebout.log
+Failed command output not kept: EASYBUILD_TMPDIR is not set.
+--- stderr

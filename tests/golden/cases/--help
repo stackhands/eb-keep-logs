@@ -1,0 +1,331 @@
+exit 0
+--- stdout
+eb-keep-logs: keep the logs of EasyBuild builds that a build pipeline would
+otherwise lose, and keep the pipeline's log tree bounded.
+
+  eb-keep-logs failed [--syslog TARGET] [--metrics-file PATH] STATUS NAME LOGDIR [TMP_LOGDIR]
+      After `eb` returned STATUS for easyconfig NAME: when STATUS is not 0,
+      copy the EasyBuild session log `eb --last-log` names, the failing
+      command's output and a meson testlog next to LOGDIR/NAME.stdout.log,
+      closed to others and listed in LOGDIR/.licensed-logs. TMP_LOGDIR is
+      the --tmp-logdir eb ran with; without it, the newest log in
+      EasyBuild's default place is used, unless it is another build's.
+      NAME.stdout.log and a TMP_LOGDIR below LOGDIR are closed to others too.
+      --syslog TARGET, --syslog=TARGET
+          Emit an RFC 5424 or native systemd-journald event when logs are
+          kept or none are found. Default: EB_KEEP_LOGS_SYSLOG, else none.
+      --metrics-file PATH, --metrics-file=PATH
+          Atomically update Prometheus counters for kept logs and bytes.
+          Default: none.
+  eb-keep-logs rotate ROOT --compress-after DAYS [--delete-after DAYS]
+                           [--dry-run] [--lock-timeout SECONDS]
+                           [--syslog TARGET] [--metrics-file PATH]
+      In the run directories directly under ROOT (named YYYYMMDD_HHMMSS),
+      gzip the *.log and *.txt files of old runs and remove older runs
+      whole, leaving alone a run that is still written into. A run's age is
+      in days from the local midnight of the date in its name. Permissions
+      and .licensed-logs follow. One rotate of ROOT runs at a time, holding
+      ROOT/.eb-keep-logs-rotate.lock. Options and ROOT come in any order.
+      --compress-after DAYS, --compress-after=DAYS
+          Gzip the files of runs at least DAYS old. Required; there is no
+          default.
+      --delete-after DAYS, --delete-after=DAYS
+          Remove whole runs at least DAYS old; DAYS must be larger than
+          that of --compress-after. Default: none; no run is removed. An
+          empty value is the default.
+      --dry-run
+          Print each file that would be compressed and run that would be
+          deleted, but change nothing, create no lock, emit no event and
+          write no metrics.
+      --lock-timeout SECONDS, --lock-timeout=SECONDS
+          While another rotate holds the lock, wait up to SECONDS for it,
+          then give up and exit 75. Default: 600; 0 does not wait. An empty
+          value is the default.
+      --syslog TARGET, --syslog=TARGET
+          Emit an RFC 5424 or native systemd-journald event with the
+          compressed and deleted counts. Default: EB_KEEP_LOGS_SYSLOG,
+          else none.
+      --metrics-file PATH, --metrics-file=PATH
+          Atomically record when this rotation completed, unless --dry-run
+          is given. Default: none.
+  eb-keep-logs why [RUN | --latest] [--target TARGET] [--package PACKAGE]
+                   [--since DATE] [--until DATE] [--root ROOT] [--json]
+      Say why the builds of a run failed: for each failed easyconfig, its
+      package and easyconfig, the EasyBuild step it failed in, EasyBuild's
+      message, and the line of its kept log that shows the error: the first
+      compiler or linker error, else EasyBuild's own error line, with the
+      line number and three lines either side. Logs rotate compressed are
+      read as they are. Zig build only. RUN and the options come in any
+      order.
+      RUN
+          A run directory, as a path or as a name under ROOT.
+      --latest
+          The newest run under ROOT, or the newest with a directory
+          TARGET. The default when no RUN is given.
+      --target TARGET, --target=TARGET
+          Only the builds in the run's directory TARGET. Default: those in
+          the run's own directory and in every directory in it.
+      --package PACKAGE, --package=PACKAGE
+          Only builds matching PACKAGE (an easyconfig name without .eb,
+          a prefix up to a dash, or NAME/VERSION). Default: all builds.
+      --since DATE, --since=DATE
+          Only consider runs at or after DATE when picking --latest.
+          DATE is YYYY-MM-DD, YYYYMMDD, or YYYYMMDD_HHMMSS.
+          Default: none.
+      --until DATE, --until=DATE
+          Only consider runs at or before DATE when picking --latest.
+          DATE is YYYY-MM-DD, YYYYMMDD, or YYYYMMDD_HHMMSS.
+          Default: none.
+      --root ROOT, --root=ROOT
+          The directory that holds the runs. Default: the current
+          directory.
+      --json
+          Print one line of JSON instead, with schema_version 1.
+  eb-keep-logs history PACKAGE [--target TARGET] [--since DATE]
+                       [--until DATE] [--failed] [--root ROOT] [--json]
+      Say how each kept build of PACKAGE went, oldest run first: success,
+      failed or unknown, and how long EasyBuild took, from its output.
+      PACKAGE is an easyconfig's name or its start up to a dash, as hello
+      or hello-2.12.1 for hello-2.12.1-GCCcore-14.2.0, or a module name, as
+      hello/2.12.1; hello also takes hello-world-1.0. Zig build only.
+      PACKAGE and the options come in any order.
+      --target TARGET, --target=TARGET
+          Only the builds in each run's directory TARGET. Default: those in
+          each run's own directory and in every directory in it.
+      --since DATE, --since=DATE
+          Only read runs at or after DATE (YYYY-MM-DD, YYYYMMDD, or
+          YYYYMMDD_HHMMSS). Default: none.
+      --until DATE, --until=DATE
+          Only read runs at or before DATE (YYYY-MM-DD, YYYYMMDD, or
+          YYYYMMDD_HHMMSS). Default: none.
+      --failed
+          Only list failed builds.
+      --root ROOT, --root=ROOT
+          The directory that holds the runs. Default: the current
+          directory.
+      --json
+          Print one line of JSON instead, with schema_version 1.
+  eb-keep-logs failures [--package PACKAGE] [--target TARGET]
+                        [--since DATE] [--until DATE] [--root ROOT] [--json]
+      List failed builds across runs under --root, oldest run first.
+      Each row gives the run, target, failed step, duration and build
+      name. Zig build only. Options come in any order.
+      --package PACKAGE, --package=PACKAGE
+          Only failed builds matching PACKAGE (an easyconfig name
+          without .eb, a prefix up to a dash, or NAME/VERSION). Default:
+          all packages.
+      --target TARGET, --target=TARGET
+          Only the builds in each run's directory TARGET. Default: those
+          in each run's own directory and in every directory in it.
+      --since DATE, --since=DATE
+          Only read runs at or after DATE (YYYY-MM-DD, YYYYMMDD, or
+          YYYYMMDD_HHMMSS). Default: none.
+      --until DATE, --until=DATE
+          Only read runs at or before DATE (YYYY-MM-DD, YYYYMMDD, or
+          YYYYMMDD_HHMMSS). Default: none.
+      --root ROOT, --root=ROOT
+          The directory that holds the runs. Default: the current
+          directory.
+      --json
+          Print one line of JSON instead, with schema_version 1.
+  eb-keep-logs loads --module NAME [--json] FILE
+      Print who loaded NAME, from Lmod's ModuleUsageTracking lines in FILE.
+      Each record is user=USER module=NAME path=PATH host=HOST time=TIME,
+      in any order, and a syslog prefix is left in place. Each load is
+      one line, user=USER host=HOST time=TIME path=PATH, in the file's
+      order. A file with no load of NAME prints no load of NAME. Zig
+      build only.
+      --module NAME, --module=NAME
+          The module's full name, as Lmod recorded it, such as
+          GROMACS/2024.1. Required.
+      --json
+          Print one line of JSON instead, with schema_version 1.
+      FILE
+          The log that holds the records. A line that is not one is
+          skipped.
+  eb-keep-logs used --prefix PREFIX [--json] [--require-none] FILE...
+      Print paths under PREFIX that appear in XALT or Lmod records in
+      FILE. A run record lists userT.exec_path (kind run) and each libA
+      path under PREFIX (kind run-lib) even when exec_path is outside.
+      A link record lists resultT.exec_path and each linkA path (kind
+      link). A package record lists package_path (kind pkg). An Lmod
+      tracking line lists path when it is under PREFIX (kind module-load).
+      Each line is path=PATH kind=KIND last=TIME count=N; last is the
+      newest time seen for that path. With no hit, nothing under PREFIX.
+      --json prints one JSON document with schema_version 1. --require-none
+      exits 2 when any hit is listed. Zig build only.
+      --prefix PREFIX, --prefix=PREFIX
+          The install tree to check. Required; a newline in it is refused.
+      --json
+          Print one line of JSON instead.
+      --require-none
+          Exit 2 when any path under PREFIX was found.
+      FILE
+          One or more files of concatenated XALT JSON objects and/or Lmod
+          ModuleUsageTracking lines. Required.
+  eb-keep-logs usage --software DIR --modules DIR [--since EPOCH]
+                     [--unused | --active] [--json] FILE...
+      Compare installed DIR/Name/Version software with XALT and Lmod
+      records. XALT paths below the software directory and Lmod module
+      loads below the modules directory count as hits. By default, print
+      every installed Name/Version with its state, hit count and newest
+      time. --unused and --active print only Name/Version lines;
+      --active output is accepted by eb-stack stack gap --site. --since
+      ignores records older than EPOCH and records without a time.
+      --json prints one JSON document with schema_version 1. Zig build
+      only.
+      --software DIR, --software=DIR
+          The software install tree, with Name/Version directories.
+          Required.
+      --modules DIR, --modules=DIR
+          The module tree that Lmod record paths must be below. Required.
+      --since EPOCH, --since=EPOCH
+          Count records at or after this non-negative epoch time.
+          Default: all record times.
+      --unused
+          List installed Name/Version entries with no hit.
+      --active
+          List installed Name/Version entries with at least one hit.
+      --json
+          Print one line of JSON instead.
+      FILE
+          One or more files of concatenated XALT JSON objects and/or Lmod
+          ModuleUsageTracking lines. Required.
+  eb-keep-logs runs --exec PATH [--json] FILE
+      Print who ran PATH, from XALT run records in FILE. A run record is a
+      JSON object whose userT holds user, exec_path and, when present,
+      syshost and start_time. A link record is not a run and is skipped.
+      PATH matches exec_path in full or as its last component. Each run is
+      one line, user=USER host=HOST time=TIME path=PATH, in the file's
+      order. A file with no run of PATH prints no run of PATH. Zig build
+      only. It does not record runs.
+      --exec PATH, --exec=PATH
+          The executable, as a full path or its last component. Required.
+      --json
+          Print one line of JSON instead, with schema_version 1.
+      FILE
+          One or more JSON objects. An object that is not a run record is
+          skipped.
+  eb-keep-logs pending [--json] FILE
+      Print what an EasyBuild dry-run or missing-modules report still has
+      to build. A dry-run line is "* [ ] PATH (module: NAME)", and [F] and
+      [R] count as still to build; [x] is already installed and is not
+      printed. --terse prints "x PATH" or "- PATH". A missing-modules line
+      is "* NAME (FILE.eb)", or with --terse one easyconfig path on each
+      line. Each is one line, build NAME or missing NAME, in the file's
+      order. A report with nothing left prints nothing to build. Zig build
+      only. It does not run eb, and it does not resolve dependencies.
+      --json
+          Print one line of JSON instead, with schema_version 1.
+      FILE
+          The report, as eb --dry-run or eb --missing-modules printed it.
+          Required.
+  eb-keep-logs test-bundle --test-id ID --suite-revision REV --eessi-target TARGET
+                           ... --stdout FILE --stderr FILE [--input FILE ...]
+                           ... [--module NAME=PATH ...] --seed SEED
+                           ... --allocation TEXT --binding TEXT --cpu TEXT --gpu TEXT
+                           [--out FILE]
+      Write one flaky-test evidence bundle as JSON schema_version 1, with a
+      stable test identity (ID), normalized stdout and stderr, input and
+      seed hashes, full module list and module paths, EESSI target,
+      scheduler allocation and binding, CPU and GPU facts, and test-suite
+      revision. Without --out, print it on stdout. Zig build only.
+      --test-id ID, --test-id=ID
+          Stable test identity. Required.
+      --suite-revision REV, --suite-revision=REV
+          Test-suite revision. Required.
+      --eessi-target TARGET, --eessi-target=TARGET
+          EESSI target of the run. Required.
+      --stdout FILE, --stdout=FILE
+          Captured stdout, normalized and hashed. Required.
+      --stderr FILE, --stderr=FILE
+          Captured stderr, normalized and hashed. Required.
+      --input FILE, --input=FILE
+          Input file to hash. Optional; may be repeated. Default: none.
+      --module NAME=PATH, --module=NAME=PATH
+          Loaded module and its modulefile path. Optional; may be
+          repeated. Default: none.
+      --seed SEED, --seed=SEED
+          Seed value to hash. Required.
+      --allocation TEXT, --allocation=TEXT
+          Scheduler allocation summary. Required.
+      --binding TEXT, --binding=TEXT
+          Scheduler binding summary. Required.
+      --cpu TEXT, --cpu=TEXT
+          CPU facts. Required.
+      --gpu TEXT, --gpu=TEXT
+          GPU facts, or none. Required.
+      --out FILE, --out=FILE
+          Write JSON to FILE. Default: stdout.
+  eb-keep-logs test-compare [--json] BUNDLE...
+      Summarize which evidence fields differ across two or more
+      test-bundle JSON files, without deciding pass or fail. --json prints
+      schema_version 1. Zig build only.
+      --json
+          Print one line of JSON instead of text. Default: text.
+      BUNDLE
+          Two or more test-bundle JSON files. Required.
+  eb-keep-logs lifecycle --policy FILE [--modulerc-out FILE]
+                         [--easyconfigs DIR ...] [--easystack FILE ...]
+                         [--eb-stack PATH] [--rebuild-set FILE]
+                         [--now EPOCH] [--json] FILE
+      Generate a reversible lifecycle plan and Lmod .modulerc.lua
+      warnings/forbids from usage --json output and a TOML policy. Never
+      deletes software or modulefiles. Requires a minimum observation
+      window and checks installed dependents via eb-stack rebuild-set
+      before allowing candidate-remove. Zig build only.
+      --policy FILE, --policy=FILE
+          TOML lifecycle policy file. Required.
+      --modulerc-out FILE, --modulerc-out=FILE
+          Write the generated Lmod .modulerc.lua warnings and forbids
+          durably to FILE. Default: none; no file is written.
+      --easyconfigs DIR, --easyconfigs=DIR
+          Easyconfig tree passed to eb-stack rebuild-set to identify
+          dependents of candidate removals. Repeatable. Default: none.
+      --easystack FILE, --easystack=FILE
+          Deployed easystack YAML passed to eb-stack rebuild-set.
+          Repeatable. Default: none.
+      --eb-stack PATH, --eb-stack=PATH
+          Path to the eb-stack executable. Default: eb-stack on PATH.
+      --rebuild-set FILE, --rebuild-set=FILE
+          Precomputed eb-stack rebuild-set.json report instead of
+          running eb-stack. Default: none.
+      --now EPOCH, --now=EPOCH
+          Reference epoch time in seconds for idle age and observation
+          window checks. Default: the environment time override, else
+          the current time.
+      --json
+          Print one line of JSON instead, with schema_version 1.
+      FILE
+          JSON output produced by eb-keep-logs usage --json (with
+          selection "all"). Required.
+  eb-keep-logs -h | --help
+      Print this help on stdout and exit 0.
+  eb-keep-logs --version
+      Print the version line on stdout and exit 0.
+
+Environment:
+  PATH                 Where failed looks up eb.
+  EASYBUILD_TMPDIR     failed copies a command's output only from below it;
+                       unset or empty, it copies none.
+  EB_KEEP_LOGS_NOW     The time rotate and lifecycle take as now, in seconds
+                       since the epoch; unset or empty, the current time.
+  EB_PIPELINE_LOG_DIR  rotate leaves alone the run that holds this path.
+  EB_KEEP_LOGS_SYSLOG  Default --syslog target (journald, syslog, unix:///...,
+                       journal+unix:///..., udp://host:port, tcp://host:port).
+  EB_KEEP_LOGS_SYSLOG_PEN
+                       IANA Private Enterprise Number for RFC 5424 SD-ID
+                       ebKeepLogs@<PEN>. Default: 32473 (RFC 5398 placeholder).
+  TZ, TZDIR            The time zone of the local midnights, and the
+                       directory of zone files.
+
+Exit status:
+  0   -h, --help or --version, or a failed, rotate, why, history, failures, loads, runs, used, usage, pending, test-bundle, test-compare or lifecycle that
+      accepted its arguments, whatever it could keep, compress, remove or
+      read: what it could not do is reported on stderr. used with
+      --require-none also exits 2 when any path was listed.
+  2   The invocation was refused, with eb-keep-logs: MESSAGE on stderr; or
+      no command was given, and this help is on stdout.
+  75  rotate waited --lock-timeout seconds for the lock another rotate
+      held, then gave up and changed nothing; run it again later.
+--- stderr

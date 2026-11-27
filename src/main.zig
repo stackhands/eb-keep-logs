@@ -32,8 +32,8 @@ const tool = "eb-keep-logs";
 /// build.zig.zon names the same one, and a release changes both.
 pub const version = "0.3.1";
 
-/// What `-h`, `--help` and no arguments print. The shell script's `usage`
-/// prints the same text: tests/differential.sh compares the two.
+/// What `-h`, `--help` and no arguments print: the shell script's text,
+/// which tests/test_cases.sh holds the binary to.
 const usage_text =
     \\eb-keep-logs: keep the logs of EasyBuild builds that a build pipeline would
     \\otherwise lose, and keep the pipeline's log tree bounded.
@@ -994,8 +994,8 @@ fn parseDays(opt: []const u8, v: ?[]const u8) u64 {
 const rotate_lock = ".eb-keep-logs-rotate.lock";
 /// How long rotate waits for the lock without --lock-timeout, in seconds.
 const default_lock_timeout: u64 = 600;
-/// The longest wait --lock-timeout sets, over 31 years: the shell script's
-/// flock(1) cannot set a timer for 10^19 seconds.
+/// The longest wait --lock-timeout sets, over 31 years, the bound the shell
+/// script had: flock(1) cannot set a timer for 10^19 seconds.
 const max_lock_timeout: u64 = 999_999_999;
 /// The exit status when another rotate holds the lock past --lock-timeout,
 /// EX_TEMPFAIL: run it again later.

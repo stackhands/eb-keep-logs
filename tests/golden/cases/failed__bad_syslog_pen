@@ -1,0 +1,4 @@
+exit 2
+--- stdout
+--- stderr
+eb-keep-logs: EB_KEEP_LOGS_SYSLOG_PEN must be a positive integer, not '0'

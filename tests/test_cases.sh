@@ -1,68 +1,52 @@
 #!/bin/bash
-# Run the shell implementation (OLD_BIN, default ./eb-keep-logs) and the Zig
-# build (TOOL_BIN) on the same invocations and compare exit code, stdout and
-# stderr. A difference COMPAT.md lists as deliberate is reported and allowed;
-# any other fails the run.
-#   TOOL_BIN=zig-out/bin/eb-keep-logs bash tests/differential.sh
+# Run the binary (TOOL_BIN) on fixed invocations and compare exit code,
+# stdout and stderr with the expected output under tests/golden/cases, one
+# file per case. The work directory shows as @WORK@, this checkout as
+# @REPO@. The expected files are the shell implementation's output wherever
+# the two implementations agreed, and the binary's where they differed by
+# design.
+#   TOOL_BIN=zig-out/bin/eb-keep-logs bash tests/test_cases.sh
+# RECORD=1 rewrites the expected files from TOOL_BIN instead of comparing.
 set -u
 repo_root=$(cd "$(dirname "$0")/.." && pwd)
-OLD_BIN="${OLD_BIN:-${repo_root}/eb-keep-logs}"
 : "${TOOL_BIN:?}"
-work=$(mktemp -d "${TMPDIR:-/tmp}/ekl-diff.XXXXXX")
+golden="${repo_root}/tests/golden/cases"
+work=$(mktemp -d "${TMPDIR:-/tmp}/ekl-cases.XXXXXX")
 trap 'rm -rf -- "${work}"' EXIT
-mkdir -p "${work}/logs" "${work}/bin"
+real_work=$(realpath "${work}")
+mkdir -p "${work}/logs" "${work}/bin" "${golden}"
 printf '#!/bin/bash\nexit 0\n' > "${work}/bin/eb"
 chmod +x "${work}/bin/eb"
 export PATH="${work}/bin:${PATH}"
 
 diffs=0
-# Labels whose difference is deliberate, each with its case in COMPAT.md. A
-# difference passes only while COMPAT.md lists that case among the
-# deliberate differences.
-declare -A deliberate=(
-    ["rotate, lock is a symbolic link"]="\`rotate\`'s lock file cannot be opened, or is a symbolic link or not a regular file"
-    ["rotate, compress-after overflow"]="\`--compress-after\` or \`--delete-after\` naming more days than an unsigned 64-bit integer holds"
-    ["rotate, delete-after overflow"]="\`--compress-after\` or \`--delete-after\` naming more days than an unsigned 64-bit integer holds"
-    ["rotate, delete-after past a signed 64-bit integer"]="\`--delete-after\` naming more days than a signed 64-bit integer holds, together with a \`--compress-after\` it is genuinely later than"
-    ["rotate, compress-after past a signed 64-bit integer"]="\`--compress-after\` naming more days than a signed 64-bit integer holds, without a \`--delete-after\` of its own"
-    ["rotate, EB_KEEP_LOGS_NOW far below a run"]="\`EB_KEEP_LOGS_NOW\` so far below a run's local midnight that the difference overflows a signed 64-bit integer"
-    ["rotate, EB_KEEP_LOGS_NOW far above a run"]="\`EB_KEEP_LOGS_NOW\` so far above a run's local midnight that the difference overflows a signed 64-bit integer"
-    ["why"]="\`why\`"
-    ["history"]="\`history\`"
-    ["failures"]="\`failures\`"
-    ["loads"]="\`loads\`"
-    ["runs"]="\`runs\`"
-    ["used"]="\`used\`"
-    ["usage"]="\`usage\`"
-    ["pending"]="\`pending\`"
-    ["lifecycle"]="\`lifecycle\`"
-    ["rotate, killed mid-compress"]="a \`rotate\` killed while compressing a file"
-)
-compat_deliberate=$(sed -n '/^## Deliberate differences$/,/^## /p' "${repo_root}/COMPAT.md")
-# The environment both runs get, as env(1) takes it.
+# The environment each run gets, as env(1) takes it.
 run_env=(PATH="${PATH}")
-# compare LABEL ARGS...: run both with the same arguments.
-compare() {
-    local label=$1; shift
-    env "${run_env[@]}" "${OLD_BIN}" "$@" > "${work}/o.out" 2> "${work}/o.err"; local oc=$?
-    env "${run_env[@]}" "${TOOL_BIN}" "$@" > "${work}/n.out" 2> "${work}/n.err"; local nc=$?
-    if [ "${oc}" != "${nc}" ] || ! cmp -s "${work}/o.out" "${work}/n.out" || ! cmp -s "${work}/o.err" "${work}/n.err"; then
-        local compat_case="${deliberate[${label}]:-}"
-        if [ -n "${compat_case}" ] && grep -qF -- "| ${compat_case} |" <<< "${compat_deliberate}"; then
-            echo "deliberate ${label}"
-            return
-        fi
-        # On stderr: zig build test shows a script's stderr, not stdout.
+# expect LABEL FILE: compare FILE, with the work directory as @WORK@, against
+# the expected file of LABEL, or write it under RECORD=1.
+expect() {
+    local label=$1 got=$2 want
+    want="${golden}/$(printf '%s' "${label}" | tr -c 'A-Za-z0-9_-' '_')"
+    sed -e "s|${real_work}|@WORK@|g" -e "s|${work}|@WORK@|g" -e "s|${repo_root}|@REPO@|g" "${got}" > "${work}/got.norm"
+    if [ -n "${RECORD:-}" ]; then
+        cp "${work}/got.norm" "${want}"
+        echo "recorded ${label}"
+    elif cmp -s "${want}" "${work}/got.norm"; then
+        echo "same ${label}"
+    else
         {
-            echo "DIFF ${label}: exit ${oc} vs ${nc}"
-            [ -z "${compat_case}" ] || echo "     COMPAT.md lists no deliberate difference: ${compat_case}"
-            diff "${work}/o.out" "${work}/n.out" | sed 's/^/     out /'
-            diff "${work}/o.err" "${work}/n.err" | sed 's/^/     err /'
+            echo "DIFF ${label}"
+            diff "${want}" "${work}/got.norm" | sed 's/^/     /'
         } >&2
         diffs=$((diffs + 1))
-    else
-        echo "same ${label}"
     fi
+}
+# compare LABEL ARGS...: run the binary with ARGS and check what it printed.
+compare() {
+    local label=$1; shift
+    env "${run_env[@]}" "${TOOL_BIN}" "$@" > "${work}/n.out" 2> "${work}/n.err"; local nc=$?
+    { echo "exit ${nc}"; echo "--- stdout"; cat "${work}/n.out"; echo "--- stderr"; cat "${work}/n.err"; } > "${work}/n.all"
+    expect "${label}" "${work}/n.all"
 }
 
 compare "no arguments"
@@ -173,13 +157,10 @@ if [ -e "${work}/dry.prom" ] || [ -e "${work}/.dry.prom.lock" ]; then
     diffs=$((diffs + 1))
 fi
 compare "rotate, dry run with empty metrics-file" rotate "${work}/preview" --compress-after 5 --dry-run --metrics-file ""
-EB_KEEP_LOGS_NOW="$(date -d 2026-11-13 +%s)" "${OLD_BIN}" rotate "${work}/preview" --compress-after 5 --dry-run > "${work}/dry-parity-old.out" 2> "${work}/dry-parity-old.err"
 EB_KEEP_LOGS_NOW="$(date -d 2026-11-13 +%s)" "${TOOL_BIN}" rotate "${work}/preview" --compress-after 5 --dry-run > "${work}/dry-parity-new.out" 2> "${work}/dry-parity-new.err"
-if ! cmp -s "${work}/dry-parity-old.out" "${work}/dry-parity-new.out" || ! cmp -s "${work}/dry-parity-old.err" "${work}/dry-parity-new.err"; then
-    echo "DIFF rotate, dry-run raw bytes differ between shell and Zig" >&2
-    diffs=$((diffs + 1))
-fi
-dry_count=$(sed -nE 's/^eb-keep-logs rotate dry-run: ([0-9]+) files? would be compressed.*/\1/p' "${work}/dry-parity-old.out")
+{ echo "--- stdout"; cat "${work}/dry-parity-new.out"; echo "--- stderr"; cat "${work}/dry-parity-new.err"; } > "${work}/dry-parity.all"
+expect "rotate, dry-run preview" "${work}/dry-parity.all"
+dry_count=$(sed -nE 's/^eb-keep-logs rotate dry-run: ([0-9]+) files? would be compressed.*/\1/p' "${work}/dry-parity-new.out")
 rot_out=$(EB_KEEP_LOGS_NOW="$(date -d 2026-11-13 +%s)" "${TOOL_BIN}" rotate "${work}/preview" --compress-after 5 2>/dev/null)
 rot_count=$(sed -nE 's/^eb-keep-logs rotate: ([0-9]+) files? compressed.*/\1/p' <<< "${rot_out}")
 if [ "${dry_count}" != "3" ] || [ "${dry_count}" != "${rot_count}" ]; then
@@ -198,52 +179,17 @@ exec {held}>&-
 mkdir -p "${work}/symlock"
 ln -s "${work}/nowhere" "${work}/symlock/.eb-keep-logs-rotate.lock"
 compare "rotate, lock is a symbolic link" rotate "${work}/symlock" --compress-after 5
-# A kill while compressing is not a race on a filename. The shell side's
-# gzip reads its input and dies when that stream closes, before it
-# publishes a member. The Zig side is the test-ops binary, which
-# `EB_KEEP_LOGS_TEST_KILL_AT=mid-copy` already kills at that step.
-mkdir -p "${work}/die-gzip" "${work}/crash-old/20261001_120000" "${work}/crash-new/20261001_120000"
-cat > "${work}/die-gzip/gzip" << 'EOF'
-#!/bin/bash
-file=
-prev=
-for arg in "$@"; do
-    if [ "${prev}" = "--" ]; then file=${arg}; fi
-    prev=${arg}
-done
-if [ -n "${file}" ]; then
-    cat -- "${file}" >/dev/null
-else
-    cat >/dev/null
-fi
-kill -KILL $$
-EOF
-chmod +x "${work}/die-gzip/gzip"
-printf 'log line\n' > "${work}/crash-old/20261001_120000/a.log"
+# A kill while compressing is not a race on a filename. The test-ops
+# binary dies at EB_KEEP_LOGS_TEST_KILL_AT=mid-copy, before the compressed
+# member is published. A second rotate then compresses the file.
+mkdir -p "${work}/crash-new/20261001_120000"
 printf 'log line\n' > "${work}/crash-new/20261001_120000/a.log"
-PATH="${work}/die-gzip:${PATH}" "${OLD_BIN}" rotate "${work}/crash-old" --compress-after 5 >/dev/null 2>&1 || true
 EB_KEEP_LOGS_TEST_KILL_AT=mid-copy "${TEST_OPS_BIN:?TEST_OPS_BIN names the test-ops binary}" rotate "${work}/crash-new" --compress-after 5 >/dev/null 2>&1 || true
-old_rerun=$("${OLD_BIN}" rotate "${work}/crash-old" --compress-after 5 2>/dev/null)
 new_rerun=$("${TOOL_BIN}" rotate "${work}/crash-new" --compress-after 5 2>/dev/null)
-old_count=$(sed -nE 's/^eb-keep-logs rotate: ([0-9]+) files? compressed.*/\1/p' <<< "${old_rerun}")
 new_count=$(sed -nE 's/^eb-keep-logs rotate: ([0-9]+) files? compressed.*/\1/p' <<< "${new_rerun}")
-old_left=no; [ -e "${work}/crash-old/20261001_120000/a.log" ] && old_left=yes
 new_left=no; [ -e "${work}/crash-new/20261001_120000/a.log" ] && new_left=yes
-label="rotate, killed mid-compress"
-if [ "${old_count}" != "${new_count}" ] || [ "${old_left}" != "${new_left}" ]; then
-    compat_case="${deliberate[${label}]:-}"
-    if [ -n "${compat_case}" ] && grep -qF -- "| ${compat_case} |" <<< "${compat_deliberate}"; then
-        echo "deliberate ${label}"
-    else
-        {
-            echo "DIFF ${label}: a second rotate compressed ${old_count} (shell) vs ${new_count} (Zig) file(s), a.log left behind: ${old_left} vs ${new_left}"
-            [ -z "${compat_case}" ] || echo "     COMPAT.md lists no deliberate difference: ${compat_case}"
-        } >&2
-        diffs=$((diffs + 1))
-    fi
-else
-    echo "same ${label}"
-fi
+printf 'compressed by the second rotate: %s\na.log left behind: %s\n' "${new_count}" "${new_left}" > "${work}/crash.all"
+expect "rotate, killed mid-compress" "${work}/crash.all"
 # The one run is past --delete-after, and another process writes into it.
 mkdir -p "${work}/live/20261001_120000"
 echo build > "${work}/live/20261001_120000/B.stdout.log"

@@ -10,7 +10,7 @@ Lmod can syslog each load as =user=USER module=NAME path=PATH host=HOST time=TIM
 
 ** Before you start
 
-- The Zig build of =eb-keep-logs=. The shell script answers =loads= with =loads is in the Zig build only=.
+- =eb-keep-logs= 0.2.0 or later. The shell script 0.1.0 answers =loads= with =loads is in the Zig build only=.
   Put the Zig build first on =PATH=, as [[file:find-why-a-build-failed.org][Find why a build failed]] does for =why=.
 - A file of tracking lines. A syslog prefix in front of the record is fine. =journalctl= output redirected to a file is one.
 
@@ -42,7 +42,7 @@ Lmod can syslog each load as =user=USER module=NAME path=PATH host=HOST time=TIM
 
 | Message | Cause | What to do |
 |---|---|---|
-| =eb-keep-logs: loads is in the Zig build only= | The =eb-keep-logs= on =PATH= is the shell script. | Put the Zig build first on =PATH=. |
+| =eb-keep-logs: loads is in the Zig build only= | The =eb-keep-logs= on =PATH= is the shell script 0.1.0. | Put the Zig build first on =PATH=. |
 | =eb-keep-logs: loads needs --module= | =--module= was omitted, or its value was empty. | Pass the full module name, as =GROMACS/2024.1=. |
 | =eb-keep-logs: loads needs a log file= | No file was given. | Pass the path of the tracking log. |
 | =eb-keep-logs: cannot read FILE: ERROR= | The file cannot be opened or is larger than 64 MiB. | Point at the log you can read, or split a larger one. |
