@@ -92,6 +92,92 @@ fn barePath(line: []const u8) ?[]const u8 {
     return text;
 }
 
+fn isTerseStatus(c: u8) bool {
+    return c == 'x' or c == '-' or c == 'F' or c == 'R';
+}
+
+fn isTerseStart(text: []const u8) bool {
+    if (text.len == 0 or !isTerseStatus(text[0])) return false;
+    return text.len == 1 or text[1] == ' ';
+}
+
+fn moduleClosed(line: []const u8) bool {
+    const key = "(module:";
+    const at = std.mem.indexOf(u8, line, key) orelse return false;
+    return std.mem.indexOfScalarPos(u8, line, at + key.len, ')') != null;
+}
+
+fn hasStatus(text: []const u8) bool {
+    return std.mem.indexOf(u8, text, "[ ]") != null or
+        std.mem.indexOf(u8, text, "[x]") != null or
+        std.mem.indexOf(u8, text, "[F]") != null or
+        std.mem.indexOf(u8, text, "[R]") != null;
+}
+
+/// A line that is `*` or that starts with `* `. EasyBuild's rich output
+/// uses 80 columns, and `* ` takes two, so a missing-module token longer
+/// than 78 bytes moves to the next line. The first line is `* `, and
+/// trim() leaves `*`.
+fn starLine(text: []const u8) bool {
+    return std.mem.eql(u8, text, "*") or std.mem.startsWith(u8, text, "* ");
+}
+
+/// A dry-run, terse, or missing-modules record that has started and has not
+/// finished. EasyBuild's rich output wraps a long line, so the module name
+/// or the easyconfig path continues on the next line.
+fn unfinished(line: []const u8) bool {
+    const text = trim(line);
+    if (std.mem.startsWith(u8, text, "* [") and hasStatus(text) and !moduleClosed(text)) return true;
+    if (isTerseStart(text) and terseLine(text) == null) return true;
+    if (starLine(text) and !std.mem.startsWith(u8, text, "* [") and missingLine(text) == null) return true;
+    return false;
+}
+
+fn startsRecord(line: []const u8) bool {
+    const text = trim(line);
+    if (text.len == 0) return false;
+    if (starLine(text)) return true;
+    if (std.mem.startsWith(u8, text, "==")) return true;
+    if (std.mem.startsWith(u8, text, "CFGS=")) return true;
+    if (std.mem.startsWith(u8, text, "Dry run:")) return true;
+    if (std.mem.startsWith(u8, text, "No missing modules")) return true;
+    return isTerseStart(text);
+}
+
+fn chompCr(line: []const u8) []const u8 {
+    return std.mem.trimEnd(u8, line, "\r");
+}
+
+/// Join a record that wraps onto the following lines. A finished line is
+/// copied through. The result uses `\n` and keeps a trailing newline.
+fn unwrapReport(gpa: Allocator, text: []const u8) Allocator.Error![]u8 {
+    var raw: std.ArrayList([]const u8) = .empty;
+    defer raw.deinit(gpa);
+    var it = std.mem.splitScalar(u8, text, '\n');
+    while (it.next()) |line| try raw.append(gpa, chompCr(line));
+    var n = raw.items.len;
+    if (n > 0 and raw.items[n - 1].len == 0 and std.mem.endsWith(u8, text, "\n")) n -= 1;
+
+    var out: std.ArrayList(u8) = .empty;
+    errdefer out.deinit(gpa);
+    var cur: std.ArrayList(u8) = .empty;
+    defer cur.deinit(gpa);
+    var i: usize = 0;
+    while (i < n) {
+        if (out.items.len > 0) try out.append(gpa, '\n');
+        cur.clearRetainingCapacity();
+        try cur.appendSlice(gpa, raw.items[i]);
+        i += 1;
+        while (i < n and unfinished(cur.items) and trim(raw.items[i]).len != 0 and !startsRecord(raw.items[i])) {
+            try cur.appendSlice(gpa, raw.items[i]);
+            i += 1;
+        }
+        try out.appendSlice(gpa, cur.items);
+    }
+    if (std.mem.endsWith(u8, text, "\n")) try out.append(gpa, '\n');
+    return try out.toOwnedSlice(gpa);
+}
+
 const ReportMode = enum { module, terse, missing, bare };
 
 const JsonEntry = struct {
@@ -175,6 +261,12 @@ pub fn formatJson(gpa: Allocator, items: []const JsonEntry) ![]u8 {
 /// Lines still to build. `nothing to build` when the report has none.
 /// `error.NotAReport` when the text is neither shape.
 pub fn formatPending(gpa: Allocator, text: []const u8) (Allocator.Error || error{NotAReport})![]u8 {
+    const plain = try unwrapReport(gpa, text);
+    defer gpa.free(plain);
+    return formatPendingPlain(gpa, plain);
+}
+
+fn formatPendingPlain(gpa: Allocator, text: []const u8) (Allocator.Error || error{NotAReport})![]u8 {
     const mode = try reportMode(text);
     const items = try collectEntries(gpa, text, mode);
     defer gpa.free(items);
@@ -204,17 +296,18 @@ pub fn cmdPending(gpa: Allocator, args: []const []const u8) u8 {
     var arena_state = std.heap.ArenaAllocator.init(gpa);
     defer arena_state.deinit();
     const arena = arena_state.allocator();
+    const plain = unwrapReport(arena, text) catch die("out of memory", .{});
     const body = if (json_out) blk: {
-        const mode = reportMode(text) catch |err| switch (err) {
+        const mode = reportMode(plain) catch |err| switch (err) {
             error.NotAReport => {
                 warn("pending: {s} is not a dry-run or missing-modules report", .{path});
                 return 2;
             },
         };
-        const items = collectEntries(arena, text, mode) catch die("out of memory", .{});
+        const items = collectEntries(arena, plain, mode) catch die("out of memory", .{});
         break :blk formatJson(arena, items) catch die("out of memory", .{});
     } else blk: {
-        break :blk formatPending(arena, text) catch |err| switch (err) {
+        break :blk formatPendingPlain(arena, plain) catch |err| switch (err) {
             error.NotAReport => {
                 warn("pending: {s} is not a dry-run or missing-modules report", .{path});
                 return 2;
@@ -226,6 +319,54 @@ pub fn cmdPending(gpa: Allocator, args: []const []const u8) u8 {
     return 0;
 }
 
+test "a wrapped dry-run line still names the build" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const gpa = arena.allocator();
+    // EasyBuild's rich output wraps a long line before `(module: ...)` finishes.
+    const wrapped =
+        " * [ ] $CFGS/f/flex/flex-2.6.4.eb (module: flex/2.6.4)\n" ++
+        " * [ ] \n" ++
+        "/home/user/easybuild-easyconfigs/easybuild/easyconfigs/f/flex/flex-2.6.4-GCCcore\n" ++
+        "-13.2.0.eb (module: flex/2.6.4-GCCcore-13.2.0)\n" ++
+        " * [x] \n" ++
+        "/home/user/easybuild-easyconfigs/easybuild/easyconfigs/z/zlib/zlib-1.2.12.eb \n" ++
+        "(module: zlib/1.2.12)\n";
+    const got = try formatPending(gpa, wrapped);
+    try std.testing.expectEqualStrings("build flex/2.6.4\nbuild flex/2.6.4-GCCcore-13.2.0\n", got);
+
+    const terse =
+        "- \n" ++
+        "/home/user/easybuild-easyconfigs/easybuild/easyconfigs/f/flex/flex-2.6.4-GCCcore\n" ++
+        "-13.2.0.eb\n" ++
+        "x /git/easyconfigs/m/M4/M4-1.4.19.eb\n";
+    const terse_got = try formatPending(gpa, terse);
+    try std.testing.expectEqualStrings(
+        "build /home/user/easybuild-easyconfigs/easybuild/easyconfigs/f/flex/flex-2.6.4-GCCcore-13.2.0.eb\n",
+        terse_got,
+    );
+
+    const hier =
+        " * [ ] \n" ++
+        "/home/user/easybuild-easyconfigs/easybuild/easyconfigs/o/OpenMPI/OpenMPI-5.0.3-G\n" ++
+        "CC-13.3.0.eb (module: Compiler/GCC/13.3.0/OpenMPI/5.0.3 | \n" ++
+        "VeryLongHierarchicalName/5.0.3-extra)\n";
+    const hier_got = try formatPending(gpa, hier);
+    try std.testing.expectEqualStrings(
+        "build Compiler/GCC/13.3.0/OpenMPI/5.0.3 | VeryLongHierarchicalName/5.0.3-extra\n",
+        hier_got,
+    );
+
+    const missing =
+        "* VeryLongModuleName/1.2.3-foss-2023a-Python-3.11.3 \n" ++
+        "(VeryLongModuleName-1.2.3-foss-2023a-Python-3.11.3.eb)\n";
+    const missing_got = try formatPending(gpa, missing);
+    try std.testing.expectEqualStrings(
+        "missing VeryLongModuleName/1.2.3-foss-2023a-Python-3.11.3\n",
+        missing_got,
+    );
+}
+
 test "a module name with a bad byte is replaced, not leaked raw" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
@@ -233,4 +374,25 @@ test "a module name with a bad byte is replaced, not leaked raw" {
     const got = try formatPending(arena.allocator(), text);
     try std.testing.expectEqualStrings("build fl\u{FFFD}ex/2.6.4\n", got);
     try std.testing.expect(std.unicode.utf8ValidateSlice(got));
+}
+
+test "a missing module wrapped after a bare star is listed" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const gpa = arena.allocator();
+    // Width 80. `* ` is two columns, so a token longer than 78 bytes does
+    // not fit and the first line is `* `.
+    const token = "Mod/1.2.3-GCCcore-13.2.0-Python-3.11.3-abcdefghijklmnopqrstuvwxyz0123456789EXTRA";
+    const other = "Mod/1.2.3-GCCcore-13.2.0-Python-3.11.3-abcdefghijklmnopqrstuvwxyz0123456789OTHER";
+    try std.testing.expect(token.len > 78);
+    try std.testing.expect(other.len > 78);
+    const wrapped = "* \n" ++ token ++ " (" ++ token ++ ".eb)\n" ++
+        "* \n" ++ other ++ " (" ++ other ++ ".eb)\n";
+    const got = try formatPending(gpa, wrapped);
+    try std.testing.expectEqualStrings("missing " ++ token ++ "\nmissing " ++ other ++ "\n", got);
+
+    // The next `* ` is its own record, so an open line above it stays apart.
+    const bounded = "* still-open\n" ++ "* \n" ++ token ++ " (" ++ token ++ ".eb)\n";
+    const bounded_got = try formatPending(gpa, bounded);
+    try std.testing.expectEqualStrings("missing " ++ token ++ "\n", bounded_got);
 }
