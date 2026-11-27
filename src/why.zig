@@ -323,6 +323,18 @@ fn endedMessage(entry: []const u8) ?[]const u8 {
     return if (m.len > 0) m else null;
 }
 
+/// The easyconfig path when the terminal wrapped it past `from`, the start
+/// of the label line. The label keeps a trailing space and the path
+/// follows, folded at 80 columns the way `flatEntry` undoes a `FAILED`
+/// entry. An announcement, which starts with `== `, is not a path.
+fn easyconfigWrapped(arena: Allocator, text: []const u8, from: usize) Allocator.Error!?[]const u8 {
+    const nl = std.mem.findScalarPos(u8, text, from, '\n') orelse return null;
+    if (nl + 1 >= text.len) return null;
+    const v = std.mem.trim(u8, try flatEntry(arena, text, nl + 1, true), space);
+    if (v.len == 0 or std.mem.startsWith(u8, v, "== ")) return null;
+    return v;
+}
+
 /// What a log records about its build's failure. EasyBuild's own error line
 /// is, in a session log, its first `EasyBuild encountered an error`; on the
 /// terminal, where its first `ERROR:` may only say `Shell command failed!`,
@@ -357,7 +369,11 @@ pub fn analyze(arena: Allocator, text: []const u8, source: Source) Allocator.Err
             a.package = std.mem.trimEnd(u8, std.mem.trim(u8, rest, space), ".");
         } else if (after(shown, "processing EasyBuild easyconfig ")) |rest| {
             const p = std.mem.trim(u8, rest, space);
-            if (p.len > 0) a.easyconfig = p;
+            if (p.len > 0) {
+                a.easyconfig = p;
+            } else if (source == .stdout) {
+                if (try easyconfigWrapped(arena, text, l.start)) |path| a.easyconfig = path;
+            }
         }
         if (report == null) if (reportOf(shown, source)) |m| {
             report = l;
@@ -1498,6 +1514,40 @@ test "analyze: EasyBuild's output, wrapped at 80 columns" {
     try testing.expectEqual(@as(?[]const u8, null), a.step);
     try testing.expectEqualStrings("Missing dependencies: libgreet/1.0 (no easyconfig file or existing module found)", a.message.?);
     try testing.expectEqual(@as(usize, 2), a.error_line.?.no);
+}
+
+test "analyze: an easyconfig path wrapped onto the next line" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+    // Rich at 80 columns leaves the label, then the path. A longer path
+    // fills the next line and continues with no space.
+    const wrapped =
+        \\== processing EasyBuild easyconfig 
+        \\/home/alice/corpus/cases/compile/hello-2.12.1-GCCcore-14.2.0.eb
+        \\== building and installing hello/2.12.1-GCCcore-14.2.0...
+        \\
+    ;
+    var a = try analyze(arena, wrapped, .stdout);
+    try testing.expectEqualStrings("/home/alice/corpus/cases/compile/hello-2.12.1-GCCcore-14.2.0.eb", a.easyconfig.?);
+
+    const folded =
+        \\== processing EasyBuild easyconfig 
+        \\/home/alice/eessi/versions/2025.06/software/linux/x86_64/intel/sapphirerapids/so
+        \\ftware/hello/2.12.1-GCCcore-14.2.0.eb
+        \\== building and installing hello/2.12.1...
+        \\
+    ;
+    a = try analyze(arena, folded, .stdout);
+    try testing.expectEqualStrings("/home/alice/eessi/versions/2025.06/software/linux/x86_64/intel/sapphirerapids/software/hello/2.12.1-GCCcore-14.2.0.eb", a.easyconfig.?);
+
+    const same =
+        \\== processing EasyBuild easyconfig /ec/hello.eb
+        \\== building and installing hello/2.12.1...
+        \\
+    ;
+    a = try analyze(arena, same, .stdout);
+    try testing.expectEqualStrings("/ec/hello.eb", a.easyconfig.?);
 }
 
 test "verdict" {

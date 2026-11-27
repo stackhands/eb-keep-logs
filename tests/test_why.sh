@@ -113,6 +113,8 @@ check "terminal output only: EasyBuild's message unwrapped" "$(sed -n 's/^  Easy
     "Sanity check failed: no file found at 'lib/libhello.a' in /home/alice/eessi/versions/2025.06/software/linux/x86_64/intel/sapphirerapids/software/hello/2.12.1-GCCcore-13.3.0"
 check "terminal output only: EasyBuild's FAILED entry" "$(sed -n 's/^    > //p' <<< "${out}")" \
     "181 | == FAILED: Installation ended unsuccessfully: Sanity check failed: no file found"
+check "terminal output only: easyconfig path on the next line" "$(sed -n 's/^  easyconfig: *//p' <<< "${out}")" \
+    "/home/alice/corpus/cases/sanity/hello-2.12.1-GCCcore-13.3.0.eb"
 
 # A run that keeps its builds in its own directory, as failed given the run
 # as LOGDIR keeps them, is read as well; they have no target.
