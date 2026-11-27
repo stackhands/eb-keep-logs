@@ -1,0 +1,1 @@
+A long EasyBuild failure line made `why`, `history` and `failures` keep a second copy of that line. A log near the read limit could then run out of memory before the command printed anything. These commands now read the step and the duration from the end of the line, and `why` still prints the first 400 bytes of the message.
