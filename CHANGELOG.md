@@ -2,6 +2,37 @@
 
 <!-- towncrier release notes start -->
 
+## 0.4.0 (2026-11-27)
+
+### Fixes
+
+- A failed directory sync in `rotate`, after a log is compressed or after its `.licensed-logs` is rewritten, now reports its errno by name, such as `EIO` instead of `Unexpected`.
+- `lifecycle` escapes a module name and a dependent's name before the `-- warn`, `-- forbid-after`, and `-- candidate-remove` comment lines of its generated `.modulerc.lua`, the same way it already escaped them inside each entry's Lua string literals, so a raw newline from a directory entry cannot end the comment early and leave the rest of the name as unquoted, uncommented Lua.
+- `loads`, `used`, `usage`, `pending`, `test-bundle` and `test-compare` replace a byte that is not valid UTF-8 with the Unicode replacement character before printing it, as `why` already did, whether the byte came from a module name or a path in a record, from a stream `test-bundle` captures, or from a value given on the command line and printed back: `loads --module`, `used --prefix`, `usage --software` and `--modules`, `runs --exec`, the `--policy` path in `lifecycle --json`, each `test-bundle` value, and the bundle files `test-compare` names. Neither the plain report nor the `--json` field for that value carries a raw invalid byte or changes type.
+- `rotate` counts a log as compressed after a failed directory sync only when its own compression got as far as that sync. A log another rotate removed first, or an archive name that holds something other than a regular file, is a failed compress again and is not counted.
+- `rotate` rewrites every `.licensed-logs` under a run after it compresses a log, including a list in the run directory that names a log nested below it. A list that does not sit beside the log used to keep the path from before compression.
+- `rotate`'s compress and preview walks hold at most eight directories open whatever the depth of the run, and, while nothing moves under them, open each directory at most twice, so a deep run is walked whole under a low descriptor limit and the walk's cost grows with the size of the tree, not with its depth. A directory replaced by a symbolic link or moved out of the run during the walk is not followed, and a directory that cannot be read does not stop the rest of the walk.
+- `why` and `history` treat a coloured EasyBuild error line as a failure, and leave a coloured announcement after that failure out of the message.
+
+### Documentation
+
+- The README says which commands only the Zig binary has and lists loads, runs, used, pending, test-bundle, test-compare and --metrics-file, and COMPAT.md lists --syslog and --metrics-file for failed and rotate.
+- The install guide drops the note that used and the last-log fix wait for a release; v0.3.0 already had both.
+
+### Removals
+
+- The shell script `eb-keep-logs` 0.1.0 is no longer in the repository; the binary is the one implementation. `tests/test_cases.sh` holds the binary to the script's recorded output on the invocations `tests/differential.sh` compared, and COMPAT.md stays as the record of what changed for a site that ran the script.
+
+### Miscellaneous
+
+- CI and the release workflow install Python 3.14 before the steps that run `test_syslog.py` and `test_json_schemas.sh`, instead of relying on whichever Python version a runner image happens to carry.
+- CI and the release workflow install `strace` through the shared `.github/actions/install-strace` action. It checks that `ptrace` works before `zig build test`, so release tag builds can run `test_rotate_fsync_durability.sh`.
+- The `.modulerc.lua` comment-escape shell test uses the shared `check` helper in `tests/lib/check.sh`, and CI runs shellcheck on it.
+- The forked unit tests' wait for the other side keeps one deadline: a signal that interrupts it no longer starts the full timeout over, so a stream of signals cannot extend it.
+- The shell tests share one `check` helper in `tests/lib/check.sh` instead of each keeping its own copy, and CI runs shellcheck on it.
+- zig-common is pinned to its 0.14.0 release instead of a develop commit. That release checks a close before the rename that publishes its result, so `rotate` and the atomic writers report a failed close instead of publishing a file whose last write may not have reached disk, and `fsx.absPath` can return the path errors as well as an allocation error. No call site changes.
+
+
 ## 0.3.1 (2026-11-24)
 
 ### Fixes

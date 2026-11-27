@@ -3,7 +3,7 @@
 Install the =eb-keep-logs= program for your account, from a release or from source.
 A site that installs it as a module can load that module instead and skip this page.
 
-Release v0.3.1 is the latest tag.
+Release v0.4.0 is the latest tag.
 
 * Before you start
 
@@ -18,7 +18,7 @@ Release v0.3.1 is the latest tag.
 1. Download the binary for this host's architecture and the release checksums, and check the binary:
 
    #+begin_src bash
-   v=0.3.1; f=eb-keep-logs-$v-$(uname -m)-linux-musl
+   v=0.4.0; f=eb-keep-logs-$v-$(uname -m)-linux-musl
    mkdir -p ~/.local/bin && cd ~/.local/bin
    curl -fsSLO "https://github.com/stackhands/eb-keep-logs/releases/download/v$v/$f"
    curl -fsSLO "https://github.com/stackhands/eb-keep-logs/releases/download/v$v/SHA256SUMS"
@@ -26,7 +26,7 @@ Release v0.3.1 is the latest tag.
    #+end_src
 
    #+begin_example
-   eb-keep-logs-0.3.1-x86_64-linux-musl: OK
+   eb-keep-logs-0.4.0-x86_64-linux-musl: OK
    #+end_example
 
 2. Name the binary =eb-keep-logs=:
@@ -60,7 +60,7 @@ eb-keep-logs why --help | head -n 1
 
 #+begin_example
 /home/alice/.local/bin/eb-keep-logs
-eb-keep-logs 0.3.1 (x86_64-linux-musl, safe, zig 0.17.1, 4a27aa6)
+eb-keep-logs 0.4.0 (x86_64-linux-musl, safe, zig 0.17.1, 4a27aa6)
 Usage: eb-keep-logs why [OPTIONS] [RUN]
 #+end_example
 
@@ -70,7 +70,7 @@ The version line shows the release when you install a release file; a source bui
 
 | Message                                                                                         | Cause                                                                                 | What to do                                                                 |
 |-------------------------------------------------------------------------------------------------+---------------------------------------------------------------------------------------+----------------------------------------------------------------------------|
-| =eb-keep-logs-0.3.1-x86_64-linux-musl: FAILED= and =sha256sum: WARNING: 1 computed checksum did NOT match= | The file is not the one the checksums name.                          | Download again, and check again.                                           |
+| =eb-keep-logs-0.4.0-x86_64-linux-musl: FAILED= and =sha256sum: WARNING: 1 computed checksum did NOT match= | The file is not the one the checksums name.                          | Download again, and check again.                                           |
 | =curl: (22) The requested URL returned error: 404=                                              | The architecture is neither x86_64 nor aarch64, or =v= names no release.             | Install from source.                                                       |
 | =failed= keeps nothing on EasyBuild 5.3 or newer                                                | Release 0.2.1 predates the =--output-style=basic= fix for folded =eb --last-log= paths. | Install the latest release.                                                 |
 | The shell does not find =eb-keep-logs=                                                          | =~/.local/bin= is not on =PATH=.                                                      | Add it in your shell startup file.                                         |

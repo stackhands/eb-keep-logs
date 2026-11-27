@@ -1,1 +1,0 @@
-`lifecycle` escapes a module name and a dependent's name before the `-- warn`, `-- forbid-after`, and `-- candidate-remove` comment lines of its generated `.modulerc.lua`, the same way it already escaped them inside each entry's Lua string literals, so a raw newline from a directory entry cannot end the comment early and leave the rest of the name as unquoted, uncommented Lua.
