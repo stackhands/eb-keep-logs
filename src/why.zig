@@ -155,24 +155,43 @@ fn isNumber(s: []const u8) bool {
 
 const space = " \t\r\n\x0b\x0c";
 
+/// The next byte of `line` at `i` that is not inside an ANSI colour
+/// sequence, or null at the end of the line. `i` advances past that byte,
+/// or past the sequence when the byte was one.
+fn nextVisible(line: []const u8, i: *usize) ?u8 {
+    while (i.* < line.len) {
+        if (line[i.*] == 0x1b and i.* + 1 < line.len and line[i.* + 1] == '[') {
+            var j = i.* + 2;
+            while (j < line.len and (std.ascii.isDigit(line[j]) or line[j] == ';')) j += 1;
+            if (j < line.len and std.ascii.isAlphabetic(line[j])) {
+                i.* = j + 1;
+                continue;
+            }
+        }
+        const c = line[i.*];
+        i.* += 1;
+        return c;
+    }
+    return null;
+}
+
+/// Whether the visible text of `line` starts with `prefix`.
+fn visibleStartsWith(line: []const u8, prefix: []const u8) bool {
+    var i: usize = 0;
+    for (prefix) |p| {
+        const c = nextVisible(line, &i) orelse return false;
+        if (c != p) return false;
+    }
+    return true;
+}
+
 /// `line` without its ANSI escape sequences, as EasyBuild's coloured output
 /// on a terminal has them.
 fn visible(arena: Allocator, line: []const u8) Allocator.Error![]const u8 {
     if (std.mem.findScalar(u8, line, 0x1b) == null) return line;
     var out: std.ArrayList(u8) = try .initCapacity(arena, line.len);
     var i: usize = 0;
-    while (i < line.len) {
-        if (line[i] == 0x1b and i + 1 < line.len and line[i + 1] == '[') {
-            var j = i + 2;
-            while (j < line.len and (std.ascii.isDigit(line[j]) or line[j] == ';')) j += 1;
-            if (j < line.len and std.ascii.isAlphabetic(line[j])) {
-                i = j + 1;
-                continue;
-            }
-        }
-        out.appendAssumeCapacity(line[i]);
-        i += 1;
-    }
+    while (nextVisible(line, &i)) |c| out.appendAssumeCapacity(c);
     return out.items;
 }
 
@@ -219,30 +238,14 @@ fn after(line: []const u8, marker: []const u8) ?[]const u8 {
     return line[i + marker.len ..];
 }
 
-/// EasyBuild's message from offset `from` in `text` to the end of its entry,
-/// the lines before the next that starts with `== `, with each run of white
-/// space made one space. ANSI escapes are removed first, as they are for a
-/// step announcement: a coloured line does not start with those bytes.
-/// On the terminal EasyBuild wraps at 80 columns, folding a longer word
-/// over whole lines; with `unwrap`, a visible line of 80 bytes or more
-/// without white space is such a fold, and runs on into the next line.
-fn flatEntry(arena: Allocator, text: []const u8, from: usize, unwrap: bool) Allocator.Error![]const u8 {
-    var out: std.ArrayList(u8) = .empty;
-    var it: Lines = .{ .text = text, .pos = from };
-    var n: usize = 0;
-    var fold = false;
-    while (it.next()) |l| : (n += 1) {
-        const shown = try visible(arena, l.text);
-        if (n > entry_lines or (n > 0 and std.mem.startsWith(u8, shown, "== "))) break;
-        var words = std.mem.tokenizeAny(u8, shown, space);
-        var first = true;
-        while (words.next()) |w| : (first = false) {
-            if (out.items.len > 0 and !(first and fold)) try out.append(arena, ' ');
-            try out.appendSlice(arena, w);
-        }
-        fold = unwrap and shown.len >= 80 and std.mem.findAny(u8, shown, space) == null;
-    }
-    return out.items;
+/// Seconds in one EasyBuild duration unit: `day`, `hour`, `min` or `sec`,
+/// by the start of the word, as in `days` or `secs`.
+fn durationScale(unit: []const u8) ?u64 {
+    if (std.mem.startsWith(u8, unit, "day")) return 86400;
+    if (std.mem.startsWith(u8, unit, "hour")) return 3600;
+    if (std.mem.startsWith(u8, unit, "min")) return 60;
+    if (std.mem.startsWith(u8, unit, "sec")) return 1;
+    return null;
 }
 
 /// The seconds in the last `(took DURATION)` of `entry`, DURATION as
@@ -251,28 +254,10 @@ fn flatEntry(arena: Allocator, text: []const u8, from: usize, unwrap: bool) Allo
 pub fn tookSeconds(entry: []const u8) ?u64 {
     const at = std.mem.findLast(u8, entry, "(took ") orelse return null;
     const s = at + "(took ".len;
-    const took = entry[s .. std.mem.findScalarPos(u8, entry, s, ')') orelse return null];
-    if (std.mem.startsWith(u8, took, "<")) return 0;
-    var total: u64 = 0;
-    var words = std.mem.tokenizeScalar(u8, took, ' ');
-    var any = false;
-    while (words.next()) |num| {
-        const n = std.fmt.parseInt(u64, num, 10) catch return null;
-        const unit = words.next() orelse return null;
-        const scale: u64 = if (std.mem.startsWith(u8, unit, "day"))
-            86400
-        else if (std.mem.startsWith(u8, unit, "hour"))
-            3600
-        else if (std.mem.startsWith(u8, unit, "min"))
-            60
-        else if (std.mem.startsWith(u8, unit, "sec"))
-            1
-        else
-            return null;
-        total = std.math.add(u64, total, std.math.mul(u64, n, scale) catch return null) catch return null;
-        any = true;
-    }
-    return if (any) total else null;
+    const end = std.mem.findScalarPos(u8, entry, s, ')') orelse return null;
+    var dur: EntryScan.Dur = .{};
+    for (entry[s..end]) |c| dur.byte(c);
+    return dur.close();
 }
 
 /// Which log a text is: EasyBuild's session log, or its output on the
@@ -315,13 +300,239 @@ fn reportOf(line: []const u8, source: Source) ?[]const u8 {
 
 const ended_marker = "installation ended unsuccessfully";
 
-/// The message of an `Installation ended unsuccessfully: MESSAGE (took
-/// DURATION)` entry that `flatEntry` gave from the marker on.
-fn endedMessage(entry: []const u8) ?[]const u8 {
-    var m = std.mem.trimStart(u8, entry[ended_marker.len..], ": ");
-    if (std.mem.findLast(u8, m, " (took ")) |i| m = m[0..i];
-    return if (m.len > 0) m else null;
+/// What `why` and `history` need from the EasyBuild entry at offset `from`:
+/// the step it names, the seconds in its last `(took ...)`, and, when
+/// `keep_message` is set, the message with that duration cut off. White
+/// space is collapsed and ANSI escapes are removed, as they are for a step
+/// announcement. On the terminal EasyBuild wraps at 80 columns; with
+/// `unwrap`, a visible line of 80 bytes or more without white space runs
+/// on into the next line. The message keeps at most `line_limit` bytes.
+/// The rest of the entry is not stored, so a failure line as long as the
+/// log does not ask for that line a second time.
+const EntryRead = struct {
+    step: ?[]const u8 = null,
+    duration_s: ?u64 = null,
+    message: ?[]const u8 = null,
+};
+
+fn entryOf(arena: Allocator, text: []const u8, from: usize, unwrap: bool, keep_message: bool) Allocator.Error!EntryRead {
+    comptime {
+        for (steps) |s| if (4 + s.name.len + 5 > 32) @compileError("step name does not fit the entry tail");
+    }
+    var scan: EntryScan = .{ .arena = arena, .keep_message = keep_message };
+    var it: Lines = .{ .text = text, .pos = from };
+    var n: usize = 0;
+    var fold = false;
+    while (it.next()) |l| : (n += 1) {
+        if (n > entry_lines or (n > 0 and visibleStartsWith(l.text, "== "))) break;
+        fold = scan.consume(l.text, fold, unwrap);
+    }
+    return scan.finish();
 }
+
+/// One pass over the flattened entry. The tail holds the last bytes, enough
+/// for ` in sanitycheck step` and for ` (took `.
+const EntryScan = struct {
+    arena: Allocator,
+    keep_message: bool,
+    nfed: usize = 0,
+    tail: [32]u8 = undefined,
+    collecting: bool = false,
+    dur: Dur = .{},
+    dur_value: ?u64 = null,
+    step: ?[]const u8 = null,
+    step_at: ?usize = null,
+    skipped: usize = 0,
+    trimming: bool = true,
+    msg: [line_limit]u8 = undefined,
+    msg_len: usize = 0,
+    msg_i: usize = 0,
+    cut: ?usize = null,
+
+    /// The seconds parser for the text after `(took `. `tookSeconds`
+    /// feeds its slice through this parser. A later `(took ` replaces
+    /// an earlier one, including one that never reaches `)`.
+    const Dur = struct {
+        first: bool = true,
+        lt: bool = false,
+        failed: bool = false,
+        any: bool = false,
+        expect_num: bool = true,
+        in_tok: bool = false,
+        tok_long: bool = false,
+        total: u64 = 0,
+        pending: u64 = 0,
+        tok: [20]u8 = undefined,
+        tok_len: usize = 0,
+
+        fn byte(self: *Dur, c: u8) void {
+            if (self.lt or self.failed) return;
+            if (self.first) {
+                self.first = false;
+                if (c == '<') {
+                    self.lt = true;
+                    return;
+                }
+            }
+            if (c == ' ') {
+                if (self.in_tok) self.finishTok();
+                return;
+            }
+            if (!self.in_tok) {
+                self.in_tok = true;
+                self.tok_len = 0;
+                self.tok_long = false;
+            }
+            if (self.tok_len < self.tok.len) {
+                self.tok[self.tok_len] = c;
+                self.tok_len += 1;
+            } else self.tok_long = true;
+        }
+
+        fn finishTok(self: *Dur) void {
+            self.in_tok = false;
+            if (self.failed) return;
+            const t = self.tok[0..self.tok_len];
+            if (self.expect_num) {
+                if (self.tok_long) {
+                    self.failed = true;
+                    return;
+                }
+                self.pending = std.fmt.parseInt(u64, t, 10) catch {
+                    self.failed = true;
+                    return;
+                };
+                self.expect_num = false;
+                return;
+            }
+            const scale = durationScale(t) orelse {
+                self.failed = true;
+                return;
+            };
+            const scaled = std.math.mul(u64, self.pending, scale) catch {
+                self.failed = true;
+                return;
+            };
+            self.total = std.math.add(u64, self.total, scaled) catch {
+                self.failed = true;
+                return;
+            };
+            self.any = true;
+            self.expect_num = true;
+        }
+
+        fn close(self: *Dur) ?u64 {
+            if (self.lt) return 0;
+            if (self.in_tok) self.finishTok();
+            if (self.failed or !self.expect_num or !self.any) return null;
+            return self.total;
+        }
+    };
+
+    fn consume(self: *EntryScan, line: []const u8, fold: bool, unwrap: bool) bool {
+        var i: usize = 0;
+        var len: usize = 0;
+        var spaced = false;
+        var first = true;
+        var in_word = false;
+        while (nextVisible(line, &i)) |c| {
+            len += 1;
+            if (std.ascii.isWhitespace(c)) {
+                spaced = true;
+                in_word = false;
+                continue;
+            }
+            if (!in_word) {
+                if (self.nfed > 0 and !(first and fold)) self.feed(' ');
+                first = false;
+                in_word = true;
+            }
+            self.feed(c);
+        }
+        return unwrap and len >= 80 and !spaced;
+    }
+
+    fn feed(self: *EntryScan, c: u8) void {
+        self.tail[self.nfed % self.tail.len] = c;
+        self.nfed += 1;
+        if (c == ' ' and self.endsWith("(took ", false)) {
+            self.collecting = true;
+            self.dur = .{};
+            self.dur_value = null;
+        } else if (self.collecting) {
+            if (c == ')') {
+                self.dur_value = self.dur.close();
+                self.collecting = false;
+            } else self.dur.byte(c);
+        }
+        if (c == 'p' or c == 'P') self.noteStep();
+        self.noteMessage(c);
+    }
+
+    fn endsWith(self: *const EntryScan, needle: []const u8, ignore_case: bool) bool {
+        if (self.nfed < needle.len or needle.len > self.tail.len) return false;
+        for (needle, 0..) |want, k| {
+            const got = self.tail[(self.nfed - needle.len + k) % self.tail.len];
+            if (ignore_case) {
+                if (std.ascii.toLower(got) != std.ascii.toLower(want)) return false;
+            } else if (got != want) return false;
+        }
+        return true;
+    }
+
+    fn noteStep(self: *EntryScan) void {
+        if (!self.endsWith(" step", true)) return;
+        for (steps) |s| {
+            var buf: [32]u8 = undefined;
+            const needle = std.fmt.bufPrint(&buf, " in {s} step", .{s.name}) catch unreachable;
+            if (!self.endsWith(needle, true)) continue;
+            const start = self.nfed - needle.len;
+            if (self.step_at == null or start < self.step_at.?) {
+                self.step = s.name;
+                self.step_at = start;
+            }
+        }
+    }
+
+    /// The message is the flattened entry after `ended_marker`, with `:` and
+    /// spaces trimmed from its start, cut at the last ` (took `. Bytes past
+    /// `line_limit` are counted, so a duration past the cap still ends the
+    /// message, but they are not stored.
+    fn noteMessage(self: *EntryScan, c: u8) void {
+        if (!self.keep_message) return;
+        if (self.skipped < ended_marker.len) {
+            self.skipped += 1;
+            return;
+        }
+        if (self.trimming) {
+            if (c == ':' or c == ' ') return;
+            self.trimming = false;
+        }
+        if (self.msg_i < line_limit) {
+            self.msg[self.msg_i] = c;
+            self.msg_len = self.msg_i + 1;
+        }
+        self.msg_i += 1;
+        if (self.msg_i >= " (took ".len and c == ' ' and self.endsWith(" (took ", false))
+            self.cut = self.msg_i - " (took ".len;
+    }
+
+    fn finish(self: *EntryScan) Allocator.Error!EntryRead {
+        const duration_s = if (self.collecting) null else self.dur_value;
+        var message: ?[]const u8 = null;
+        if (self.keep_message) {
+            var end: usize = self.msg_len;
+            if (self.cut) |at| if (at < end) {
+                end = at;
+            };
+            if (end > 0) {
+                const clipped = clip(self.msg[0..end]);
+                if (clipped.len > 0) message = try self.arena.dupe(u8, clipped);
+            }
+        }
+        return .{ .step = self.step, .duration_s = duration_s, .message = message };
+    }
+};
 
 /// What a log records about its build's failure. EasyBuild's own error line
 /// is, in a session log, its first `EasyBuild encountered an error`; on the
@@ -343,12 +554,14 @@ pub fn analyze(arena: Allocator, text: []const u8, source: Source) Allocator.Err
     var ended_at: usize = 0;
     var it: Lines = .{ .text = text };
     while (it.next()) |l| {
-        const shown = try visible(arena, l.text);
+        // The failure line can be as long as the log. Do not copy it here.
+        // `entryOf` reads the step, the duration and the message from it.
         if (std.ascii.findIgnoreCase(l.text, ended_marker)) |i| {
             ended = l;
             ended_at = l.start + i;
             break;
         }
+        const shown = try visible(arena, l.text);
         if (report != null and source == .session) continue;
         if (try stepStarted(arena, shown)) |s| {
             last_step = s;
@@ -368,12 +581,13 @@ pub fn analyze(arena: Allocator, text: []const u8, source: Source) Allocator.Err
             candidate = l;
     }
     if (ended) |e| {
-        const entry = try flatEntry(arena, text, ended_at, source == .stdout);
-        a.step = stepNamed(entry);
-        a.duration_s = tookSeconds(entry);
-        if (report == null or source == .stdout) {
+        const keep = report == null or source == .stdout;
+        const entry = try entryOf(arena, text, ended_at, source == .stdout, keep);
+        a.step = entry.step;
+        a.duration_s = entry.duration_s;
+        if (keep) {
             report = e;
-            a.message = endedMessage(entry);
+            a.message = entry.message;
         }
     }
     if (a.step == null) a.step = last_step;
@@ -401,9 +615,11 @@ pub fn verdict(arena: Allocator, text: []const u8) Allocator.Error!Verdict {
     var it: Lines = .{ .text = text };
     while (it.next()) |l| {
         if (std.mem.find(u8, l.text, "COMPLETED: Installation ended successfully")) |i| {
-            v = .{ .outcome = .success, .duration_s = tookSeconds(try flatEntry(arena, text, l.start + i, true)) };
+            const entry = try entryOf(arena, text, l.start + i, true, false);
+            v = .{ .outcome = .success, .duration_s = entry.duration_s };
         } else if (std.mem.find(u8, l.text, "FAILED: Installation ended unsuccessfully")) |i| {
-            v = .{ .outcome = .failed, .duration_s = tookSeconds(try flatEntry(arena, text, l.start + i, true)) };
+            const entry = try entryOf(arena, text, l.start + i, true, false);
+            v = .{ .outcome = .failed, .duration_s = entry.duration_s };
         } else if (std.mem.startsWith(u8, try visible(arena, l.text), "ERROR:") and v.outcome != .failed) {
             v = .{ .outcome = .failed };
         }
@@ -1498,6 +1714,36 @@ test "analyze: EasyBuild's output, wrapped at 80 columns" {
     try testing.expectEqual(@as(?[]const u8, null), a.step);
     try testing.expectEqualStrings("Missing dependencies: libgreet/1.0 (no easyconfig file or existing module found)", a.message.?);
     try testing.expectEqual(@as(usize, 2), a.error_line.?.no);
+}
+
+test "a long failure line is not kept for why or history" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+    const n = 2 * 1024 * 1024;
+    const buf = try testing.allocator.alloc(u8, n);
+    defer testing.allocator.free(buf);
+    // EasyBuild colours the failure line. The text is one line, longer
+    // than the 400 bytes `why` prints, with the step and the duration
+    // at the end.
+    const head = "\x1b[31m== FAILED: Installation ended unsuccessfully: ";
+    const tail = " in build step (took 4 secs)\x1b[0m\n";
+    @memcpy(buf[0..head.len], head);
+    @memset(buf[head.len .. n - tail.len], 'x');
+    @memcpy(buf[n - tail.len ..], tail);
+
+    const got = try analyze(arena, buf, .stdout);
+    try testing.expectEqualStrings("build", got.step.?);
+    try testing.expectEqual(@as(?u64, 4), got.duration_s);
+    const v = try verdict(arena, buf);
+    try testing.expectEqual(Outcome.failed, v.outcome);
+    try testing.expectEqual(@as(?u64, 4), v.duration_s);
+    // The line is already in `buf`. Reading it for `why` and `history`
+    // keeps the message `why` prints, not a second copy of the line.
+    try testing.expect(arena_state.queryCapacity() < 64 * 1024);
+    try testing.expectEqual(line_limit, got.message.?.len);
+    try testing.expect(got.message.?[0] == 'x');
+    try testing.expect(got.message.?[got.message.?.len - 1] == 'x');
 }
 
 test "verdict" {
