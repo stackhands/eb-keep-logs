@@ -9,6 +9,7 @@ const common = @import("zig_common");
 const sys = common.sys;
 const fsx = common.fsx;
 const cli = common.cli;
+const cli_parse = @import("cli_parse.zig");
 const loads = @import("loads.zig");
 const runs = @import("runs.zig");
 const utf8_text = @import("utf8_text.zig");
@@ -390,40 +391,22 @@ fn readLog(gpa: Allocator, path: []const u8) ?[]u8 {
     };
 }
 
+const used_cli = cli_parse.make(.{
+    .prog = "used",
+    .options = &.{ cli_parse.req("prefix"), cli_parse.flag("json"), cli_parse.flag("require-none") },
+    .positionals = &.{cli_parse.zeroOrMore("FILE")},
+});
+
 /// `used --prefix PREFIX [--json] [--require-none] FILE...`.
 pub fn cmdUsed(gpa: Allocator, args: []const []const u8) u8 {
-    var prefix: []const u8 = "";
-    var json_out = false;
-    var require_none = false;
-    var files: std.ArrayList([]const u8) = .empty;
-    defer files.deinit(gpa);
-
-    var i: usize = 0;
-    while (i < args.len) : (i += 1) {
-        const a = args[i];
-        if (std.mem.eql(u8, a, "--prefix") or std.mem.startsWith(u8, a, "--prefix=")) {
-            const v = if (std.mem.startsWith(u8, a, "--prefix="))
-                a["--prefix=".len..]
-            else blk: {
-                i += 1;
-                if (i >= args.len) die("used needs --prefix", .{});
-                break :blk args[i];
-            };
-            if (v.len == 0 or v[0] == '-') die("used needs --prefix", .{});
-            prefix = v;
-        } else if (std.mem.eql(u8, a, "--json")) {
-            json_out = true;
-        } else if (std.mem.eql(u8, a, "--require-none")) {
-            require_none = true;
-        } else if (a.len > 0 and a[0] == '-') {
-            die("used does not know '{s}'", .{a});
-        } else {
-            files.append(gpa, a) catch die("out of memory", .{});
-        }
-    }
-    if (prefix.len == 0) die("used needs --prefix", .{});
+    var parsed = used_cli.take(gpa, args);
+    defer parsed.deinit(gpa);
+    const prefix = parsed.value("prefix").?;
+    const json_out = parsed.seen("json");
+    const require_none = parsed.seen("require-none");
+    const files = parsed.positionals;
     if (std.mem.indexOfScalar(u8, prefix, '\n') != null) die("used needs --prefix", .{});
-    if (files.items.len == 0) die("used needs a record file", .{});
+    if (files.len == 0) die("used needs a record file", .{});
 
     var arena = std.heap.ArenaAllocator.init(gpa);
     defer arena.deinit();
@@ -432,7 +415,7 @@ pub fn cmdUsed(gpa: Allocator, args: []const []const u8) u8 {
     var table = Table.init(a);
     defer table.deinit();
 
-    for (files.items) |path| {
+    for (files) |path| {
         const text = readLog(gpa, path) orelse return 2;
         defer gpa.free(text);
         scanText(a, &table, prefix, text) catch |err| switch (err) {

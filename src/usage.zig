@@ -4,6 +4,7 @@ const common = @import("zig_common");
 const sys = common.sys;
 const fsx = common.fsx;
 const cli = common.cli;
+const cli_parse = @import("cli_parse.zig");
 const used = @import("used.zig");
 const utf8_text = @import("utf8_text.zig");
 
@@ -258,48 +259,48 @@ fn formatJson(
     return try out.toOwnedSlice();
 }
 
+fn finiteEpoch(gpa: Allocator, raw: []const u8) Allocator.Error!cli_parse.ValidationResult {
+    const number = std.fmt.parseFloat(f64, raw) catch return .{ .err = try gpa.dupe(u8, "epoch") };
+    if (!std.math.isFinite(number) or number < 0) return .{ .err = try gpa.dupe(u8, "epoch") };
+    return .ok;
+}
+
+const usage_cli = cli_parse.make(.{
+    .prog = "usage",
+    .mutex = "usage takes --unused or --active, not both",
+    .options = &.{
+        cli_parse.req("software"),
+        cli_parse.req("modules"),
+        cli_parse.checked(cli_parse.strict("since"), finiteEpoch),
+        cli_parse.flag("unused"),
+        cli_parse.flag("active"),
+        cli_parse.flag("json"),
+    },
+    .mutually_exclusive = &.{
+        .{ .options = &.{ "unused", "active" } },
+    },
+    .positionals = &.{cli_parse.oneOrMore("FILE")},
+    .missing = &.{
+        .{ .name = "since", .msg = "--since needs an epoch" },
+        .{ .name = "FILE", .msg = "usage needs a record file" },
+    },
+});
+
 /// `usage --software DIR --modules DIR [--since EPOCH]
 /// [--unused | --active] [--json] FILE...`.
 pub fn cmdUsage(gpa: Allocator, args: []const []const u8) u8 {
-    var software: []const u8 = "";
-    var modules: []const u8 = "";
-    var since_text: ?[]const u8 = null;
-    var since: ?f64 = null;
-    var selection: Selection = .all;
-    var json_out = false;
-    var files: std.ArrayList([]const u8) = .empty;
-    defer files.deinit(gpa);
-
-    var i: usize = 0;
-    while (i < args.len) : (i += 1) {
-        const arg = args[i];
-        if (std.mem.eql(u8, arg, "--software") or std.mem.startsWith(u8, arg, "--software=")) {
-            software = optionValue(args, &i, arg, "--software", "usage needs --software");
-        } else if (std.mem.eql(u8, arg, "--modules") or std.mem.startsWith(u8, arg, "--modules=")) {
-            modules = optionValue(args, &i, arg, "--modules", "usage needs --modules");
-        } else if (std.mem.eql(u8, arg, "--since") or std.mem.startsWith(u8, arg, "--since=")) {
-            const value = optionValue(args, &i, arg, "--since", "--since needs an epoch");
-            const parsed = std.fmt.parseFloat(f64, value) catch die("--since needs an epoch", .{});
-            if (!std.math.isFinite(parsed) or parsed < 0) die("--since needs an epoch", .{});
-            since_text = value;
-            since = parsed;
-        } else if (std.mem.eql(u8, arg, "--unused")) {
-            if (selection == .active) die("usage takes --unused or --active, not both", .{});
-            selection = .unused;
-        } else if (std.mem.eql(u8, arg, "--active")) {
-            if (selection == .unused) die("usage takes --unused or --active, not both", .{});
-            selection = .active;
-        } else if (std.mem.eql(u8, arg, "--json")) {
-            json_out = true;
-        } else if (arg.len > 0 and arg[0] == '-') {
-            die("usage does not know '{s}'", .{arg});
-        } else {
-            files.append(gpa, arg) catch die("out of memory", .{});
-        }
-    }
-    if (software.len == 0) die("usage needs --software", .{});
-    if (modules.len == 0) die("usage needs --modules", .{});
-    if (files.items.len == 0) die("usage needs a record file", .{});
+    var parsed = usage_cli.take(gpa, args);
+    defer parsed.deinit(gpa);
+    const software = parsed.value("software").?;
+    const modules = parsed.value("modules").?;
+    const since_text = parsed.value("since");
+    const since: ?f64 = if (since_text) |value|
+        std.fmt.parseFloat(f64, value) catch die("--since needs an epoch", .{})
+    else
+        null;
+    const selection: Selection = if (parsed.seen("unused")) .unused else if (parsed.seen("active")) .active else .all;
+    const json_out = parsed.seen("json");
+    const files = parsed.positionals;
     if (std.mem.indexOfScalar(u8, software, '\n') != null or
         std.mem.indexOfScalar(u8, modules, '\n') != null)
         die("usage directory must not contain a newline", .{});
@@ -320,7 +321,7 @@ pub fn cmdUsage(gpa: Allocator, args: []const []const u8) u8 {
     var table = inventory(gpa, arena, software) catch die("out of memory", .{});
     defer table.deinit(arena);
 
-    for (files.items) |path| {
+    for (files) |path| {
         const text = readLog(gpa, path) orelse return 2;
         defer gpa.free(text);
         const hits = used.parseHits(arena, text) catch |err| switch (err) {
@@ -349,24 +350,6 @@ pub fn cmdUsage(gpa: Allocator, args: []const []const u8) u8 {
         formatText(arena, selected_rows, selection) catch die("out of memory", .{});
     cli.out("{s}", .{body});
     return 0;
-}
-
-fn optionValue(
-    args: []const []const u8,
-    i: *usize,
-    arg: []const u8,
-    comptime option: []const u8,
-    comptime message: []const u8,
-) []const u8 {
-    const value = if (std.mem.startsWith(u8, arg, option ++ "="))
-        arg[option.len + 1 ..]
-    else blk: {
-        i.* += 1;
-        if (i.* >= args.len) die(message, .{});
-        break :blk args[i.*];
-    };
-    if (value.len == 0 or value[0] == '-') die(message, .{});
-    return value;
 }
 
 test "software paths name their installed module" {

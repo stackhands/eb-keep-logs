@@ -10,6 +10,7 @@ const sys = common.sys;
 const fsx = common.fsx;
 const cli = common.cli;
 const utf8_text = @import("utf8_text.zig");
+const cli_parse = @import("cli_parse.zig");
 
 const Allocator = std.mem.Allocator;
 const tool = "eb-keep-logs";
@@ -679,20 +680,6 @@ fn isDirAt(dir: fsx.fd_t, name: []const u8) bool {
     return st.isDir();
 }
 
-/// The value of option `name` at `args[i.*]`, given as `NAME VALUE`, which
-/// moves `i` past the value, or as `NAME=VALUE`; null when `args[i.*]` is
-/// not the option. A missing or empty value is refused.
-fn optionValue(args: []const [:0]const u8, i: *usize, comptime name: []const u8, comptime what: []const u8) ?[]const u8 {
-    const a = args[i.*];
-    const v: []const u8 = if (std.mem.eql(u8, a, name)) blk: {
-        if (i.* + 1 >= args.len) die(name ++ " needs " ++ what, .{});
-        i.* += 1;
-        break :blk args[i.*];
-    } else if (std.mem.startsWith(u8, a, name ++ "=")) a[name.len + 1 ..] else return null;
-    if (v.len == 0) die(name ++ " needs " ++ what, .{});
-    return v;
-}
-
 fn plural(n: usize) []const u8 {
     return if (n == 1) "" else "s";
 }
@@ -898,54 +885,92 @@ fn normalizePackage(arena: Allocator, raw: []const u8) Allocator.Error![]const u
     return package;
 }
 
-fn wantsHelp(args: []const [:0]const u8) bool {
-    for (args) |a| {
-        if (std.mem.eql(u8, a, "-h") or std.mem.eql(u8, a, "--help")) return true;
-    }
-    return false;
-}
+const date_missing: []const cli_parse.Missing = &.{
+    .{ .name = "target", .msg = "--target needs a target" },
+    .{ .name = "package", .msg = "--package needs a package" },
+    .{ .name = "since", .msg = "--since needs a date" },
+    .{ .name = "until", .msg = "--until needs a date" },
+    .{ .name = "root", .msg = "--root needs a directory" },
+};
+
+const history_missing: []const cli_parse.Missing = date_missing ++ [_]cli_parse.Missing{
+    .{ .name = "PACKAGE", .msg = "history needs PACKAGE: the easyconfig name without .eb, or NAME/VERSION" },
+};
+
+const why_cli = cli_parse.make(.{
+    .prog = "why",
+    .help = why_help,
+    .policy = cli_parse.prescan,
+    .bare_unknown = true,
+    .extra = .static,
+    .extra_msg = "why takes one RUN",
+    .missing = date_missing,
+    .options = &.{
+        cli_parse.filled("target"),
+        cli_parse.filled("package"),
+        cli_parse.filled("since"),
+        cli_parse.filled("until"),
+        cli_parse.filled("root"),
+        cli_parse.flag("latest"),
+        cli_parse.flag("json"),
+    },
+    .positionals = &.{cli_parse.optional("RUN")},
+});
+
+const history_cli = cli_parse.make(.{
+    .prog = "history",
+    .help = history_help,
+    .policy = cli_parse.prescan,
+    .bare_unknown = true,
+    .extra = .static,
+    .extra_msg = "history takes one PACKAGE",
+    .missing = history_missing,
+    .options = &.{
+        cli_parse.filled("target"),
+        cli_parse.filled("since"),
+        cli_parse.filled("until"),
+        cli_parse.filled("root"),
+        cli_parse.flag("failed"),
+        cli_parse.flag("json"),
+    },
+    .positionals = &.{cli_parse.one("PACKAGE", false)},
+});
+
+const failures_cli = cli_parse.make(.{
+    .prog = "failures",
+    .help = failures_help,
+    .policy = cli_parse.prescan,
+    .bare_unknown = true,
+    .extra = .failures,
+    .missing = date_missing,
+    .options = &.{
+        cli_parse.filled("package"),
+        cli_parse.filled("target"),
+        cli_parse.filled("since"),
+        cli_parse.filled("until"),
+        cli_parse.filled("root"),
+        cli_parse.flag("json"),
+    },
+});
 
 /// `why [RUN | --latest] [--target TARGET] [--package PACKAGE] [--since DATE] [--until DATE] [--root ROOT] [--json]`:
 /// print why the builds of a run failed, from the logs it kept. Returns 0 once
 /// its arguments are accepted, whatever it could read; a refused
 /// invocation exits 2. `-h` and `--help` print what to pass and return 0.
 pub fn cmdWhy(gpa: Allocator, args: []const [:0]const u8) u8 {
-    if (wantsHelp(args)) {
-        cli.put(1, why_help);
-        return 0;
-    }
-    var run_arg: ?[]const u8 = null;
-    var latest = false;
-    var target: ?[]const u8 = null;
-    var package_arg: ?[]const u8 = null;
-    var since_raw: ?[]const u8 = null;
-    var until_raw: ?[]const u8 = null;
-    var root_arg: ?[]const u8 = null;
-    var as_json = false;
-    var i: usize = 0;
-    while (i < args.len) : (i += 1) {
-        const a = args[i];
-        if (std.mem.eql(u8, a, "--latest")) {
-            latest = true;
-        } else if (std.mem.eql(u8, a, "--json")) {
-            as_json = true;
-        } else if (optionValue(args, &i, "--target", "a target")) |v| {
-            target = v;
-        } else if (optionValue(args, &i, "--package", "a package")) |v| {
-            package_arg = v;
-        } else if (optionValue(args, &i, "--since", "a date")) |v| {
-            since_raw = v;
-        } else if (optionValue(args, &i, "--until", "a date")) |v| {
-            until_raw = v;
-        } else if (optionValue(args, &i, "--root", "a directory")) |v| {
-            root_arg = v;
-        } else if (a.len > 0 and a[0] == '-') {
-            die("unknown option {s}", .{a});
-        } else {
-            if (run_arg != null) die("why takes one RUN", .{});
-            run_arg = a;
-        }
-    }
+    var parsed = switch (why_cli.takeOrHelp(gpa, args)) {
+        .help => return 0,
+        .ok => |p| p,
+    };
+    defer parsed.deinit(gpa);
+    const run_arg = parsed.positional(0);
+    const latest = parsed.seen("latest");
+    const target = parsed.value("target");
+    const package_arg = parsed.value("package");
+    const since_raw = parsed.value("since");
+    const until_raw = parsed.value("until");
+    const root_arg = parsed.value("root");
+    const as_json = parsed.seen("json");
     if (run_arg != null and latest) die("why takes RUN or --latest, not both", .{});
     if (run_arg != null and (since_raw != null or until_raw != null)) die("why takes RUN or --since/--until, not both", .{});
     if (run_arg) |r| if (r.len == 0) die("RUN must not be empty", .{});
@@ -1079,40 +1104,18 @@ fn writeHistory(w: *std.Io.Writer, r: HistoryReport) std.Io.Writer.Error!void {
 /// once its arguments are accepted, whatever it could read; a refused
 /// invocation exits 2.
 pub fn cmdHistory(gpa: Allocator, args: []const [:0]const u8) u8 {
-    if (wantsHelp(args)) {
-        cli.put(1, history_help);
-        return 0;
-    }
-    var package_arg: ?[]const u8 = null;
-    var target: ?[]const u8 = null;
-    var since_raw: ?[]const u8 = null;
-    var until_raw: ?[]const u8 = null;
-    var failed_only = false;
-    var root_arg: ?[]const u8 = null;
-    var as_json = false;
-    var i: usize = 0;
-    while (i < args.len) : (i += 1) {
-        const a = args[i];
-        if (std.mem.eql(u8, a, "--json")) {
-            as_json = true;
-        } else if (std.mem.eql(u8, a, "--failed")) {
-            failed_only = true;
-        } else if (optionValue(args, &i, "--target", "a target")) |v| {
-            target = v;
-        } else if (optionValue(args, &i, "--since", "a date")) |v| {
-            since_raw = v;
-        } else if (optionValue(args, &i, "--until", "a date")) |v| {
-            until_raw = v;
-        } else if (optionValue(args, &i, "--root", "a directory")) |v| {
-            root_arg = v;
-        } else if (a.len > 0 and a[0] == '-') {
-            die("unknown option {s}", .{a});
-        } else {
-            if (package_arg != null) die("history takes one PACKAGE", .{});
-            package_arg = a;
-        }
-    }
-    const package_s = package_arg orelse die("history needs PACKAGE: the easyconfig name without .eb, or NAME/VERSION", .{});
+    var parsed = switch (history_cli.takeOrHelp(gpa, args)) {
+        .help => return 0,
+        .ok => |p| p,
+    };
+    defer parsed.deinit(gpa);
+    const package_s = parsed.positional(0).?;
+    const target = parsed.value("target");
+    const since_raw = parsed.value("since");
+    const until_raw = parsed.value("until");
+    const failed_only = parsed.seen("failed");
+    const root_arg = parsed.value("root");
+    const as_json = parsed.seen("json");
     if (package_s.len == 0) die("PACKAGE must not be empty", .{});
     const date_filter = DateFilter.init(since_raw, until_raw);
 
@@ -1230,37 +1233,17 @@ fn writeFailures(w: *std.Io.Writer, r: FailuresReport) std.Io.Writer.Error!void 
 /// its arguments are accepted, whatever it could read; a refused invocation
 /// exits 2. `-h` and `--help` print what to pass and return 0.
 pub fn cmdFailures(gpa: Allocator, args: []const [:0]const u8) u8 {
-    if (wantsHelp(args)) {
-        cli.put(1, failures_help);
-        return 0;
-    }
-    var package_arg: ?[]const u8 = null;
-    var target: ?[]const u8 = null;
-    var since_raw: ?[]const u8 = null;
-    var until_raw: ?[]const u8 = null;
-    var root_arg: ?[]const u8 = null;
-    var as_json = false;
-    var i: usize = 0;
-    while (i < args.len) : (i += 1) {
-        const a = args[i];
-        if (std.mem.eql(u8, a, "--json")) {
-            as_json = true;
-        } else if (optionValue(args, &i, "--package", "a package")) |v| {
-            package_arg = v;
-        } else if (optionValue(args, &i, "--target", "a target")) |v| {
-            target = v;
-        } else if (optionValue(args, &i, "--since", "a date")) |v| {
-            since_raw = v;
-        } else if (optionValue(args, &i, "--until", "a date")) |v| {
-            until_raw = v;
-        } else if (optionValue(args, &i, "--root", "a directory")) |v| {
-            root_arg = v;
-        } else if (a.len > 0 and a[0] == '-') {
-            die("unknown option {s}", .{a});
-        } else {
-            die("failures takes no positional argument, got '{s}'", .{a});
-        }
-    }
+    var parsed = switch (failures_cli.takeOrHelp(gpa, args)) {
+        .help => return 0,
+        .ok => |p| p,
+    };
+    defer parsed.deinit(gpa);
+    const package_arg = parsed.value("package");
+    const target = parsed.value("target");
+    const since_raw = parsed.value("since");
+    const until_raw = parsed.value("until");
+    const root_arg = parsed.value("root");
+    const as_json = parsed.seen("json");
     const date_filter = DateFilter.init(since_raw, until_raw);
 
     var arena_state = std.heap.ArenaAllocator.init(gpa);
