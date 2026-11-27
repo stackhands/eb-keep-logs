@@ -1,0 +1,1 @@
+zig-common is pinned to its 0.14.0 release instead of a develop commit. That release checks a close before the rename that publishes its result, so `rotate` and the atomic writers report a failed close instead of publishing a file whose last write may not have reached disk, and `fsx.absPath` can return the path errors as well as an allocation error. No call site changes.
