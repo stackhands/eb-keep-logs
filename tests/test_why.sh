@@ -183,6 +183,18 @@ printf '%s\n' $'\x1b[31mERROR: Missing dependencies: libgreet/1.0\x1b[0m' \
     > "${miss}/20261117_060001/hello-2.12.1.stdout.log"
 out=$("${tool}" history hello-2.12.1 --root "${miss}")
 check "coloured error alone" "$(awk 'NR==4 { print $3 }' <<< "${out}")" "failed"
+
+# A compressed kept log may end in zero bytes after its last gzip member.
+# gzip -d treats those bytes as padding, so history still reads the outcome
+# and the duration from the log.
+pad="${work}/padded"
+mkdir -p "${pad}/20261117_070000"
+python3 -c 'import gzip,sys; open(sys.argv[1],"wb").write(gzip.compress(b"== COMPLETED: Installation ended successfully (took 2 secs)\n")+bytes(16))' \
+    "${pad}/20261117_070000/hello-2.12.1.stdout.log.gz"
+pad_out=$("${tool}" history hello --json --root "${pad}" 2> "${work}/pad.err")
+check "history padded gzip: exit 0" "$?" "0"
+check "history padded gzip: stderr" "$(cat "${work}/pad.err")" ""
+check "history padded gzip: outcome and duration" "$(python3 -c 'import json,sys; d=json.loads(sys.stdin.read()); b=d["builds"][0]; print(d["counts"]["success"], d["counts"]["unknown"], b["outcome"], b["duration_s"])' <<< "${pad_out}")" "1 0 success 2"
 wrap="${work}/colour-wrap"
 mkdir -p "${wrap}"
 {
