@@ -1475,6 +1475,57 @@ fn readLinkAt(dir: fsx.fd_t, name: []const u8, out: *[sys.path_max]u8) sys.Error
     return out[0..n];
 }
 
+/// Remove `parent/name` as `rm -rf` does when a directory cannot be read.
+/// `fsx.deleteTree` stops at the first directory it cannot open. An empty
+/// directory can still be removed: `unlinkat` with `AT.REMOVEDIR` needs a
+/// writable parent, not read permission on the directory. A directory that
+/// still holds entries is left, and this returns `error.AccessDenied`.
+fn deleteRun(gpa: Allocator, parent: fsx.fd_t, name: []const u8) (fsx.Error || Allocator.Error)!void {
+    while (true) {
+        if (fsx.deleteTree(gpa, parent, name)) {
+            return;
+        } else |err| switch (err) {
+            error.AccessDenied => {},
+            else => return err,
+        }
+        if (sys.unlinkat(parent, name, linux.AT.REMOVEDIR)) {
+            return;
+        } else |_| {}
+        const fd = fsx.openDir(parent, name, false) catch return error.AccessDenied;
+        defer sys.close(fd);
+        if (!try removeUnreadableEmpty(gpa, fd)) return error.AccessDenied;
+    }
+}
+
+/// Remove empty directories under `dir` that cannot be opened, and empty
+/// ones nested the same way under directories that can. A symbolic link is
+/// not a directory and is left for `fsx.deleteTree`. Returns whether any
+/// directory was removed.
+fn removeUnreadableEmpty(gpa: Allocator, dir: fsx.fd_t) (fsx.Error || Allocator.Error)!bool {
+    var removed = false;
+    var it = try fsx.DirIter.init(gpa, dir);
+    defer it.deinit(gpa);
+    while (try it.next()) |e| {
+        const kind = fsx.entryType(dir, e) catch |err| switch (err) {
+            error.NotFound => continue,
+            else => return err,
+        };
+        if (kind != fsx.DT.DIR) continue;
+        if (fsx.openDir(dir, e.name, false)) |child| {
+            defer sys.close(child);
+            if (try removeUnreadableEmpty(gpa, child)) removed = true;
+        } else |err| switch (err) {
+            error.AccessDenied => {
+                if (sys.unlinkat(dir, e.name, linux.AT.REMOVEDIR)) |_| {
+                    removed = true;
+                } else |_| {}
+            },
+            else => return err,
+        }
+    }
+    return removed;
+}
+
 fn cmdRotate(c: Ctx, args: []const [:0]const u8) u8 {
     var root_s: ?[]const u8 = null;
     var compress_v: ?[]const u8 = null;
@@ -1605,7 +1656,7 @@ fn cmdRotate(c: Ctx, args: []const [:0]const u8) u8 {
                 deleted += 1;
                 continue;
             }
-            fsx.deleteTree(c.gpa, root, run) catch |err| {
+            deleteRun(c.gpa, root, run) catch |err| {
                 warn("cannot delete {s}/{s}: {t}", .{ joinable(root_p), run, err });
                 continue;
             };

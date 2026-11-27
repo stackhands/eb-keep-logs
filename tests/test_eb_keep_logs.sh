@@ -392,6 +392,27 @@ check "one run deleted, singular" "$("${tool}" rotate "${root}" --compress-after
 check "run past --delete-after deleted" "$(ls -d "${root}/20260801_090000" 2>/dev/null | wc -l | tr -d ' ')" "0"
 check "run inside --delete-after kept" "$(ls -d "${root}/20261001_120000" 2>/dev/null | wc -l | tr -d ' ')" "1"
 
+# rotate: an empty directory with no read permission is still removed past
+# --delete-after. Opening it fails, and an empty directory can be removed
+# without reading it. A symlink is not a run and is not followed.
+unread="${work}/unread"
+mkdir -p "${unread}/20200101_000000" "${unread}/20200102_000000/private" "${unread}/20261112_000000" "${unread}/outside"
+echo kept > "${unread}/20200102_000000/n.log"
+ln -s ../outside/secret.log "${unread}/20200102_000000/secret.log"
+echo secret > "${unread}/outside/secret.log"
+ln -s outside "${unread}/20200103_000000"
+chmod 000 "${unread}/20200101_000000" "${unread}/20200102_000000/private" "${unread}/20261112_000000"
+check "empty unreadable run past --delete-after" \
+    "$("${tool}" rotate "${unread}" --compress-after 30 --delete-after 90 2>"${work}/unread.err")" \
+    "eb-keep-logs rotate: 0 files compressed, 2 runs deleted under ${unread}"
+check "empty unreadable run: removed" "$(ls -d "${unread}/20200101_000000" 2>/dev/null | wc -l | tr -d ' ')" "0"
+check "old run with an empty unreadable directory: removed" "$(ls -d "${unread}/20200102_000000" 2>/dev/null | wc -l | tr -d ' ')" "0"
+check "empty unreadable run: no warning" "$(cat "${work}/unread.err")" ""
+check "young unreadable run: kept" "$(ls -d "${unread}/20261112_000000" 2>/dev/null | wc -l | tr -d ' ')" "1"
+check "symlink run: not followed" "$(cat "${unread}/outside/secret.log")" "secret"
+check "symlink run: left in place" "$(test -L "${unread}/20200103_000000" && echo link)" "link"
+chmod -R u+rwx "${unread}" 2>/dev/null || true
+
 mkdir -p "${work}/one/20261001_120000"
 echo one > "${work}/one/20261001_120000/F.stdout.log"
 check "one file compressed, singular" "$("${tool}" rotate "${work}/one" --compress-after 30)" "eb-keep-logs rotate: 1 file compressed, 0 runs deleted under ${work}/one"
