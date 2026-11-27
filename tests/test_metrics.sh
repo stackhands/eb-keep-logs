@@ -177,6 +177,110 @@ before=$(sha256sum "${metrics}")
 PATH="${work}/bin:${PATH}" "${tool}" failed --metrics-file "${metrics}" 0 BadUtf8 "${work}/logs" >/dev/null 2>&1 || exit 1
 [ "$(sha256sum "${metrics}")" = "${before}" ] || exit 1
 
+# A decoded label value of 4097 bytes is valid exposition. The counter adds
+# to the number after the set, and the file written back has no labels.
+long_value=$(printf '%4097s' '' | tr ' ' 'a')
+[ "${#long_value}" -eq 4097 ] || exit 1
+{
+    printf '%s\n' '# HELP eb_keep_logs_logs_kept_total Log files kept by eb-keep-logs.'
+    printf '%s\n' '# TYPE eb_keep_logs_logs_kept_total counter'
+    printf 'eb_keep_logs_logs_kept_total{path="%s"} 4\n' "${long_value}"
+    printf '%s\n' '# HELP eb_keep_logs_bytes_kept_total Bytes written to kept log files by eb-keep-logs.'
+    printf '%s\n' '# TYPE eb_keep_logs_bytes_kept_total counter'
+    printf '%s\n' 'eb_keep_logs_bytes_kept_total 20'
+    printf '%s\n' '# HELP eb_keep_logs_last_prune_timestamp_seconds Unix timestamp of the last completed eb-keep-logs rotation.'
+    printf '%s\n' '# TYPE eb_keep_logs_last_prune_timestamp_seconds gauge'
+    printf '%s\n' 'eb_keep_logs_last_prune_timestamp_seconds 9'
+} > "${metrics}"
+promtool check metrics < "${metrics}" || exit 1
+PATH="${work}/bin:${PATH}" "${tool}" failed --metrics-file "${metrics}" 1 LongValue "${work}/logs" >/dev/null || exit 1
+promtool check metrics < "${metrics}" || exit 1
+grep -qx 'eb_keep_logs_logs_kept_total 5' "${metrics}" || exit 1
+grep -qx 'eb_keep_logs_bytes_kept_total 26' "${metrics}" || exit 1
+grep -qx 'eb_keep_logs_last_prune_timestamp_seconds 9' "${metrics}" || exit 1
+
+# A sample with 65 labels is valid exposition. The counter adds to the
+# number after the set, and the file written back has no labels.
+many_labels=$(
+    n=0
+    while [ "${n}" -lt 65 ]; do
+        if [ "${n}" -gt 0 ]; then printf ','; fi
+        printf 'l%d="v"' "${n}"
+        n=$((n + 1))
+    done
+)
+{
+    printf '%s\n' '# HELP eb_keep_logs_logs_kept_total Log files kept by eb-keep-logs.'
+    printf '%s\n' '# TYPE eb_keep_logs_logs_kept_total counter'
+    printf '%s\n' 'eb_keep_logs_logs_kept_total 4'
+    printf '%s\n' '# HELP eb_keep_logs_bytes_kept_total Bytes written to kept log files by eb-keep-logs.'
+    printf '%s\n' '# TYPE eb_keep_logs_bytes_kept_total counter'
+    printf 'eb_keep_logs_bytes_kept_total{%s} 20\n' "${many_labels}"
+    printf '%s\n' '# HELP eb_keep_logs_last_prune_timestamp_seconds Unix timestamp of the last completed eb-keep-logs rotation.'
+    printf '%s\n' '# TYPE eb_keep_logs_last_prune_timestamp_seconds gauge'
+    printf '%s\n' 'eb_keep_logs_last_prune_timestamp_seconds 9'
+} > "${metrics}"
+promtool check metrics < "${metrics}" || exit 1
+PATH="${work}/bin:${PATH}" "${tool}" failed --metrics-file "${metrics}" 1 ManyLabels "${work}/logs" >/dev/null || exit 1
+promtool check metrics < "${metrics}" || exit 1
+grep -qx 'eb_keep_logs_logs_kept_total 5' "${metrics}" || exit 1
+grep -qx 'eb_keep_logs_bytes_kept_total 26' "${metrics}" || exit 1
+grep -qx 'eb_keep_logs_last_prune_timestamp_seconds 9' "${metrics}" || exit 1
+
+# A decoded label value of 1000000 bytes is valid exposition. The metrics
+# file stays within 1 MiB. The counter adds to the number after the set,
+# and the file written back has no labels.
+wide_value=$(printf '%1000000s' '' | tr ' ' 'a')
+[ "${#wide_value}" -eq 1000000 ] || exit 1
+{
+    printf '%s\n' '# HELP eb_keep_logs_logs_kept_total Log files kept by eb-keep-logs.'
+    printf '%s\n' '# TYPE eb_keep_logs_logs_kept_total counter'
+    printf 'eb_keep_logs_logs_kept_total{path="%s"} 4\n' "${wide_value}"
+    printf '%s\n' '# HELP eb_keep_logs_bytes_kept_total Bytes written to kept log files by eb-keep-logs.'
+    printf '%s\n' '# TYPE eb_keep_logs_bytes_kept_total counter'
+    printf '%s\n' 'eb_keep_logs_bytes_kept_total 20'
+    printf '%s\n' '# HELP eb_keep_logs_last_prune_timestamp_seconds Unix timestamp of the last completed eb-keep-logs rotation.'
+    printf '%s\n' '# TYPE eb_keep_logs_last_prune_timestamp_seconds gauge'
+    printf '%s\n' 'eb_keep_logs_last_prune_timestamp_seconds 9'
+} > "${metrics}"
+[ "$(wc -c < "${metrics}")" -le 1048576 ] || exit 1
+promtool check metrics < "${metrics}" || exit 1
+PATH="${work}/bin:${PATH}" "${tool}" failed --metrics-file "${metrics}" 1 WideValue "${work}/logs" >/dev/null || exit 1
+promtool check metrics < "${metrics}" || exit 1
+grep -qx 'eb_keep_logs_logs_kept_total 5' "${metrics}" || exit 1
+grep -qx 'eb_keep_logs_bytes_kept_total 26' "${metrics}" || exit 1
+grep -qx 'eb_keep_logs_last_prune_timestamp_seconds 9' "${metrics}" || exit 1
+
+# A sample with 8192 labels is valid exposition. The metrics file stays
+# within 1 MiB. The counter adds to the number after the set, and the file
+# written back has no labels.
+wide_labels=$(
+    n=0
+    while [ "${n}" -lt 8192 ]; do
+        if [ "${n}" -gt 0 ]; then printf ','; fi
+        printf 'l%d="v"' "${n}"
+        n=$((n + 1))
+    done
+)
+{
+    printf '%s\n' '# HELP eb_keep_logs_logs_kept_total Log files kept by eb-keep-logs.'
+    printf '%s\n' '# TYPE eb_keep_logs_logs_kept_total counter'
+    printf '%s\n' 'eb_keep_logs_logs_kept_total 4'
+    printf '%s\n' '# HELP eb_keep_logs_bytes_kept_total Bytes written to kept log files by eb-keep-logs.'
+    printf '%s\n' '# TYPE eb_keep_logs_bytes_kept_total counter'
+    printf 'eb_keep_logs_bytes_kept_total{%s} 20\n' "${wide_labels}"
+    printf '%s\n' '# HELP eb_keep_logs_last_prune_timestamp_seconds Unix timestamp of the last completed eb-keep-logs rotation.'
+    printf '%s\n' '# TYPE eb_keep_logs_last_prune_timestamp_seconds gauge'
+    printf '%s\n' 'eb_keep_logs_last_prune_timestamp_seconds 9'
+} > "${metrics}"
+[ "$(wc -c < "${metrics}")" -le 1048576 ] || exit 1
+promtool check metrics < "${metrics}" || exit 1
+PATH="${work}/bin:${PATH}" "${tool}" failed --metrics-file "${metrics}" 1 WideLabels "${work}/logs" >/dev/null || exit 1
+promtool check metrics < "${metrics}" || exit 1
+grep -qx 'eb_keep_logs_logs_kept_total 5' "${metrics}" || exit 1
+grep -qx 'eb_keep_logs_bytes_kept_total 26' "${metrics}" || exit 1
+grep -qx 'eb_keep_logs_last_prune_timestamp_seconds 9' "${metrics}" || exit 1
+
 # A dry-run rotation writes no metrics, creates no sidecar lock, and leaves
 # an existing exposition untouched even when --metrics-file is given.
 dry_root="${work}/dry-root"

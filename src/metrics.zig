@@ -22,14 +22,16 @@ const prune_name = "eb_keep_logs_last_prune_timestamp_seconds";
 /// uses the Prometheus escapes `\\`, `\n` and `\"`, and a `}` inside quotes
 /// does not end the set. Prometheus puts one integer timestamp after the
 /// value, and a tab separates the fields the same way a space does. A line
-/// that starts with `name` and is not that sample is invalid.
-fn parseSample(line_in: []const u8, comptime name: []const u8) !?[]const u8 {
+/// that starts with `name` and is not that sample is invalid. Decoded label
+/// text and the label count grow with the line.
+fn parseSample(gpa: Allocator, line_in: []const u8, comptime name: []const u8) !?[]const u8 {
     if (!std.mem.startsWith(u8, line_in, name)) return null;
     const line = std.mem.trimEnd(u8, line_in, "\r");
     if (line.len <= name.len) return error.InvalidMetrics;
     const next = line[name.len];
     if (next != '{' and next != ' ' and next != '\t') return error.InvalidMetrics;
-    var scan: SampleScan = .{ .line = line, .i = name.len };
+    var scan: SampleScan = .{ .gpa = gpa, .line = line, .i = name.len };
+    defer scan.deinit();
     scan.skipWs();
     if (scan.i < scan.line.len and scan.line[scan.i] == '{') {
         try scan.skipLabelSet();
@@ -53,21 +55,25 @@ fn parseSample(line_in: []const u8, comptime name: []const u8) !?[]const u8 {
 }
 
 const SampleScan = struct {
+    gpa: Allocator,
     line: []const u8,
     i: usize,
-    storage: [4096]u8 = undefined,
-    used: usize = 0,
-    seen: [64][]const u8 = undefined,
-    seen_n: usize = 0,
+    decoded: std.ArrayList(u8) = .empty,
+    seen: std.ArrayList([]const u8) = .empty,
+
+    fn deinit(self: *SampleScan) void {
+        for (self.seen.items) |name| self.gpa.free(name);
+        self.seen.deinit(self.gpa);
+        self.decoded.deinit(self.gpa);
+    }
 
     fn skipWs(self: *SampleScan) void {
         while (self.i < self.line.len and (self.line[self.i] == ' ' or self.line[self.i] == '\t')) self.i += 1;
     }
 
     fn push(self: *SampleScan, byte: u8) !void {
-        if (self.used >= self.storage.len) return error.InvalidMetrics;
-        self.storage[self.used] = byte;
-        self.used += 1;
+        if (self.decoded.items.len >= self.line.len) return error.InvalidMetrics;
+        try self.decoded.append(self.gpa, byte);
     }
 
     /// Unescape a Prometheus quoted string. `self.i` is on the opening quote
@@ -75,11 +81,11 @@ const SampleScan = struct {
     fn readQuoted(self: *SampleScan) ![]const u8 {
         if (self.i >= self.line.len or self.line[self.i] != '"') return error.InvalidMetrics;
         self.i += 1;
-        const start = self.used;
+        const start = self.decoded.items.len;
         while (self.i < self.line.len) {
             const c = self.line[self.i];
             self.i += 1;
-            if (c == '"') return self.storage[start..self.used];
+            if (c == '"') return self.decoded.items[start..self.decoded.items.len];
             if (c == '\\') {
                 if (self.i >= self.line.len) return error.InvalidMetrics;
                 const e = self.line[self.i];
@@ -106,12 +112,13 @@ const SampleScan = struct {
 
     fn remember(self: *SampleScan, label_name: []const u8) !void {
         if (!legacyLabelName(label_name)) return error.InvalidMetrics;
-        for (self.seen[0..self.seen_n]) |prev| {
+        for (self.seen.items) |prev| {
             if (std.mem.eql(u8, prev, label_name)) return error.InvalidMetrics;
         }
-        if (self.seen_n >= self.seen.len) return error.InvalidMetrics;
-        self.seen[self.seen_n] = label_name;
-        self.seen_n += 1;
+        if (self.seen.items.len >= self.line.len) return error.InvalidMetrics;
+        const copy = try self.gpa.dupe(u8, label_name);
+        errdefer self.gpa.free(copy);
+        try self.seen.append(self.gpa, copy);
     }
 
     fn skipLabelSet(self: *SampleScan) !void {
@@ -163,22 +170,22 @@ fn legacyLabelName(name: []const u8) bool {
     return true;
 }
 
-fn parse(text: []const u8) !State {
+fn parse(gpa: Allocator, text: []const u8) !State {
     var state: State = .{};
     var have_logs = false;
     var have_bytes = false;
     var have_prune = false;
     var lines = std.mem.splitScalar(u8, text, '\n');
     while (lines.next()) |line| {
-        if (try parseSample(line, logs_name)) |value| {
+        if (try parseSample(gpa, line, logs_name)) |value| {
             if (have_logs) return error.InvalidMetrics;
             state.logs_kept = std.fmt.parseInt(u64, value, 10) catch return error.InvalidMetrics;
             have_logs = true;
-        } else if (try parseSample(line, bytes_name)) |value| {
+        } else if (try parseSample(gpa, line, bytes_name)) |value| {
             if (have_bytes) return error.InvalidMetrics;
             state.bytes_kept = std.fmt.parseInt(u64, value, 10) catch return error.InvalidMetrics;
             have_bytes = true;
-        } else if (try parseSample(line, prune_name)) |value| {
+        } else if (try parseSample(gpa, line, prune_name)) |value| {
             if (have_prune) return error.InvalidMetrics;
             state.last_prune = std.fmt.parseInt(i64, value, 10) catch return error.InvalidMetrics;
             if (state.last_prune < 0) return error.InvalidMetrics;
@@ -303,7 +310,7 @@ pub fn update(gpa: Allocator, path: []const u8, logs_kept: u64, bytes_kept: u64,
         mode = existing.stat.perm();
         const text = try fsx.readAll(gpa, existing.fd, 1 << 20);
         defer gpa.free(text);
-        state = try parse(text);
+        state = try parse(gpa, text);
     } else |err| switch (err) {
         error.NotFound => {},
         else => |e| return e,
@@ -348,14 +355,16 @@ test "parse and render metrics" {
         .logs_kept = 3,
         .bytes_kept = 57,
         .last_prune = 1_700_000_000,
-    }, try parse(text));
-    try std.testing.expectError(error.InvalidMetrics, parse("eb_keep_logs_logs_kept_total NaN\n"));
+    }, try parse(gpa, text));
+    try std.testing.expectError(error.InvalidMetrics, parse(gpa, "eb_keep_logs_logs_kept_total NaN\n"));
     try std.testing.expectError(error.InvalidMetrics, parse(
+        gpa,
         "eb_keep_logs_logs_kept_total 1\neb_keep_logs_logs_kept_total 2\n",
     ));
 }
 
 test "parse reads a counter beside an escaped label set" {
+    const gpa = std.testing.allocator;
     const labeled = "eb_keep_logs_logs_kept_total{path=\"say \\\"hi\\\"\",raw=\"x}y\",bs=\"a\\\\\"} 4 1700000000000\n" ++
         "eb_keep_logs_bytes_kept_total{msg=\"line\\nnext\"}\t20\n" ++
         "eb_keep_logs_last_prune_timestamp_seconds{ when = \"x\" , } 9\n";
@@ -363,18 +372,67 @@ test "parse reads a counter beside an escaped label set" {
         .logs_kept = 4,
         .bytes_kept = 20,
         .last_prune = 9,
-    }, try parse(labeled));
-    try std.testing.expectEqual(@as(u64, 4), (try parse("eb_keep_logs_logs_kept_total{} 4\n")).logs_kept);
-    try std.testing.expectEqual(@as(u64, 4), (try parse("eb_keep_logs_logs_kept_total{path=\"z\"}4\n")).logs_kept);
-    try std.testing.expectEqual(@as(u64, 4), (try parse("eb_keep_logs_logs_kept_total{path=\"caf\xc3\xa9\"} 4\n")).logs_kept);
-    try std.testing.expectError(error.InvalidMetrics, parse("eb_keep_logs_logs_kept_total{path=\"a\\q\"} 4\n"));
-    try std.testing.expectError(error.InvalidMetrics, parse("eb_keep_logs_logs_kept_total{a=\"1\",a=\"2\"} 4\n"));
-    try std.testing.expectError(error.InvalidMetrics, parse("eb_keep_logs_logs_kept_total{\"a\"=\"1\",a=\"2\"} 4\n"));
-    try std.testing.expectError(error.InvalidMetrics, parse("eb_keep_logs_logs_kept_total{path=\"\xff\"} 4\n"));
-    try std.testing.expectError(error.InvalidMetrics, parse("eb_keep_logs_logs_kept_total{__name__=\"x\"} 4\n"));
+    }, try parse(gpa, labeled));
+    try std.testing.expectEqual(@as(u64, 4), (try parse(gpa, "eb_keep_logs_logs_kept_total{} 4\n")).logs_kept);
+    try std.testing.expectEqual(@as(u64, 4), (try parse(gpa, "eb_keep_logs_logs_kept_total{path=\"z\"}4\n")).logs_kept);
+    try std.testing.expectEqual(@as(u64, 4), (try parse(gpa, "eb_keep_logs_logs_kept_total{path=\"caf\xc3\xa9\"} 4\n")).logs_kept);
+    try std.testing.expectError(error.InvalidMetrics, parse(gpa, "eb_keep_logs_logs_kept_total{path=\"a\\q\"} 4\n"));
+    try std.testing.expectError(error.InvalidMetrics, parse(gpa, "eb_keep_logs_logs_kept_total{a=\"1\",a=\"2\"} 4\n"));
+    try std.testing.expectError(error.InvalidMetrics, parse(gpa, "eb_keep_logs_logs_kept_total{\"a\"=\"1\",a=\"2\"} 4\n"));
+    try std.testing.expectError(error.InvalidMetrics, parse(gpa, "eb_keep_logs_logs_kept_total{path=\"\xff\"} 4\n"));
+    try std.testing.expectError(error.InvalidMetrics, parse(gpa, "eb_keep_logs_logs_kept_total{__name__=\"x\"} 4\n"));
     try std.testing.expectError(error.InvalidMetrics, parse(
+        gpa,
         "eb_keep_logs_logs_kept_total 1\neb_keep_logs_logs_kept_total{a=\"b\"} 2\n",
     ));
+}
+
+test "parse wide-label value of 4097 decoded bytes" {
+    const gpa = std.testing.allocator;
+    var line: std.ArrayList(u8) = .empty;
+    defer line.deinit(gpa);
+    try line.appendSlice(gpa, "eb_keep_logs_logs_kept_total{path=\"");
+    try line.appendNTimes(gpa, 'a', 4097);
+    try line.appendSlice(gpa, "\"} 4\n");
+    try std.testing.expectEqual(@as(u64, 4), (try parse(gpa, line.items)).logs_kept);
+}
+
+test "parse wide-label set of 65 names" {
+    const gpa = std.testing.allocator;
+    var line: std.ArrayList(u8) = .empty;
+    defer line.deinit(gpa);
+    try line.appendSlice(gpa, "eb_keep_logs_bytes_kept_total{");
+    for (0..65) |n| {
+        if (n != 0) try line.append(gpa, ',');
+        try line.print(gpa, "l{d}=\"v\"", .{n});
+    }
+    try line.appendSlice(gpa, "} 20\n");
+    try std.testing.expectEqual(@as(u64, 20), (try parse(gpa, line.items)).bytes_kept);
+}
+
+test "parse wide-label value of 1000000 decoded bytes" {
+    const gpa = std.testing.allocator;
+    var line: std.ArrayList(u8) = .empty;
+    defer line.deinit(gpa);
+    try line.appendSlice(gpa, "eb_keep_logs_logs_kept_total{path=\"");
+    try line.appendNTimes(gpa, 'a', 1000000);
+    try line.appendSlice(gpa, "\"} 4\n");
+    try std.testing.expect(line.items.len <= (1 << 20));
+    try std.testing.expectEqual(@as(u64, 4), (try parse(gpa, line.items)).logs_kept);
+}
+
+test "parse wide-label set of 8192 names" {
+    const gpa = std.testing.allocator;
+    var line: std.ArrayList(u8) = .empty;
+    defer line.deinit(gpa);
+    try line.appendSlice(gpa, "eb_keep_logs_bytes_kept_total{");
+    for (0..8192) |n| {
+        if (n != 0) try line.append(gpa, ',');
+        try line.print(gpa, "l{d}=\"v\"", .{n});
+    }
+    try line.appendSlice(gpa, "} 20\n");
+    try std.testing.expect(line.items.len <= (1 << 20));
+    try std.testing.expectEqual(@as(u64, 20), (try parse(gpa, line.items)).bytes_kept);
 }
 
 fn onUsr1(_: linux.SIG) callconv(.c) void {}
