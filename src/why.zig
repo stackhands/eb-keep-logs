@@ -9,6 +9,7 @@ const common = @import("zig_common");
 const sys = common.sys;
 const fsx = common.fsx;
 const cli = common.cli;
+const utf8_text = @import("utf8_text.zig");
 const cli_parse = @import("cli_parse.zig");
 
 const Allocator = std.mem.Allocator;
@@ -237,24 +238,26 @@ fn after(line: []const u8, marker: []const u8) ?[]const u8 {
 
 /// EasyBuild's message from offset `from` in `text` to the end of its entry,
 /// the lines before the next that starts with `== `, with each run of white
-/// space made one space. On the terminal EasyBuild wraps at 80 columns,
-/// folding a longer word over whole lines; with `unwrap`, a line of 80 bytes
-/// or more without white space is such a fold, and runs on into the next
-/// line.
+/// space made one space. ANSI escapes are removed first, as they are for a
+/// step announcement: a coloured line does not start with those bytes.
+/// On the terminal EasyBuild wraps at 80 columns, folding a longer word
+/// over whole lines; with `unwrap`, a visible line of 80 bytes or more
+/// without white space is such a fold, and runs on into the next line.
 fn flatEntry(arena: Allocator, text: []const u8, from: usize, unwrap: bool) Allocator.Error![]const u8 {
     var out: std.ArrayList(u8) = .empty;
     var it: Lines = .{ .text = text, .pos = from };
     var n: usize = 0;
     var fold = false;
     while (it.next()) |l| : (n += 1) {
-        if (n > entry_lines or (n > 0 and std.mem.startsWith(u8, l.text, "== "))) break;
-        var words = std.mem.tokenizeAny(u8, l.text, space);
+        const shown = try visible(arena, l.text);
+        if (n > entry_lines or (n > 0 and std.mem.startsWith(u8, shown, "== "))) break;
+        var words = std.mem.tokenizeAny(u8, shown, space);
         var first = true;
         while (words.next()) |w| : (first = false) {
             if (out.items.len > 0 and !(first and fold)) try out.append(arena, ' ');
             try out.appendSlice(arena, w);
         }
-        fold = unwrap and l.text.len >= 80 and std.mem.findAny(u8, l.text, space) == null;
+        fold = unwrap and shown.len >= 80 and std.mem.findAny(u8, shown, space) == null;
     }
     return out.items;
 }
@@ -357,27 +360,28 @@ pub fn analyze(arena: Allocator, text: []const u8, source: Source) Allocator.Err
     var ended_at: usize = 0;
     var it: Lines = .{ .text = text };
     while (it.next()) |l| {
+        const shown = try visible(arena, l.text);
         if (std.ascii.findIgnoreCase(l.text, ended_marker)) |i| {
             ended = l;
             ended_at = l.start + i;
             break;
         }
         if (report != null and source == .session) continue;
-        if (try stepStarted(arena, l.text)) |s| {
+        if (try stepStarted(arena, shown)) |s| {
             last_step = s;
             candidate = null;
-        } else if (after(l.text, "building and installing ")) |rest| {
+        } else if (after(shown, "building and installing ")) |rest| {
             a.package = std.mem.trimEnd(u8, std.mem.trim(u8, rest, space), ".");
-        } else if (after(l.text, "processing EasyBuild easyconfig ")) |rest| {
+        } else if (after(shown, "processing EasyBuild easyconfig ")) |rest| {
             const p = std.mem.trim(u8, rest, space);
             if (p.len > 0) a.easyconfig = p;
         }
-        if (report == null) if (reportOf(l.text, source)) |m| {
+        if (report == null) if (reportOf(shown, source)) |m| {
             report = l;
             a.message = m;
             continue;
         };
-        if (candidate == null and (source == .stdout or last_step != null) and isCompilerOrLinkerError(l.text))
+        if (candidate == null and (source == .stdout or last_step != null) and isCompilerOrLinkerError(shown))
             candidate = l;
     }
     if (ended) |e| {
@@ -407,7 +411,8 @@ pub const Verdict = struct { outcome: Outcome = .unknown, duration_s: ?u64 = nul
 /// last `COMPLETED: Installation ended successfully` or `FAILED:
 /// Installation ended unsuccessfully` decides, with the duration in it; a
 /// line starting with `ERROR:` after a success, or without either, is a
-/// failure.
+/// failure. ANSI escapes are removed before that test, as they are for a
+/// step announcement.
 pub fn verdict(arena: Allocator, text: []const u8) Allocator.Error!Verdict {
     var v: Verdict = .{};
     var it: Lines = .{ .text = text };
@@ -416,7 +421,7 @@ pub fn verdict(arena: Allocator, text: []const u8) Allocator.Error!Verdict {
             v = .{ .outcome = .success, .duration_s = tookSeconds(try flatEntry(arena, text, l.start + i, true)) };
         } else if (std.mem.find(u8, l.text, "FAILED: Installation ended unsuccessfully")) |i| {
             v = .{ .outcome = .failed, .duration_s = tookSeconds(try flatEntry(arena, text, l.start + i, true)) };
-        } else if (std.mem.startsWith(u8, l.text, "ERROR:") and v.outcome != .failed) {
+        } else if (std.mem.startsWith(u8, try visible(arena, l.text), "ERROR:") and v.outcome != .failed) {
             v = .{ .outcome = .failed };
         }
     }
@@ -432,23 +437,10 @@ fn clip(line: []const u8) []const u8 {
 }
 
 /// `s` with each byte that is not part of a UTF-8 character replaced by
-/// U+FFFD, as JSON text is UTF-8.
-fn utf8(arena: Allocator, s: []const u8) Allocator.Error![]const u8 {
-    if (std.unicode.utf8ValidateSlice(s)) return s;
-    var out: std.ArrayList(u8) = .empty;
-    var i: usize = 0;
-    while (i < s.len) {
-        const n: usize = std.unicode.utf8ByteSequenceLength(s[i]) catch 0;
-        if (n > 0 and i + n <= s.len) if (std.unicode.utf8Decode(s[i..][0..n])) |_| {
-            try out.appendSlice(arena, s[i..][0..n]);
-            i += n;
-            continue;
-        } else |_| {};
-        try out.appendSlice(arena, "\u{FFFD}");
-        i += 1;
-    }
-    return out.items;
-}
+/// U+FFFD, as JSON text is UTF-8. Shared with `loads`, `used`, `usage`,
+/// and `pending`, which need the same repair for a module name or a
+/// record path.
+const utf8 = utf8_text.utf8;
 
 /// A copy of `s` in `arena`, as `utf8` gives it.
 fn own(arena: Allocator, s: ?[]const u8) Allocator.Error!?[]const u8 {
@@ -1522,13 +1514,47 @@ test "verdict" {
     try testing.expectEqual(@as(?u64, null), v.duration_s);
     v = try verdict(arena, "== building...\n");
     try testing.expectEqual(Outcome.unknown, v.outcome);
+    v = try verdict(arena, "== COMPLETED: Installation ended successfully (took 1 sec)\n\x1b[31mERROR: late failure\x1b[0m\n");
+    try testing.expectEqual(Outcome.failed, v.outcome);
+    v = try verdict(arena, "\x1b[31mERROR: Missing dependencies: libgreet/1.0\x1b[0m\n");
+    try testing.expectEqual(Outcome.failed, v.outcome);
+}
+
+test "coloured EasyBuild output" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+    const missing = try analyze(arena, "\x1b[31mERROR: Missing dependencies: libgreet/1.0\x1b[0m\n", .stdout);
+    try testing.expect(missing.failed);
+    try testing.expectEqualStrings("Missing dependencies: libgreet/1.0", missing.message.?);
+
+    const wrapped = "== building...\n" ++
+        "\x1b[31m== FAILED: Installation ended unsuccessfully: shell command 'make ...' failed\x1b[0m\n" ++
+        "with exit code 2 in build step for hello.eb (took 3 mins 6\n" ++
+        "secs)\n" ++
+        "\x1b[1m== Results of the build can be found in the log file(s)\x1b[0m\n";
+    const a = try analyze(arena, wrapped, .stdout);
+    try testing.expectEqualStrings("build", a.step.?);
+    try testing.expectEqualStrings("shell command 'make ...' failed with exit code 2 in build step for hello.eb", a.message.?);
+    try testing.expectEqual(@as(?u64, 186), a.duration_s);
+
+    const no_took = "== building...\n" ++
+        "\x1b[31m== FAILED: Installation ended unsuccessfully: shell command failed\x1b[0m\n" ++
+        "\x1b[1m== Results of the build can be found in the log file(s)\x1b[0m\n";
+    const bare = try analyze(arena, no_took, .stdout);
+    try testing.expectEqualStrings("shell command failed", bare.message.?);
 }
 
 test "gunzip reads what gzip wrote, and refuses what it did not" {
     const gpa = testing.allocator;
     var plain: std.ArrayList(u8) = .empty;
     defer plain.deinit(gpa);
-    for (0..20000) |i| try plain.print(gpa, "== line {d} of a log that repeats itself\n", .{i % 700});
+    // Two windows, enough to cross a window boundary twice.
+    const two_windows = std.compress.flate.max_window_len * 2;
+    var n: usize = 0;
+    while (plain.items.len < two_windows) : (n += 1) {
+        try plain.print(gpa, "== line {d} of a log that repeats itself\n", .{n % 700});
+    }
     var aw: std.Io.Writer.Allocating = try .initCapacity(gpa, 4096);
     defer aw.deinit();
     const window = try gpa.alloc(u8, std.compress.flate.max_window_len);

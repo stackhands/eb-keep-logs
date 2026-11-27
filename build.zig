@@ -63,8 +63,8 @@ pub fn build(b: *std.Build) void {
     crash_safety.has_side_effects = true;
     b.step("crash-safety", "Run the signal and crash safety suite").dependOn(&crash_safety.step);
 
-    // The shell suite of the old implementation, run against this binary.
-    // It and the differential run below run in the build root: their script
+    // The shell suite, run against this binary.
+    // It and the case run below run in the build root: their script
     // paths are relative, and zig build may be started in a subdirectory.
     // Both run every time, as the cache sees neither their scripts nor the
     // date and tzdata of the host, which the suite compares with.
@@ -73,13 +73,15 @@ pub fn build(b: *std.Build) void {
     suite.setCwd(b.path("."));
     suite.expectExitCode(0);
     suite.has_side_effects = true;
-    // The same invocations through the shell implementation and this one.
-    const diff = b.addSystemCommand(&.{ "bash", "-c", "TOOL_BIN=\"$0\" exec bash tests/differential.sh" });
+    // Fixed invocations, against the expected output under tests/golden/cases.
+    // The killed-mid-compress case runs the test-ops binary.
+    const diff = b.addSystemCommand(&.{ "bash", "-c", "TOOL_BIN=\"$0\" TEST_OPS_BIN=\"$1\" exec bash tests/test_cases.sh" });
     diff.addArtifactArg(exe);
+    diff.addArtifactArg(test_ops_exe);
     diff.setCwd(b.path("."));
     diff.expectExitCode(0);
     diff.has_side_effects = true;
-    // why, which the shell implementation does not have, on the kept logs
+    // why on the kept logs
     // of real EasyBuild failures.
     const why = b.addSystemCommand(&.{ "bash", "-c", "TOOL_BIN=\"$0\" exec bash tests/test_why.sh" });
     why.addArtifactArg(exe);
@@ -152,8 +154,18 @@ pub fn build(b: *std.Build) void {
     fsync_test.setCwd(b.path("."));
     fsync_test.expectExitCode(0);
     fsync_test.has_side_effects = true;
+    const report_utf8_test = b.addSystemCommand(&.{ "bash", "-c", "TOOL_BIN=\"$0\" exec bash tests/test_report_utf8_safety.sh" });
+    report_utf8_test.addArtifactArg(exe);
+    report_utf8_test.setCwd(b.path("."));
+    report_utf8_test.expectExitCode(0);
+    report_utf8_test.has_side_effects = true;
+    const modulerc_safety_test = b.addSystemCommand(&.{ "bash", "-c", "TOOL_BIN=\"$0\" exec bash tests/test_lifecycle_modulerc_safety.sh" });
+    modulerc_safety_test.addArtifactArg(exe);
+    modulerc_safety_test.setCwd(b.path("."));
+    modulerc_safety_test.expectExitCode(0);
+    modulerc_safety_test.has_side_effects = true;
 
-    const test_step = b.step("test", "Run the unit tests, the command-line suites and the differential run");
+    const test_step = b.step("test", "Run the unit tests, the command-line suites and the expected-output cases");
     test_step.dependOn(&b.addRunArtifact(unit).step);
     test_step.dependOn(&suite.step);
     test_step.dependOn(&diff.step);
@@ -172,4 +184,6 @@ pub fn build(b: *std.Build) void {
     test_step.dependOn(&metrics_test.step);
     test_step.dependOn(&crash_safety.step);
     test_step.dependOn(&fsync_test.step);
+    test_step.dependOn(&report_utf8_test.step);
+    test_step.dependOn(&modulerc_safety_test.step);
 }

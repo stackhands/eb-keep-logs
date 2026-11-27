@@ -1,0 +1,6 @@
+--- stdout
+compress @WORK@/preview/20261001_120000/a.log
+compress @WORK@/preview/20261001_120000/sub/b.log
+compress @WORK@/preview/20261001_120000/z.log
+eb-keep-logs rotate dry-run: 3 files would be compressed, 0 runs would be deleted under @WORK@/preview
+--- stderr

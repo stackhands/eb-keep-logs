@@ -6,6 +6,7 @@ const cli = common.cli;
 const cli_parse = @import("cli_parse.zig");
 const fsx = common.fsx;
 const sys = common.sys;
+const utf8_text = @import("utf8_text.zig");
 
 const Allocator = std.mem.Allocator;
 const tool = "eb-keep-logs";
@@ -111,6 +112,40 @@ const BundleRecord = struct {
     scheduler: SchedulerRecord,
     hardware: HardwareRecord,
 };
+
+/// `raw` as the JSON prints it: every text field through `utf8_text.utf8`,
+/// so a byte that is not valid UTF-8 is U+FFFD and the field stays a string.
+/// The hashes in `raw` are of the bytes as given, and stay as they are.
+fn printed(arena: Allocator, raw: BundleRecord) Allocator.Error!BundleRecord {
+    const inputs = try arena.alloc(InputRecord, raw.inputs.len);
+    for (raw.inputs, inputs) |input, *out| out.* = .{
+        .path = try utf8_text.utf8(arena, input.path),
+        .sha256 = input.sha256,
+    };
+    const modules = try arena.alloc(ModuleRecord, raw.modules.len);
+    for (raw.modules, modules) |module, *out| out.* = .{
+        .name = try utf8_text.utf8(arena, module.name),
+        .path = try utf8_text.utf8(arena, module.path),
+    };
+    var bundle = raw;
+    bundle.test_id = try utf8_text.utf8(arena, raw.test_id);
+    bundle.suite_revision = try utf8_text.utf8(arena, raw.suite_revision);
+    bundle.eessi_target = try utf8_text.utf8(arena, raw.eessi_target);
+    bundle.stdout.normalized = try utf8_text.utf8(arena, raw.stdout.normalized);
+    bundle.stderr.normalized = try utf8_text.utf8(arena, raw.stderr.normalized);
+    bundle.inputs = inputs;
+    bundle.seed.value = try utf8_text.utf8(arena, raw.seed.value);
+    bundle.modules = modules;
+    bundle.scheduler = .{
+        .allocation = try utf8_text.utf8(arena, raw.scheduler.allocation),
+        .binding = try utf8_text.utf8(arena, raw.scheduler.binding),
+    };
+    bundle.hardware = .{
+        .cpu = try utf8_text.utf8(arena, raw.hardware.cpu),
+        .gpu = try utf8_text.utf8(arena, raw.hardware.gpu),
+    };
+    return bundle;
+}
 
 fn lessModule(_: void, a: ModuleRecord, b: ModuleRecord) bool {
     if (std.mem.lessThan(u8, a.name, b.name)) return true;
@@ -252,7 +287,7 @@ pub fn cmdTestBundle(gpa: Allocator, args: []const []const u8) u8 {
     std.mem.sort(ModuleRecord, modules.items, {}, lessModule);
     const input_hash = combinedInputHash(arena, input_records.items) catch die("out of memory", .{});
 
-    const bundle: BundleRecord = .{
+    const raw_bundle: BundleRecord = .{
         .test_id = test_id,
         .suite_revision = suite_revision,
         .eessi_target = eessi_target,
@@ -265,6 +300,7 @@ pub fn cmdTestBundle(gpa: Allocator, args: []const []const u8) u8 {
         .scheduler = .{ .allocation = allocation, .binding = binding },
         .hardware = .{ .cpu = cpu, .gpu = gpu },
     };
+    const bundle = printed(arena, raw_bundle) catch die("out of memory", .{});
     var out: std.Io.Writer.Allocating = .init(arena);
     defer out.deinit();
     std.json.Stringify.value(bundle, .{}, &out.writer) catch die("out of memory", .{});
@@ -439,11 +475,15 @@ fn appendFieldDiff(
         try labels.items[got.value_ptr.*].append(gpa, bundle.label);
     }
     if (values.items.len <= 1) return;
+    // Grouped by the bytes as read; only what the report prints is replaced,
+    // so two values that differ in a bad byte stay two groups.
     var groups: std.ArrayList(ValueGroup) = .empty;
-    for (values.items, 0..) |value, idx| {
+    for (values.items, labels.items) |value, group_labels| {
+        const shown = try arena.alloc([]const u8, group_labels.items.len);
+        for (group_labels.items, shown) |label, *out| out.* = try utf8_text.utf8(arena, label);
         try groups.append(arena, .{
-            .value = try arena.dupe(u8, value),
-            .bundles = try labels.items[idx].toOwnedSlice(arena),
+            .value = try arena.dupe(u8, try utf8_text.utf8(arena, value)),
+            .bundles = shown,
         });
     }
     try diffs.append(arena, .{
@@ -587,4 +627,70 @@ test "test-compare sees differing fields" {
     try appendFieldDiff(gpa, arena, &diffs, &.{ b1, b2 }, "stdout_sha256", valueStdoutHash);
     try appendFieldDiff(gpa, arena, &diffs, &.{ b1, b2 }, "scheduler.allocation", valueAllocation);
     try std.testing.expectEqual(@as(usize, 2), diffs.items.len);
+}
+
+test "test-compare groups by the bytes read and prints bad bytes replaced" {
+    var arena_state = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+    const base: BundleCore = .{
+        .label = "",
+        .test_id = "t",
+        .suite_revision = "r",
+        .eessi_target = "zen4",
+        .stdout_hash = "1",
+        .stderr_hash = "2",
+        .input_hash = "3",
+        .seed_hash = "4",
+        .modules_key = "",
+        .allocation = "",
+        .binding = "core",
+        .cpu = "cpu",
+        .gpu = "gpu",
+    };
+    var one = base;
+    one.label = "one\xfe.json";
+    one.allocation = "nodes\xfe";
+    var two = base;
+    two.label = "two\xff.json";
+    two.allocation = "nodes\xff";
+    var diffs: std.ArrayList(FieldDiff) = .empty;
+    try appendFieldDiff(arena, arena, &diffs, &.{ one, two }, "scheduler.allocation", valueAllocation);
+    try std.testing.expectEqual(@as(usize, 1), diffs.items.len);
+    const groups = diffs.items[0].values;
+    try std.testing.expectEqual(@as(usize, 2), groups.len);
+    try std.testing.expectEqualStrings("nodes\u{FFFD}", groups[0].value);
+    try std.testing.expectEqualStrings("nodes\u{FFFD}", groups[1].value);
+    try std.testing.expectEqualStrings("one\u{FFFD}.json", groups[0].bundles[0]);
+    try std.testing.expectEqualStrings("two\u{FFFD}.json", groups[1].bundles[0]);
+}
+
+test "a test-bundle record with bad bytes prints every text field as a UTF-8 string" {
+    var arena_state = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+    const raw: BundleRecord = .{
+        .test_id = "t\xff",
+        .suite_revision = "r\xff",
+        .eessi_target = "e\xff",
+        .stdout = .{ .normalized = "o\xff\n", .sha256 = "a" },
+        .stderr = .{ .normalized = "e\xff\n", .sha256 = "b" },
+        .inputs = &.{.{ .path = "/in\xff", .sha256 = "c" }},
+        .input_hash_sha256 = "d",
+        .seed = .{ .value = "s\xff", .sha256 = "e" },
+        .modules = &.{.{ .name = "m\xff", .path = "/m\xff" }},
+        .scheduler = .{ .allocation = "a\xff", .binding = "b\xff" },
+        .hardware = .{ .cpu = "c\xff", .gpu = "g\xff" },
+    };
+    var out: std.Io.Writer.Allocating = .init(arena);
+    try std.json.Stringify.value(try printed(arena, raw), .{}, &out.writer);
+    const body = out.written();
+    try std.testing.expect(std.unicode.utf8ValidateSlice(body));
+    const parsed = try std.json.parseFromSliceLeaky(BundleRecord, arena, body, .{});
+    try std.testing.expectEqualStrings("t\u{FFFD}", parsed.test_id);
+    try std.testing.expectEqualStrings("o\u{FFFD}\n", parsed.stdout.normalized);
+    try std.testing.expectEqualStrings("a", parsed.stdout.sha256);
+    try std.testing.expectEqualStrings("/in\u{FFFD}", parsed.inputs[0].path);
+    try std.testing.expectEqualStrings("/m\u{FFFD}", parsed.modules[0].path);
+    try std.testing.expectEqualStrings("g\u{FFFD}", parsed.hardware.gpu);
 }

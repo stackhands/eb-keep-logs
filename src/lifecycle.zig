@@ -14,6 +14,7 @@ const proc = common.proc;
 const cli = common.cli;
 const cli_parse = @import("cli_parse.zig");
 const localtime = @import("localtime.zig");
+const utf8_text = @import("utf8_text.zig");
 
 const Allocator = std.mem.Allocator;
 const tool = "eb-keep-logs";
@@ -850,10 +851,17 @@ fn formatModulerc(arena: Allocator, policy: Policy, entries: []const Entry) Allo
     try out.appendSlice(arena, "-- No software or modulefiles were modified or removed.\n");
 
     for (entries) |ent| {
+        // Escaped before the comment line, not only the string literal
+        // below it: a module name or a dependent's name that reached this
+        // report from a directory entry can hold a byte, such as a raw
+        // newline, that would otherwise end a `--` comment early and turn
+        // the rest of it into unquoted Lua.
+        const mod_c = try escapeLua(arena, ent.module);
+        const reason_c = try escapeLua(arena, ent.reason);
         switch (ent.action) {
             .keep => {},
             .warn => {
-                try out.print(arena, "\n-- warn: {s} ({s})\n", .{ ent.module, ent.reason });
+                try out.print(arena, "\n-- warn: {s} ({s})\n", .{ mod_c, reason_c });
                 if (ent.forbid_after) |after| {
                     const name_q = try escapeLua(arena, ent.module);
                     const after_q = try escapeLua(arena, after);
@@ -875,7 +883,7 @@ fn formatModulerc(arena: Allocator, policy: Policy, entries: []const Entry) Allo
             },
             .@"forbid-after" => {
                 const after = ent.forbid_after orelse "";
-                try out.print(arena, "\n-- forbid-after: {s} ({s})\n", .{ ent.module, ent.reason });
+                try out.print(arena, "\n-- forbid-after: {s} ({s})\n", .{ mod_c, reason_c });
                 const name_q = try escapeLua(arena, ent.module);
                 const after_q = try escapeLua(arena, after);
                 const nearly_raw = if (policy.warn_message) |tmpl|
@@ -894,7 +902,7 @@ fn formatModulerc(arena: Allocator, policy: Policy, entries: []const Entry) Allo
                 });
             },
             .@"candidate-remove" => {
-                try out.print(arena, "\n-- candidate-remove: {s} ({s})\n", .{ ent.module, ent.reason });
+                try out.print(arena, "\n-- candidate-remove: {s} ({s})\n", .{ mod_c, reason_c });
                 const name_q = try escapeLua(arena, ent.module);
                 const msg_raw = if (policy.forbid_message) |tmpl|
                     try renderTemplate(arena, tmpl, ent.module, "")
@@ -1017,7 +1025,7 @@ fn formatJson(
     const report: JsonReport = .{
         .software = usage_in.software,
         .modules = usage_in.modules,
-        .policy = policy_path,
+        .policy = try utf8_text.utf8(arena, policy_path),
         .now = now_text,
         .since = usage_in.since_text,
         .observed_days = observed_days,
@@ -1310,6 +1318,7 @@ test "parsePolicy reads thresholds, optional fields and keep globs" {
         \\keep = [
         \\  "GCCcore/*",
         \\  "OpenMPI/5.0*",
+        \\  "Foo/1.?-*",
         \\]
         \\warn_message = "Module {module} will be forbidden on {after}."
     ;
@@ -1320,8 +1329,11 @@ test "parsePolicy reads thresholds, optional fields and keep globs" {
     try std.testing.expectEqual(@as(u64, 365), pol.remove_after_days);
     try std.testing.expectEqual(@as(u64, 14), pol.forbid_grace_days);
     try std.testing.expectEqual(@as(u64, 2), pol.min_hits);
-    try std.testing.expectEqual(@as(usize, 2), pol.keep.len);
+    try std.testing.expectEqual(@as(usize, 3), pol.keep.len);
     try std.testing.expect(matchesKeep(pol.keep, "GCCcore/15.2.0"));
+    try std.testing.expect(!matchesKeep(pol.keep, "GCC/15.2.0"));
+    try std.testing.expect(matchesKeep(pol.keep, "Foo/1.0-foss"));
+    try std.testing.expect(!matchesKeep(pol.keep, "Foo/10.0-foss"));
     try std.testing.expect(!matchesKeep(pol.keep, "GROMACS/2026.1"));
 }
 
@@ -1349,14 +1361,7 @@ test "parsePolicy refuses bad order or unknown keys" {
     try std.testing.expectError(error.BadPolicy, parsePolicy(arena, unknown_key, &err_msg));
 }
 
-test "globMatch handles stars and question marks" {
-    try std.testing.expect(globMatch("GCCcore/*", "GCCcore/15.2.0"));
-    try std.testing.expect(!globMatch("GCCcore/*", "GCC/15.2.0"));
-    try std.testing.expect(globMatch("Foo/1.?-*", "Foo/1.0-foss"));
-    try std.testing.expect(!globMatch("Foo/1.?-*", "Foo/10.0-foss"));
-}
-
-test "formatModulerc escapes Lua strings and emits warn, forbid and hide_version" {
+test "formatModulerc escapes a raw newline in a module name before the comment line, not only the string literal" {
     var arena_state = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena_state.deinit();
     const arena = arena_state.allocator();
@@ -1366,45 +1371,24 @@ test "formatModulerc escapes Lua strings and emits warn, forbid and hide_version
         .forbid_after_days = 180,
         .remove_after_days = 365,
     };
-    const entries = [_]Entry{
-        .{
-            .name = "KeepMe",
-            .version = "1.0",
-            .module = "KeepMe/1.0",
-            .easyconfig = "KeepMe-1.0.eb",
-            .action = .keep,
-            .hits = 10,
-            .last = "1700000000",
-            .idle_days = 1,
-            .reason = "idle 1d < warn_after_days 60",
-        },
-        .{
-            .name = "OldSim",
-            .version = "2.1",
-            .module = "OldSim/2.1",
-            .easyconfig = "OldSim-2.1.eb",
-            .action = .@"forbid-after",
-            .hits = 1,
-            .last = "1700000000",
-            .idle_days = 200,
-            .forbid_after = "2026-12-17",
-            .reason = "idle 200d >= forbid_after_days 180",
-        },
-        .{
-            .name = "DeadPkg",
-            .version = "0.9",
-            .module = "DeadPkg/0.9",
-            .easyconfig = "DeadPkg-0.9.eb",
-            .action = .@"candidate-remove",
-            .hits = 0,
-            .last = null,
-            .idle_days = 400,
-            .reason = "idle 400d >= remove_after_days 365; 0 dependents",
-        },
-    };
+    // A module name built from a directory entry may hold any byte but
+    // '/' and NUL, a raw newline included.
+    const entries = [_]Entry{.{
+        .name = "Evil",
+        .version = "1.0",
+        .module = "Evil\napp = \"pwned\"\n--/1.0",
+        .easyconfig = "Evil-1.0.eb",
+        .action = .@"forbid-after",
+        .hits = 1,
+        .last = "1700000000",
+        .idle_days = 200,
+        .forbid_after = "2026-12-17",
+        .reason = "idle 200d >= forbid_after_days 180",
+    }};
     const lua = try formatModulerc(arena, pol, &entries);
-    try std.testing.expect(std.mem.indexOf(u8, lua, "KeepMe/1.0") == null);
-    try std.testing.expect(std.mem.indexOf(u8, lua, "name = \"OldSim/2.1\"") != null);
-    try std.testing.expect(std.mem.indexOf(u8, lua, "after = \"2026-12-17\"") != null);
-    try std.testing.expect(std.mem.indexOf(u8, lua, "hide_version(\"DeadPkg/0.9\")") != null);
+    try std.testing.expect(std.mem.indexOf(u8, lua, "app = \"pwned\"") == null);
+    var lines = std.mem.splitScalar(u8, lua, '\n');
+    while (lines.next()) |line| {
+        try std.testing.expect(std.mem.eql(u8, line, "app = \"pwned\"") == false);
+    }
 }

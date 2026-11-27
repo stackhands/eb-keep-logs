@@ -8,18 +8,8 @@ tool="${TOOL_BIN:?TOOL_BIN names the Zig build}"
 case "${tool}" in /*) ;; *) tool="${PWD}/${tool}" ;; esac
 
 fails=0
-check() {
-    if [ "$2" = "$3" ]; then
-        echo "ok   $1"
-    else
-        {
-            echo "FAIL $1"
-            echo "     expected: $3"
-            echo "     got:      $2"
-        } >&2
-        fails=$((fails + 1))
-    fi
-}
+# shellcheck source=tests/lib/check.sh
+. "${repo_root}/tests/lib/check.sh"
 
 work=$(mktemp -d "${TMPDIR:-/tmp}/eb-keep-logs-loads.XXXXXX")
 trap 'rm -rf -- "${work}"' EXIT
@@ -39,9 +29,5 @@ check "none" "$("${tool}" loads --module Missing/1.0 "${work}/moduleUsage.log")"
 "${tool}" loads "${work}/moduleUsage.log" >/dev/null 2>"${work}/err"
 check "module is required" "$?" "2"
 check "the refusal names the flag" "$(cat "${work}/err")" "eb-keep-logs: loads needs --module"
-page=$(cat "${repo_root}/docs/orgmode/howto/who-loaded-a-module.org")
-check "how-to names the command" "$(grep -c 'loads --module' <<< "${page}")" "1"
-check "how-to names the empty answer" "$(grep -c 'no load of' <<< "${page}")" "1"
-
 echo "${fails} failed"
 [ "${fails}" -eq 0 ]

@@ -1,0 +1,5 @@
+exit 0
+--- stdout
+compress @WORK@/now-overflow-early/00010101_120000/a.log
+eb-keep-logs rotate dry-run: 1 file would be compressed, 0 runs would be deleted under @WORK@/now-overflow-early
+--- stderr

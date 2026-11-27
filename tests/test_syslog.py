@@ -8,7 +8,6 @@ import shutil
 import socket
 import subprocess
 import tempfile
-import threading
 import unittest
 from pathlib import Path
 
@@ -181,8 +180,8 @@ class KeepLogsSyslogTests(unittest.TestCase):
 
             p_ok = self._run(["failed", "0", "Ok-1.0", self.logdir], env)
             self.assertEqual(p_ok.returncode, 0)
-            sock.settimeout(0.2)
-            with self.assertRaises(socket.timeout):
+            sock.setblocking(False)
+            with self.assertRaises(BlockingIOError):
                 sock.recv(65536)
         finally:
             sock.close()
@@ -220,49 +219,30 @@ class KeepLogsSyslogTests(unittest.TestCase):
             sock.close()
 
     def test_tcp_octet_counting_and_udp(self):
-        tcp = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        tcp.bind(("127.0.0.1", 0))
-        tcp.listen(1)
-        tcp.settimeout(2.0)
-        tcp_port = tcp.getsockname()[1]
-        got: list[bytes] = []
+        # The emitter writes the frame into a buffer. The two captures
+        # carry different timestamps, so each payload is checked against
+        # the message pattern. The datagram has no length prefix.
+        tcp_path = os.path.join(self.work, "tcp.frame")
+        env = self._env(EB_KEEP_LOGS_SYSLOG_CAPTURE=tcp_path)
+        proc = self._run(
+            ["failed", "--syslog", "tcp://127.0.0.1:9", "1", "Foo-1.0", self.logdir],
+            env,
+        )
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        frame = Path(tcp_path).read_text(encoding="utf-8")
+        n_s, body = frame.split(" ", 1)
+        self.assertEqual(int(n_s), len(body.encode("utf-8")))
+        self.assertIsNotNone(RFC5424_RE.fullmatch(body), body)
 
-        def accept_one():
-            conn, _ = tcp.accept()
-            with conn:
-                got.append(conn.recv(65536))
-
-        t = threading.Thread(target=accept_one, daemon=True)
-        t.start()
-        try:
-            p = self._run(
-                ["failed", "--syslog", f"tcp://127.0.0.1:{tcp_port}", "1", "Foo-1.0", self.logdir],
-                self._env(),
-            )
-            self.assertEqual(p.returncode, 0, p.stderr)
-            t.join(timeout=2.0)
-            self.assertEqual(len(got), 1)
-            frame = got[0].decode("utf-8")
-            n_s, body = frame.split(" ", 1)
-            self.assertEqual(int(n_s), len(body.encode("utf-8")))
-            self.assertIsNotNone(RFC5424_RE.fullmatch(body), body)
-        finally:
-            tcp.close()
-
-        udp = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        udp.bind(("127.0.0.1", 0))
-        udp.settimeout(2.0)
-        udp_port = udp.getsockname()[1]
-        try:
-            p2 = self._run(
-                ["failed", f"--syslog=udp://127.0.0.1:{udp_port}", "1", "Foo-1.0", self.logdir],
-                self._env(),
-            )
-            self.assertEqual(p2.returncode, 0, p2.stderr)
-            raw = udp.recv(65536).decode("utf-8")
-            self.assertIsNotNone(RFC5424_RE.fullmatch(raw), raw)
-        finally:
-            udp.close()
+        udp_path = os.path.join(self.work, "udp.frame")
+        env["EB_KEEP_LOGS_SYSLOG_CAPTURE"] = udp_path
+        proc2 = self._run(
+            ["failed", "--syslog=udp://127.0.0.1:9", "1", "Foo-1.0", self.logdir],
+            env,
+        )
+        self.assertEqual(proc2.returncode, 0, proc2.stderr)
+        raw = Path(udp_path).read_text(encoding="utf-8")
+        self.assertIsNotNone(RFC5424_RE.fullmatch(raw), raw)
 
     def test_bad_syslog_target_refused_and_unreachable_non_fatal(self):
         bad = self._run(

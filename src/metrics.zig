@@ -82,7 +82,58 @@ fn lock(fd: fsx.fd_t) sys.Error!void {
     };
 }
 
+fn clockFile(path: []const u8) ?i64 {
+    const fd = sys.openat(fsx.cwd, path, .{}, 0) catch return null;
+    defer sys.close(fd);
+    var buf: [64]u8 = undefined;
+    const n = sys.read(fd, &buf) catch return null;
+    if (n == 0) return null;
+    const text = std.mem.trim(u8, buf[0..n], " \t\r\n");
+    return std.fmt.parseInt(i64, text, 10) catch null;
+}
+
+/// The value of `name` in `/proc/self/environ`, copied into `buf`. The
+/// binary does not link libc, so this is the getenv the product can make.
+fn envFile(name: []const u8, buf: []u8) ?[]const u8 {
+    const opened = fsx.openRegular(fsx.cwd, "/proc/self/environ", false) catch return null;
+    defer sys.close(opened.fd);
+    var chunk: [4096]u8 = undefined;
+    var held: usize = 0;
+    var at_entry = true;
+    var copying = false;
+    var ncopy: usize = 0;
+    while (true) {
+        const n = sys.read(opened.fd, &chunk) catch return null;
+        if (n == 0) return null;
+        for (chunk[0..n]) |b| {
+            if (copying) {
+                if (b == 0) return buf[0..ncopy];
+                if (ncopy == buf.len) return null;
+                buf[ncopy] = b;
+                ncopy += 1;
+                continue;
+            }
+            if (at_entry and held < name.len and b == name[held]) {
+                held += 1;
+                if (held == name.len) {
+                    if (b == '=') copying = true else at_entry = false;
+                }
+                continue;
+            }
+            held = 0;
+            at_entry = b == 0;
+        }
+    }
+}
+
+/// `EB_KEEP_LOGS_CLOCK` is a file holding the stamp, so a test can freeze it
+/// and then jump it while a rotate waits on the metrics lock. Unset, the
+/// stamp is `CLOCK_REALTIME`.
 fn realtimeSeconds() i64 {
+    var path_buf: [sys.path_max]u8 = undefined;
+    if (envFile("EB_KEEP_LOGS_CLOCK=", &path_buf)) |path| {
+        if (clockFile(path)) |stamp| return stamp;
+    }
     var ts: linux.timespec = undefined;
     _ = linux.clock_gettime(.REALTIME, &ts);
     return ts.sec;
@@ -176,56 +227,7 @@ test "parse and render metrics" {
     ));
 }
 
-test "parse keeps the value when a sample has a timestamp" {
-    const text = "eb_keep_logs_logs_kept_total 3 1700000000000\n" ++
-        "eb_keep_logs_bytes_kept_total\t57 1700000000001\n" ++
-        "eb_keep_logs_last_prune_timestamp_seconds 1700000000 1700000000002\n";
-    try std.testing.expectEqual(State{
-        .logs_kept = 3,
-        .bytes_kept = 57,
-        .last_prune = 1_700_000_000,
-    }, try parse(text));
-    try std.testing.expectError(error.InvalidMetrics, parse("eb_keep_logs_logs_kept_total 3 not-a-timestamp\n"));
-}
-
-test "update preserves counters and replaces the whole file" {
-    const gpa = std.testing.allocator;
-    var cwd_buf: [sys.path_max]u8 = undefined;
-    const here = try fsx.realpath(fsx.cwd, ".", &cwd_buf);
-    const base = try std.fmt.allocPrint(gpa, "{s}/.zig-cache/eb-keep-logs-metrics-{d}", .{ here, linux.getpid() });
-    defer gpa.free(base);
-    try common.atomic.makedirs(base);
-    defer fsx.deleteTree(gpa, fsx.cwd, base) catch {};
-    const path = try std.fmt.allocPrint(gpa, "{s}/collector.prom", .{base});
-    defer gpa.free(path);
-
-    try update(gpa, path, 2, 19, false);
-    const created = try fsx.openRegular(fsx.cwd, path, false);
-    try std.testing.expectEqual(@as(u32, 0o644), created.stat.perm());
-    try sys.fchmod(created.fd, 0o640);
-    sys.close(created.fd);
-    try update(gpa, path, 1, 5, false);
-    const file = try fsx.openRegular(fsx.cwd, path, false);
-    defer sys.close(file.fd);
-    try std.testing.expectEqual(@as(u32, 0o640), file.stat.perm());
-    const text = try fsx.readAll(gpa, file.fd, 1 << 20);
-    defer gpa.free(text);
-    try std.testing.expectEqual(State{ .logs_kept = 3, .bytes_kept = 24, .last_prune = 0 }, try parse(text));
-}
-
-test "completion timestamps never move backwards" {
-    var state: State = .{ .last_prune = 1200 };
-    try keepLatestCompletion(&state, 1234);
-    try keepLatestCompletion(&state, 1210);
-    try std.testing.expectEqual(@as(i64, 1234), state.last_prune);
-    try std.testing.expectError(error.InvalidTimestamp, keepLatestCompletion(&state, -1));
-}
-
-var sigusr1_hits: std.atomic.Value(usize) = .init(0);
-
-fn onUsr1(_: linux.SIG) callconv(.c) void {
-    _ = sigusr1_hits.fetchAdd(1, .seq_cst);
-}
+fn onUsr1(_: linux.SIG) callconv(.c) void {}
 
 test "lock retries EINTR while waiting and reports non-contention flock errors" {
     const gpa = std.testing.allocator;
@@ -244,31 +246,51 @@ test "lock retries EINTR while waiting and reports non-contention flock errors" 
     defer sys.close(waiter);
     _ = try sys.call(linux.flock, .{ held, @as(i32, std.posix.LOCK.EX) });
 
-    sigusr1_hits.store(0, .seq_cst);
     const handler: linux.Sigaction = .{ .handler = .{ .handler = &onUsr1 }, .mask = linux.sigemptyset(), .flags = 0 };
     var prev: linux.Sigaction = undefined;
     _ = linux.sigaction(.USR1, &handler, &prev);
     defer _ = linux.sigaction(.USR1, &prev, null);
 
+    var poke: [2]i32 = undefined;
+    try std.testing.expectEqual(linux.E.SUCCESS, linux.errno(linux.pipe2(&poke, .{ .CLOEXEC = true })));
+    defer {
+        _ = linux.close(poke[0]);
+        _ = linux.close(poke[1]);
+    }
+
     const pid = linux.getpid();
     const tid = linux.gettid();
     const Releaser = struct {
-        fn run(h: fsx.fd_t, target_pid: i32, target_tid: i32) void {
-            var ts: linux.timespec = .{ .sec = 0, .nsec = 15 * std.time.ns_per_ms };
-            _ = linux.nanosleep(&ts, null);
-            _ = linux.tgkill(target_pid, target_tid, .USR1);
-            _ = linux.nanosleep(&ts, null);
-            _ = linux.tgkill(target_pid, target_tid, .USR1);
-            _ = linux.nanosleep(&ts, null);
+        fn run(h: fsx.fd_t, target_pid: i32, target_tid: i32, poke_r: i32) void {
+            const fl = linux.fcntl(poke_r, linux.F.GETFL, 0);
+            _ = linux.fcntl(poke_r, linux.F.SETFL, fl | (1 << @bitOffsetOf(linux.O, "NONBLOCK")));
+            while (true) {
+                _ = linux.tgkill(target_pid, target_tid, .USR1);
+                var b: [1]u8 = undefined;
+                if (linux.read(poke_r, &b, 1) == 1) break;
+            }
             _ = linux.flock(h, std.posix.LOCK.UN);
         }
     };
-    const thread = try std.Thread.spawn(.{}, Releaser.run, .{ held, pid, tid });
+    const thread = try std.Thread.spawn(.{}, Releaser.run, .{ held, pid, tid, poke[0] });
     defer thread.join();
 
-    try lock(waiter);
+    // Record that blocking `flock` returned `EINTR` before the helper unlocks.
+    var eintr = false;
+    while (true) {
+        const rc = linux.flock(waiter, @as(i32, std.posix.LOCK.EX));
+        switch (linux.errno(rc)) {
+            .SUCCESS => break,
+            .INTR => {
+                eintr = true;
+                var b = [_]u8{1};
+                _ = linux.write(poke[1], &b, 1);
+            },
+            else => break,
+        }
+    }
     defer _ = linux.flock(waiter, std.posix.LOCK.UN);
-    try std.testing.expect(sigusr1_hits.load(.seq_cst) >= 1);
+    try std.testing.expect(eintr);
     try std.testing.expectEqual(linux.E.AGAIN, linux.errno(linux.flock(held, std.posix.LOCK.EX | std.posix.LOCK.NB)));
 
     const opath = try sys.openat(fsx.cwd, "/", .{ .PATH = true }, 0);

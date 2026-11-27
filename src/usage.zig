@@ -6,6 +6,7 @@ const fsx = common.fsx;
 const cli = common.cli;
 const cli_parse = @import("cli_parse.zig");
 const used = @import("used.zig");
+const utf8_text = @import("utf8_text.zig");
 
 const Allocator = std.mem.Allocator;
 const tool = "eb-keep-logs";
@@ -189,12 +190,13 @@ fn formatText(gpa: Allocator, selected_rows: []const Row, selection: Selection) 
     errdefer out.deinit(gpa);
     for (selected_rows) |row| {
         const pkg = row.package;
+        const module = utf8_text.text(pkg.module);
         if (selection != .all) {
-            try out.print(gpa, "{s}\n", .{pkg.module});
+            try out.print(gpa, "{f}\n", .{module});
         } else if (pkg.hits == 0) {
-            try out.print(gpa, "unused {s}\n", .{pkg.module});
+            try out.print(gpa, "unused {f}\n", .{module});
         } else {
-            try out.print(gpa, "active {s} hits={d} last={s}\n", .{ pkg.module, pkg.hits, pkg.last });
+            try out.print(gpa, "active {f} hits={d} last={f}\n", .{ module, pkg.hits, utf8_text.text(pkg.last) });
         }
     }
     return try out.toOwnedSlice(gpa);
@@ -227,22 +229,25 @@ fn formatJson(
     selection: Selection,
     selected_rows: []const Row,
 ) ![]u8 {
+    var arena_state = std.heap.ArenaAllocator.init(gpa);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
     var packages: std.ArrayList(JsonPackage) = .empty;
     defer packages.deinit(gpa);
     for (selected_rows) |row| {
         const pkg = row.package;
         try packages.append(gpa, .{
-            .name = pkg.name,
-            .version = pkg.version,
-            .module = pkg.module,
+            .name = try utf8_text.utf8(arena, pkg.name),
+            .version = try utf8_text.utf8(arena, pkg.version),
+            .module = try utf8_text.utf8(arena, pkg.module),
             .active = pkg.hits > 0,
             .hits = pkg.hits,
-            .last = if (pkg.last.len > 0) pkg.last else null,
+            .last = if (pkg.last.len > 0) try utf8_text.utf8(arena, pkg.last) else null,
         });
     }
     const report: JsonReport = .{
-        .software = software,
-        .modules = modules,
+        .software = try utf8_text.utf8(arena, software),
+        .modules = try utf8_text.utf8(arena, modules),
         .since = since,
         .selection = selection.name(),
         .packages = packages.items,
@@ -364,4 +369,63 @@ test "software paths name their installed module" {
         "/opt/software",
         "/opt/software-other/GROMACS/1/bin/gmx",
     )) == null);
+}
+
+test "a modules directory with a bad byte matches the Lmod records under it" {
+    var arena_state = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+    var table: Table = .empty;
+    try table.put(arena, "pkg/1.0", .{ .module = "pkg/1.0", .name = "pkg", .version = "1.0" });
+    const hits = try used.parseHits(arena, "user=alice module=pkg/1.0 path=/opt/mod\xffules/pkg/1.0.lua host=h1 time=5\n");
+    try applyHits(arena, &table, "/opt/software", "/opt/software", "/opt/mod\xffules", "/opt/mod\xffules", null, hits);
+    try std.testing.expectEqual(@as(u64, 1), table.get("pkg/1.0").?.hits);
+    const selected_rows = try rows(arena, &table, .all);
+    try std.testing.expectEqualStrings("active pkg/1.0 hits=1 last=5\n", try formatText(arena, selected_rows, .all));
+}
+
+test "installed names that differ only in a bad byte stay two entries, replaced where printed" {
+    const linux = std.os.linux;
+    const gpa = std.testing.allocator;
+    var cwd_buf: [sys.path_max]u8 = undefined;
+    const here = try fsx.realpath(fsx.cwd, ".", &cwd_buf);
+    const base = try std.fmt.allocPrint(gpa, "{s}/.zig-cache/usage-badname-{d}", .{ here, linux.getpid() });
+    defer gpa.free(base);
+    defer fsx.deleteTree(gpa, fsx.cwd, base) catch {};
+    try common.atomic.makedirs(base);
+
+    const software = try std.fmt.allocPrint(gpa, "{s}/software", .{base});
+    defer gpa.free(software);
+    try common.atomic.makedirs(software);
+
+    const software_dir = try fsx.openDir(fsx.cwd, software, false);
+    defer sys.close(software_dir);
+    var zb: [sys.path_max:0]u8 = undefined;
+    for ([_][]const u8{ "pkg\xfe", "pkg\xff" }) |name| {
+        _ = try sys.call(linux.mkdirat, .{ software_dir, (try sys.z(&zb, name)).ptr, @as(linux.mode_t, 0o755) });
+        const name_dir = try fsx.openDir(software_dir, name, false);
+        defer sys.close(name_dir);
+        _ = try sys.call(linux.mkdirat, .{ name_dir, (try sys.z(&zb, "1.0")).ptr, @as(linux.mode_t, 0o755) });
+    }
+
+    var arena_state = std.heap.ArenaAllocator.init(gpa);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+    var table = try inventory(gpa, arena, software);
+    defer table.deinit(arena);
+    try std.testing.expectEqual(@as(u32, 2), table.count());
+    try std.testing.expect(table.contains("pkg\xfe/1.0"));
+    try std.testing.expect(table.contains("pkg\xff/1.0"));
+
+    const hits = try used.parseHits(arena, "user=alice module=pkg\xff/1.0 path=/opt/modules/pkg/1.0.lua host=h1 time=5\n");
+    try applyHits(arena, &table, software, software, "/opt/modules", "/opt/modules", null, hits);
+    try std.testing.expectEqual(@as(u64, 0), table.get("pkg\xfe/1.0").?.hits);
+    try std.testing.expectEqual(@as(u64, 1), table.get("pkg\xff/1.0").?.hits);
+
+    const selected_rows = try rows(arena, &table, .all);
+    const text = try formatText(arena, selected_rows, .all);
+    try std.testing.expectEqualStrings("unused pkg\u{FFFD}/1.0\nactive pkg\u{FFFD}/1.0 hits=1 last=5\n", text);
+    const json = try formatJson(arena, software, "/opt/modules", null, .all, selected_rows);
+    try std.testing.expect(std.unicode.utf8ValidateSlice(json));
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"name\":\"pkg\u{FFFD}\",\"version\":\"1.0\",\"module\":\"pkg\u{FFFD}/1.0\"") != null);
 }

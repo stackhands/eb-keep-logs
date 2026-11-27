@@ -24,19 +24,18 @@ It passes `--output-style=basic`, because EasyBuild 5.3 and later fold that path
 ## Install
 
 Each [release](https://github.com/stackhands/eb-keep-logs/releases/latest) has a static binary for `x86_64` and `aarch64` Linux, with `SHA256SUMS`.
-The latest tag is v0.3.1.
+The latest tag is v0.4.0.
 It needs nothing but `eb`:
 
 ```bash
-v=0.3.1 arch=x86_64
+v=0.4.0 arch=x86_64
 url=https://github.com/stackhands/eb-keep-logs/releases/download/v$v
 curl -sSfL -O "$url/eb-keep-logs-$v-$arch-linux-musl" -O "$url/SHA256SUMS"
 sha256sum --check --ignore-missing SHA256SUMS
 install -m 0755 "eb-keep-logs-$v-$arch-linux-musl" ~/.local/bin/eb-keep-logs
 ```
 
-The shell script `eb-keep-logs` in this repository is the same tool; copy it onto `PATH`.
-It needs `bash`, coreutils, GNU `grep` (for `grep -P`), `sed`, `find`, `gzip`, `awk`, `flock` from util-linux for `rotate` and, for `failed`, `eb`.
+The binary is the one implementation. The shell script it was ported from, 0.1.0, is no longer in the repository; [COMPAT.md](https://github.com/stackhands/eb-keep-logs/blob/main/COMPAT.md) lists what the binary keeps of its interface and where it differs.
 Without `grep -P` it still keeps the log and the command output, but not the meson testlog.
 
 There is no EasyBuild recipe for eb-keep-logs here or in the EasyBuild easyconfigs repository.
@@ -49,11 +48,9 @@ zig build -Drelease=true
 zig-out/bin/eb-keep-logs --version
 ```
 
-`zig build test` runs its unit tests, the shell test suite against the
-binary, and `tests/differential.sh`, which runs the shell script and the
-binary on the same invocations.
-[COMPAT.md](https://github.com/stackhands/eb-keep-logs/blob/main/COMPAT.md) lists what the two share and where they differ on
-purpose.
+`zig build test` runs its unit tests, the shell test suites against the
+binary, and `tests/test_cases.sh`, which compares the binary's output on
+fixed invocations with the expected output under `tests/golden/cases`.
 
 ## Keep a failed build's logs
 
@@ -118,7 +115,21 @@ For a failure class, feed the kept log to eb-stack.
 `--json` prints any of these as one line of JSON with `schema_version` 1, for a pipeline's run summary.
 All three are in the Zig build only.
 
-## Emit syslog and journald events
+Four more commands read records other tools wrote, and are in the Zig build only:
+
+- `eb-keep-logs loads --module NAME FILE` prints who loaded a module, from Lmod's ModuleUsageTracking lines.
+- `eb-keep-logs runs --exec PATH FILE` prints who ran an executable, from XALT run records.
+- `eb-keep-logs pending FILE` prints what an `eb --dry-run` or `--missing-modules` report still has to build.
+- `eb-keep-logs used --prefix PREFIX FILE...` lists the paths under a prefix that XALT and Lmod records name.
+
+Two commands compare test runs, also in the Zig build only:
+
+- `eb-keep-logs test-bundle` writes one JSON evidence bundle for a test run: its id, suite revision, EESSI target, stdout and stderr files, modules, seed and allocation.
+- `eb-keep-logs test-compare BUNDLE...` lists which evidence fields differ across two or more bundles, without deciding pass or fail.
+
+## Emit syslog and journald events, and metrics
+
+Pass `--metrics-file PATH` to `failed` or `rotate` to update Prometheus counters for the logs and bytes kept, atomically; `rotate --dry-run` writes none.
 
 Pass `--syslog TARGET` (or set `EB_KEEP_LOGS_SYSLOG`) to `failed` or `rotate` to emit structured RFC 5424 messages (`ebKeepLogs@<PEN>`, with `EB_KEEP_LOGS_SYSLOG_PEN` defaulting to `32473`, the IANA RFC 5398 documentation placeholder until a site or project PEN is assigned) or native `systemd-journald` fields (`journald`, `syslog`, `unix:///path`, `journal+unix:///path`, `udp://host:port`, `tcp://host:port`) with stable `MSGID` values (`EB_KEEP_FAILED`, `EB_KEEP_NONE`, `EB_ROTATE_DONE`) without copying log file contents into syslog.
 

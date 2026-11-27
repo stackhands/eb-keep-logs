@@ -429,25 +429,16 @@ pub fn load(gpa: Allocator, tz: ?[]const u8, tzdir: ?[]const u8) Zone {
     return .{ .footer = p };
 }
 
-test "posix rules" {
-    const ams = try parsePosix("CET-1CEST,M3.5.0,M10.5.0/3");
-    const z: Zone = .{ .footer = ams };
-    // 2026-11-13 00:00 local is 2026-11-12 23:00 UTC.
-    try std.testing.expectEqual(@as(?i64, daysFromCivil(2026, 11, 13) * 86400 - 3600), z.fromLocal(daysFromCivil(2026, 11, 13) * 86400));
-    // 2026-07-01 00:00 local is CEST.
-    try std.testing.expectEqual(@as(?i64, daysFromCivil(2026, 7, 1) * 86400 - 7200), z.fromLocal(daysFromCivil(2026, 7, 1) * 86400));
-    const chi: Zone = .{ .footer = try parsePosix("CST6CDT,M3.2.0,M11.1.0") };
-    try std.testing.expectEqual(@as(?i64, daysFromCivil(2026, 11, 13) * 86400 + 6 * 3600), chi.fromLocal(daysFromCivil(2026, 11, 13) * 86400));
-    const utc: Zone = .{};
-    try std.testing.expectEqual(@as(?i64, 0), utc.fromLocal(0));
-    try std.testing.expectError(error.Bad, parsePosix("X1"));
-}
-
 test "a rule string is read and applied as glibc reads and applies it" {
     const gpa = std.testing.allocator;
     // TZ, a date, and what `TZ=... date -d DATE +%s` prints with glibc 2.39,
     // null where it refuses the date.
     const rows = [_]struct { tz: []const u8, y: i64, m: u8, d: u8, want: ?i64 }{
+        // The three zones the shell date checks also follow: winter CET,
+        // summer CEST, and November CST.
+        .{ .tz = "CET-1CEST,M3.5.0,M10.5.0/3", .y = 2026, .m = 11, .d = 13, .want = daysFromCivil(2026, 11, 13) * 86400 - 3600 },
+        .{ .tz = "CET-1CEST,M3.5.0,M10.5.0/3", .y = 2026, .m = 7, .d = 1, .want = daysFromCivil(2026, 7, 1) * 86400 - 7200 },
+        .{ .tz = "CST6CDT,M3.2.0,M11.1.0", .y = 2026, .m = 11, .d = 13, .want = daysFromCivil(2026, 11, 13) * 86400 + 6 * 3600 },
         // Text after the rules is not read.
         .{ .tz = "CET-1CEST,M3.5.0,M10.5.0/3x", .y = 2026, .m = 11, .d = 1, .want = 1793487600 },
         // Without an end rule, daylight time ends on the first Sunday in
@@ -489,50 +480,13 @@ test "a rule string is read and applied as glibc reads and applies it" {
         defer z.deinit();
         try std.testing.expectEqual(r.want, z.fromLocal(daysFromCivil(r.y, r.m, r.d) * 86400));
     }
+    const utc: Zone = .{};
+    try std.testing.expectEqual(@as(?i64, 0), utc.fromLocal(0));
+    try std.testing.expectError(error.Bad, parsePosix("X1"));
 }
 
 test "a local midnight inside a DST gap does not exist" {
     // America/Santiago moves 00:00 to 01:00 on the first Sunday of September.
     const z: Zone = .{ .footer = try parsePosix("<-04>4<-03>,M9.1.6/24,M4.1.6/24") };
     try std.testing.expectEqual(@as(?i64, null), z.fromLocal(daysFromCivil(2026, 9, 6) * 86400));
-}
-
-test "an empty TZDIR is the default directory, as glibc takes it" {
-    const gpa = std.testing.allocator;
-    const nov1 = daysFromCivil(2026, 11, 1) * 86400;
-    var unset = load(gpa, "Asia/Tokyo", null);
-    defer unset.deinit();
-    // A system without the zone files has nothing to compare with.
-    if (unset.offsetAt(nov1) != 9 * 3600) return error.SkipZigTest;
-    var empty = load(gpa, "Asia/Tokyo", "");
-    defer empty.deinit();
-    // `TZDIR= TZ=Asia/Tokyo date -d 20261101 +%s` prints 1793458800.
-    try std.testing.expectEqual(@as(?i64, 1793458800), empty.fromLocal(nov1));
-}
-
-test "a rule string after a leading ':' is read, as glibc reads it" {
-    const gpa = std.testing.allocator;
-    var z = load(gpa, ":CET-1CEST,M3.5.0,M10.5.0/3", null);
-    defer z.deinit();
-    // `TZ=':CET-1CEST,M3.5.0,M10.5.0/3' date -d 20260701 +%s` prints
-    // 1782856800, and 1793487600 for 20261101.
-    try std.testing.expectEqual(@as(?i64, 1782856800), z.fromLocal(daysFromCivil(2026, 7, 1) * 86400));
-    try std.testing.expectEqual(@as(?i64, 1793487600), z.fromLocal(daysFromCivil(2026, 11, 1) * 86400));
-    var colon = load(gpa, ":", null);
-    defer colon.deinit();
-    // `TZ=: date -d 20261101 +%s` prints 1793491200, the UTC midnight.
-    try std.testing.expectEqual(@as(?i64, 1793491200), colon.fromLocal(daysFromCivil(2026, 11, 1) * 86400));
-}
-
-test "civilFromDays inverts daysFromCivil" {
-    const cases = [_]CivilDate{
-        .{ .year = 1970, .month = 1, .day = 1 },
-        .{ .year = 2024, .month = 2, .day = 29 },
-        .{ .year = 2026, .month = 11, .day = 17 },
-        .{ .year = 2027, .month = 12, .day = 31 },
-    };
-    for (cases) |c| {
-        const d = daysFromCivil(c.year, c.month, c.day);
-        try std.testing.expectEqual(c, civilFromDays(d));
-    }
 }

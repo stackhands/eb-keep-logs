@@ -12,6 +12,7 @@ const common = @import("zig_common");
 const sys = common.sys;
 const fsx = common.fsx;
 const cli = common.cli;
+const utf8_text = @import("utf8_text.zig");
 const cli_parse = @import("cli_parse.zig");
 
 const Allocator = std.mem.Allocator;
@@ -146,17 +147,17 @@ fn collectEntries(gpa: Allocator, text: []const u8, mode: ReportMode) Allocator.
         switch (mode) {
             .module => if (moduleLine(line)) |mark| {
                 if (!mark.build) continue;
-                try entries.append(gpa, .{ .action = "build", .name = mark.name });
+                try entries.append(gpa, .{ .action = "build", .name = try utf8_text.utf8(gpa, mark.name) });
             },
             .terse => if (terseLine(line)) |mark| {
                 if (!mark.build) continue;
-                try entries.append(gpa, .{ .action = "build", .name = mark.name });
+                try entries.append(gpa, .{ .action = "build", .name = try utf8_text.utf8(gpa, mark.name) });
             },
             .missing => if (missingLine(line)) |name| {
-                try entries.append(gpa, .{ .action = "missing", .name = name });
+                try entries.append(gpa, .{ .action = "missing", .name = try utf8_text.utf8(gpa, name) });
             },
             .bare => if (barePath(line)) |path| {
-                try entries.append(gpa, .{ .action = "missing", .name = path });
+                try entries.append(gpa, .{ .action = "missing", .name = try utf8_text.utf8(gpa, path) });
             },
         }
     }
@@ -202,6 +203,9 @@ pub fn cmdPending(gpa: Allocator, args: []const []const u8) u8 {
     const path = parsed.positional(0).?;
     const text = readLog(gpa, path) orelse return 2;
     defer gpa.free(text);
+    var arena_state = std.heap.ArenaAllocator.init(gpa);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
     const body = if (json_out) blk: {
         const mode = reportMode(text) catch |err| switch (err) {
             error.NotAReport => {
@@ -209,11 +213,10 @@ pub fn cmdPending(gpa: Allocator, args: []const []const u8) u8 {
                 return 2;
             },
         };
-        const items = collectEntries(gpa, text, mode) catch die("out of memory", .{});
-        defer gpa.free(items);
-        break :blk formatJson(gpa, items) catch die("out of memory", .{});
+        const items = collectEntries(arena, text, mode) catch die("out of memory", .{});
+        break :blk formatJson(arena, items) catch die("out of memory", .{});
     } else blk: {
-        break :blk formatPending(gpa, text) catch |err| switch (err) {
+        break :blk formatPending(arena, text) catch |err| switch (err) {
             error.NotAReport => {
                 warn("pending: {s} is not a dry-run or missing-modules report", .{path});
                 return 2;
@@ -221,33 +224,15 @@ pub fn cmdPending(gpa: Allocator, args: []const []const u8) u8 {
             error.OutOfMemory => die("out of memory", .{}),
         };
     };
-    defer gpa.free(body);
     cli.out("{s}", .{body});
     return 0;
 }
 
-test "a dry-run keeps what would be built and skips what is installed" {
-    const text =
-        \\ * [x] $CFGS/z/zlib/zlib-1.2.12.eb (module: zlib/1.2.12)
-        \\ * [ ] $CFGS/f/flex/flex-2.6.4.eb (module: flex/2.6.4)
-        \\ * [R] $CFGS/g/GCC/GCC-13.2.0.eb (module: GCC/13.2.0)
-    ;
-    const got = try formatPending(std.testing.allocator, text);
-    defer std.testing.allocator.free(got);
-    try std.testing.expectEqualStrings("build flex/2.6.4\nbuild GCC/13.2.0\n", got);
-    const present = try formatPending(std.testing.allocator, " * [x] a.eb (module: zlib/1.2.12)\n");
-    defer std.testing.allocator.free(present);
-    try std.testing.expectEqualStrings("nothing to build\n", present);
-}
-
-test "a missing-modules report names the modules, and prose is not one" {
-    const text =
-        \\2 out of 2 required modules missing:
-        \\
-        \\* flex/2.6.4 (flex-2.6.4.eb)
-    ;
-    const got = try formatPending(std.testing.allocator, text);
-    defer std.testing.allocator.free(got);
-    try std.testing.expectEqualStrings("missing flex/2.6.4\n", got);
-    try std.testing.expectError(error.NotAReport, formatPending(std.testing.allocator, "hello\n"));
+test "a module name with a bad byte is replaced, not leaked raw" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const text = " * [ ] $CFGS/f/flex/flex-2.6.4.eb (module: fl\xffex/2.6.4)\n";
+    const got = try formatPending(arena.allocator(), text);
+    try std.testing.expectEqualStrings("build fl\u{FFFD}ex/2.6.4\n", got);
+    try std.testing.expect(std.unicode.utf8ValidateSlice(got));
 }

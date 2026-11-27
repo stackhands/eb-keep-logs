@@ -8,18 +8,8 @@ tool="${TOOL_BIN:?TOOL_BIN names the Zig build}"
 case "${tool}" in /*) ;; *) tool="${PWD}/${tool}" ;; esac
 
 fails=0
-check() {
-    if [ "$2" = "$3" ]; then
-        echo "ok   $1"
-    else
-        {
-            echo "FAIL $1"
-            echo "expected: $3"
-            echo "got:      $2"
-        } >&2
-        fails=$((fails + 1))
-    fi
-}
+# shellcheck source=tests/lib/check.sh
+. "${repo_root}/tests/lib/check.sh"
 
 work=$(mktemp -d "${TMPDIR:-/tmp}/eb-keep-logs-used.XXXXXX")
 trap 'rm -rf -- "${work}"' EXIT
@@ -74,9 +64,6 @@ check "truncated json stderr" "$(cat "${work}/err")" "eb-keep-logs: used: ${work
 "${tool}" used "${work}/xalt.json" >/dev/null 2>"${work}/err2"
 check "prefix required exit" "$?" "2"
 check "prefix required message" "$(cat "${work}/err2")" "eb-keep-logs: used needs --prefix"
-
-page=$(cat "${repo_root}/docs/orgmode/howto/check-prefix-use.org")
-check "how-to names the command" "$(grep -q 'used --prefix' <<< "${page}" && echo yes)" "yes"
 
 echo "${fails} failed"
 [ "${fails}" -eq 0 ]

@@ -38,11 +38,10 @@ eb-keep-logs --version
 
 #+begin_example
 /home/alice/.local/bin/eb-keep-logs
-eb-keep-logs 0.3.1 (x86_64-linux-musl, zig 0.17.1, abc1234)
+eb-keep-logs 0.4.0 (x86_64-linux-musl, zig 0.17.1, abc1234)
 #+end_example
 
 [[file:../howto/install.org][Install eb-keep-logs]] has the release binary when you do not need the main-branch fix.
-The shell script in the repository runs =failed= and =rotate= only; =why= and =history= are in the Zig build only, and the script says so when it is asked for them.
 
 ** Make a directory for this run's logs
 

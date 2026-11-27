@@ -25,6 +25,9 @@ jobs:
       - uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2.2.1
         with:
           version: 0.17.1
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.14"
       - name: Install promtool 3.7.3
         run: |
           case '${{ matrix.arch }}' in
@@ -37,6 +40,7 @@ jobs:
           tar -xzf "${archive}"
           sudo install -m 0755 "prometheus-3.7.3.linux-${prom_arch}/promtool" /usr/local/bin/promtool
       - run: pip install jsonschema
+      - uses: ./.github/actions/install-strace
       - run: zig build test --summary all
       - name: build
         run: |

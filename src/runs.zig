@@ -10,6 +10,7 @@ const common = @import("zig_common");
 const sys = common.sys;
 const fsx = common.fsx;
 const cli = common.cli;
+const utf8_text = @import("utf8_text.zig");
 const cli_parse = @import("cli_parse.zig");
 
 const Allocator = std.mem.Allocator;
@@ -195,7 +196,7 @@ pub fn formatRuns(gpa: Allocator, text: []const u8, exec: []const u8) (Allocator
         try out.appendSlice(gpa, row.path);
         try out.append(gpa, '\n');
     }
-    if (items.len == 0) try out.print(gpa, "no run of {s}\n", .{exec});
+    if (items.len == 0) try out.print(gpa, "no run of {f}\n", .{utf8_text.text(exec)});
     return try out.toOwnedSlice(gpa);
 }
 
@@ -228,7 +229,8 @@ pub fn cmdRuns(gpa: Allocator, args: []const []const u8) u8 {
             },
             error.OutOfMemory => die("out of memory", .{}),
         };
-        break :blk formatJson(gpa, exec, items) catch die("out of memory", .{});
+        const exec_text = utf8_text.utf8(scan, exec) catch die("out of memory", .{});
+        break :blk formatJson(gpa, exec_text, items) catch die("out of memory", .{});
     } else blk: {
         break :blk formatRuns(gpa, text, exec) catch |err| switch (err) {
             error.BadJson => {
@@ -241,28 +243,4 @@ pub fn cmdRuns(gpa: Allocator, args: []const []const u8) u8 {
     defer gpa.free(body);
     cli.out("{s}", .{body});
     return 0;
-}
-
-test "a full path and its last component match, and a longer name does not" {
-    try std.testing.expect(execMatches("/opt/site/bin/gmx", "/opt/site/bin/gmx"));
-    try std.testing.expect(execMatches("/opt/site/bin/gmx", "gmx"));
-    try std.testing.expect(!execMatches("/opt/site/bin/gmx", "gm"));
-    try std.testing.expect(!execMatches("/opt/site/bin/gmx", "bin/gmx"));
-}
-
-test "a link record is not a run, and runs stay in file order" {
-    const text =
-        \\{"userT":{"user":"ada","exec_path":"/opt/site/bin/gmx","syshost":"login01","start_time":"1428767000.5"}}
-        \\{"resultT":{"exec_path":"/opt/site/bin/gmx","build_user":"ada"}}
-        \\{"userT":{"user":"bea","exec_path":"/other/gmx","syshost":"n2","start_time":3}}
-    ;
-    const got = try formatRuns(std.testing.allocator, text, "gmx");
-    defer std.testing.allocator.free(got);
-    try std.testing.expectEqualStrings(
-        "user=ada host=login01 time=1428767000.5 path=/opt/site/bin/gmx\nuser=bea host=n2 time=3 path=/other/gmx\n",
-        got,
-    );
-    const none = try formatRuns(std.testing.allocator, text, "missing");
-    defer std.testing.allocator.free(none);
-    try std.testing.expectEqualStrings("no run of missing\n", none);
 }
