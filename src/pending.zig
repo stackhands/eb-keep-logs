@@ -13,6 +13,7 @@ const sys = common.sys;
 const fsx = common.fsx;
 const cli = common.cli;
 const utf8_text = @import("utf8_text.zig");
+const cli_parse = @import("cli_parse.zig");
 
 const Allocator = std.mem.Allocator;
 const tool = "eb-keep-logs";
@@ -185,20 +186,21 @@ pub fn formatPending(gpa: Allocator, text: []const u8) (Allocator.Error || error
     return try out.toOwnedSlice(gpa);
 }
 
+const pending_cli = cli_parse.make(.{
+    .prog = "pending",
+    .options = &.{cli_parse.flag("json")},
+    .positionals = &.{cli_parse.one("FILE", true)},
+    .missing = &.{
+        .{ .name = "FILE", .msg = "pending needs a report" },
+    },
+});
+
 /// `pending [--json] FILE`.
 pub fn cmdPending(gpa: Allocator, args: []const []const u8) u8 {
-    var json_out = false;
-    var path: []const u8 = "";
-    for (args) |a| {
-        if (std.mem.eql(u8, a, "--json")) {
-            json_out = true;
-            continue;
-        }
-        if (a.len > 0 and a[0] == '-') die("pending does not know '{s}'", .{a});
-        if (path.len != 0) die("pending does not know '{s}'", .{a});
-        path = a;
-    }
-    if (path.len == 0) die("pending needs a report", .{});
+    var parsed = pending_cli.take(gpa, args);
+    defer parsed.deinit(gpa);
+    const json_out = parsed.seen("json");
+    const path = parsed.positional(0).?;
     const text = readLog(gpa, path) orelse return 2;
     defer gpa.free(text);
     var arena_state = std.heap.ArenaAllocator.init(gpa);

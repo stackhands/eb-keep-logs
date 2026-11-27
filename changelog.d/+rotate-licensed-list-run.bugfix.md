@@ -1,1 +1,0 @@
-`rotate` rewrites every `.licensed-logs` under a run after it compresses a log, including a list in the run directory that names a log nested below it. A list that does not sit beside the log used to keep the path from before compression.
