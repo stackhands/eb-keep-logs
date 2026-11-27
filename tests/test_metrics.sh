@@ -141,6 +141,42 @@ grep -qx 'eb_keep_logs_logs_kept_total 5' "${metrics}" || exit 1
 grep -qx 'eb_keep_logs_bytes_kept_total 26' "${metrics}" || exit 1
 grep -qx 'eb_keep_logs_last_prune_timestamp_seconds 9' "${metrics}" || exit 1
 
+# A sample may carry a label set. Quoted values use Prometheus escapes, so a
+# "}" or a quote inside a value does not end the set, and the counters add to
+# the number after the set. The file written back has no labels.
+{
+    printf '%s\n' '# HELP eb_keep_logs_logs_kept_total Log files kept by eb-keep-logs.'
+    printf '%s\n' '# TYPE eb_keep_logs_logs_kept_total counter'
+    printf '%s\n' 'eb_keep_logs_logs_kept_total{path="say \"hi\"",raw="x}y",bs="a\\"} 4 1700000000000'
+    printf '%s\n' '# HELP eb_keep_logs_bytes_kept_total Bytes written to kept log files by eb-keep-logs.'
+    printf '%s\n' '# TYPE eb_keep_logs_bytes_kept_total counter'
+    printf 'eb_keep_logs_bytes_kept_total{msg="line\\nnext"}\t20\n'
+    printf '%s\n' '# HELP eb_keep_logs_last_prune_timestamp_seconds Unix timestamp of the last completed eb-keep-logs rotation.'
+    printf '%s\n' '# TYPE eb_keep_logs_last_prune_timestamp_seconds gauge'
+    printf '%s\n' 'eb_keep_logs_last_prune_timestamp_seconds{ when = "x" , } 9'
+} > "${metrics}"
+promtool check metrics < "${metrics}" || exit 1
+PATH="${work}/bin:${PATH}" "${tool}" failed --metrics-file "${metrics}" 1 Labeled "${work}/logs" >/dev/null || exit 1
+promtool check metrics < "${metrics}" || exit 1
+grep -qx 'eb_keep_logs_logs_kept_total 5' "${metrics}" || exit 1
+grep -qx 'eb_keep_logs_bytes_kept_total 26' "${metrics}" || exit 1
+grep -qx 'eb_keep_logs_last_prune_timestamp_seconds 9' "${metrics}" || exit 1
+
+# A broken escape, a repeated label name, or a value that is not valid UTF-8
+# is not a sample. The previous exposition stays byte for byte.
+printf '%s\n' 'eb_keep_logs_logs_kept_total{path="a\q"} 4' > "${metrics}"
+before=$(sha256sum "${metrics}")
+PATH="${work}/bin:${PATH}" "${tool}" failed --metrics-file "${metrics}" 0 BadEscape "${work}/logs" >/dev/null 2>&1 || exit 1
+[ "$(sha256sum "${metrics}")" = "${before}" ] || exit 1
+printf '%s\n' 'eb_keep_logs_logs_kept_total{"path"="1",path="2"} 4' > "${metrics}"
+before=$(sha256sum "${metrics}")
+PATH="${work}/bin:${PATH}" "${tool}" failed --metrics-file "${metrics}" 0 DupLabel "${work}/logs" >/dev/null 2>&1 || exit 1
+[ "$(sha256sum "${metrics}")" = "${before}" ] || exit 1
+printf 'eb_keep_logs_logs_kept_total{path="\377"} 4\n' > "${metrics}"
+before=$(sha256sum "${metrics}")
+PATH="${work}/bin:${PATH}" "${tool}" failed --metrics-file "${metrics}" 0 BadUtf8 "${work}/logs" >/dev/null 2>&1 || exit 1
+[ "$(sha256sum "${metrics}")" = "${before}" ] || exit 1
+
 # A dry-run rotation writes no metrics, creates no sidecar lock, and leaves
 # an existing exposition untouched even when --metrics-file is given.
 dry_root="${work}/dry-root"
